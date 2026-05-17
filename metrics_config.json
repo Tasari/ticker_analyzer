@@ -1,0 +1,242 @@
+{
+  "tab_weights": {
+    "Growth": 0.3333,
+    "Fundamentals": 0.3333,
+    "Value": 0.3334
+  },
+  "rating_thresholds": {
+    "very_strong": 80,
+    "strong": 60,
+    "neutral": 40,
+    "weak": 20
+  },
+  "overall_rating_labels": {
+    "very_strong": "Strong Buy",
+    "strong": "Buy",
+    "neutral": "Hold",
+    "weak": "Sell",
+    "very_weak": "Strong Sell"
+  },
+  "tab_rating_labels": {
+    "Growth": {
+      "very_strong": "Excellent",
+      "strong": "Good",
+      "neutral": "Mixed",
+      "weak": "Weak",
+      "very_weak": "Very Weak"
+    },
+    "Fundamentals": {
+      "very_strong": "Very Safe",
+      "strong": "Safe",
+      "neutral": "Watch",
+      "weak": "Risky",
+      "very_weak": "Very Risky"
+    },
+    "Value": {
+      "very_strong": "Very Underpriced",
+      "strong": "Underpriced",
+      "neutral": "Fair",
+      "weak": "Overpriced",
+      "very_weak": "Very Overpriced"
+    }
+  },
+  "metrics": {
+    "Growth": [
+      {
+        "id": "revenue_ttm_range_growth",
+        "name": "Revenue TTM Growth vs Selected Range",
+        "weight": 1.2,
+        "direction": "higher",
+        "warn": 0,
+        "good": 20,
+        "unit": "%",
+        "description": "Revenue TTM Growth measures how much trailing twelve month revenue has grown compared with revenue from the selected Growth range ago. It shows whether the company is expanding its sales base over time. Strong positive growth supports the Growth score; flat or negative growth weakens it."
+      },
+      {
+        "id": "net_income_range_growth",
+        "name": "Net Income Growth vs Selected Range",
+        "weight": 1.15,
+        "direction": "higher",
+        "warn": 0,
+        "good": 12,
+        "unit": "%",
+        "description": "Net Income Growth compares the latest annual net income with net income from the selected Growth range ago. It measures whether the company is turning revenue into growing bottom-line profit. Higher growth improves the Growth score; shrinking profit lowers it."
+      },
+      {
+        "id": "cfo_range_growth",
+        "name": "Cash From Operations Growth vs Selected Range",
+        "weight": 1.25,
+        "direction": "higher",
+        "warn": 0,
+        "good": 10,
+        "unit": "%",
+        "description": "Cash From Operations Growth compares the latest annual operating cash flow with operating cash flow from the selected Growth range ago. It checks whether the core business is producing more cash, not just accounting earnings. Higher cash flow growth improves the Growth score."
+      },
+      {
+        "id": "operating_margin",
+        "name": "Operating Margin Annual",
+        "weight": 1.1,
+        "direction": "higher",
+        "warn": 5,
+        "good": 20,
+        "unit": "%",
+        "description": "Operating Margin Annual is operating income divided by revenue for the latest annual period. It shows how much operating profit the company keeps from each dollar of sales before interest and taxes. A higher margin usually means stronger pricing power, better cost control, or a more scalable business model, so it improves the Growth score."
+      },
+      {
+        "id": "price_change",
+        "name": "Price Change",
+        "weight": 0.45,
+        "direction": "higher",
+        "warn": 0,
+        "good": 20,
+        "unit": "%",
+        "description": "Price Change measures the stock price return over the selected Growth range. It is a market momentum signal rather than a fundamental business metric. Positive price performance helps the Growth score, but it has a lower weight so it does not dominate business fundamentals."
+      },
+      {
+        "id": "revenue_estimate_growth",
+        "name": "Revenue Estimates Growth",
+        "weight": 0.75,
+        "direction": "higher",
+        "warn": 0,
+        "good": 10,
+        "unit": "%",
+        "description": "Revenue Estimates Growth uses available analyst revenue growth estimate data from yfinance. It is a forward-looking signal for expected sales expansion. Higher expected growth improves the Growth score, but the metric is weighted lower because estimates can change quickly."
+      },
+      {
+        "id": "revenue_estimate_avg_growth",
+        "name": "Revenue Average Estimated Annual Growth Next 2Y",
+        "weight": 0.9,
+        "direction": "higher",
+        "warn": 0,
+        "good": 10,
+        "unit": "%",
+        "description": "Revenue Average Estimated Annual Growth Next 2Y estimates average annual revenue growth over the next two fiscal years when yfinance provides enough data. It helps separate companies with durable expected growth from companies whose growth may be slowing."
+      },
+      {
+        "id": "eps_estimate_avg_growth",
+        "name": "EPS Average Estimated Annual Growth Next 2Y",
+        "weight": 1.0,
+        "direction": "higher",
+        "warn": 0,
+        "good": 12,
+        "unit": "%",
+        "description": "EPS Average Estimated Annual Growth Next 2Y estimates average annual earnings per share growth over the next two fiscal years when available. It shows whether analysts expect profit per share to compound. Higher expected EPS growth improves the Growth score."
+      }
+    ],
+    "Fundamentals": [
+      {
+        "id": "debt_to_assets",
+        "name": "Debt to Assets Annual",
+        "weight": 1.15,
+        "direction": "lower",
+        "warn": 30,
+        "good": 15,
+        "unit": "%",
+        "description": "Debt to Assets is total debt divided by total assets. It measures how much of the asset base is funded by debt. Lower leverage generally means a safer balance sheet and improves the Fundamentals score; high leverage increases financial risk."
+      },
+      {
+        "id": "quick_ratio",
+        "name": "Quick Ratio",
+        "weight": 0.9,
+        "direction": "higher",
+        "warn": 1,
+        "good": 1.5,
+        "unit": "x",
+        "description": "Quick Ratio compares liquid assets such as cash, short-term investments, and receivables with current liabilities. It measures short-term liquidity without relying on inventory. Values below 1 can suggest the company may have less immediate liquidity than near-term obligations."
+      },
+      {
+        "id": "cfo_to_debt",
+        "name": "CFO to Debt Annual",
+        "weight": 1.25,
+        "direction": "higher",
+        "warn": 0,
+        "good": 0.2,
+        "unit": "x",
+        "description": "CFO to Debt is operating cash flow divided by total debt. It measures how much cash the company generates relative to its debt load. Higher values mean debt is easier to service or reduce from business cash flow, improving the Fundamentals score."
+      },
+      {
+        "id": "interest_coverage",
+        "name": "Interest Coverage Annual",
+        "weight": 1.0,
+        "direction": "higher",
+        "warn": 1,
+        "good": 5,
+        "unit": "x",
+        "description": "Interest Coverage is operating income divided by interest expense. It measures how comfortably the company can pay interest from operating profit. Higher coverage is safer; values near or below 1 mean operating profit barely covers interest costs."
+      },
+      {
+        "id": "ohlson_probability",
+        "name": "Ohlson Score Default Probability Annual",
+        "weight": 1.2,
+        "direction": "lower",
+        "warn": 20,
+        "good": 5,
+        "unit": "%",
+        "description": "Ohlson Score Default Probability is an estimated distress probability derived from the Ohlson O-score formula using annual financial statements. It combines leverage, profitability, liquidity, and recent losses. Lower probability improves the Fundamentals score."
+      }
+    ],
+    "Value": [
+      {
+        "id": "ps_vs_3y_median",
+        "name": "P/S Ratio vs Selected Range Median",
+        "weight": 0.9,
+        "direction": "lower",
+        "warn": 20,
+        "good": -10,
+        "unit": "%",
+        "description": "P/S Ratio vs Selected Range Median compares the current price-to-sales ratio with its approximate median over the selected Value range. A lower current P/S than the historical median suggests the stock may be cheaper relative to sales, supporting an Underpriced value signal."
+      },
+      {
+        "id": "pe_vs_3y_median",
+        "name": "P/E Ratio vs Selected Range Median",
+        "weight": 1.1,
+        "direction": "lower",
+        "warn": 20,
+        "good": -10,
+        "unit": "%",
+        "description": "P/E Ratio vs Selected Range Median compares the current price-to-earnings ratio with its approximate median over the selected Value range. A lower current P/E than the historical median suggests the stock may be cheaper relative to earnings."
+      },
+      {
+        "id": "ev_ebitda_vs_5y_median",
+        "name": "EV/EBITDA vs Selected Range Median",
+        "weight": 1.25,
+        "direction": "lower",
+        "warn": 20,
+        "good": -10,
+        "unit": "%",
+        "description": "EV/EBITDA vs Selected Range Median compares current enterprise value to EBITDA with its approximate median over the selected Value range. It evaluates valuation before capital structure effects. Lower than median supports an Underpriced value signal."
+      },
+      {
+        "id": "price_to_cfo_vs_5y_median",
+        "name": "Price to CFO Per Share vs Selected Range Median",
+        "weight": 1.25,
+        "direction": "lower",
+        "warn": 20,
+        "good": -10,
+        "unit": "%",
+        "description": "Price to CFO Per Share vs Selected Range Median compares current price to operating cash flow with its approximate median over the selected Value range. It checks whether the stock is cheap or expensive relative to cash generated by operations."
+      },
+      {
+        "id": "price_target",
+        "name": "Analyst Price Target",
+        "weight": 0.65,
+        "direction": "higher",
+        "warn": 0,
+        "good": 15,
+        "unit": "%",
+        "description": "Analyst Price Target measures upside from the current stock price to the average analyst price target. Higher upside suggests analysts see more room for appreciation. This metric is useful but weighted lower because analyst targets can be stale or revised."
+      },
+      {
+        "id": "upside_vs_3y_median",
+        "name": "Upside Next 12M vs Selected Range Median",
+        "weight": 0.75,
+        "direction": "higher",
+        "warn": 0,
+        "good": 5,
+        "unit": "pp",
+        "benchmark": 7.5,
+        "description": "Upside Next 12M vs Selected Range Median compares current analyst upside with the configured historical median upside benchmark. A positive value means current upside is higher than normal, which supports an Underpriced value signal. A negative value suggests less upside than usual."
+      }
+    ]
+  }
+}
