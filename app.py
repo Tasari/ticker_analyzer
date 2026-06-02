@@ -6,6 +6,8 @@ import json
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import yfinance as yf
+from streamlit_searchbox import st_searchbox
 
 from stock_analyzer import analyze_ticker, format_metric_value, load_config, save_config
 
@@ -21,7 +23,7 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Analysis")
-        ticker = st.text_input("Ticker", value="AAPL", help="Any ticker supported by yfinance.")
+        ticker = render_ticker_search()
         range_options = ["1Y", "3Y", "5Y"]
         growth_range = st.selectbox("Growth range", range_options, index=1)
         fundamentals_range = st.selectbox("Fundamentals range", range_options, index=1)
@@ -58,6 +60,57 @@ def main() -> None:
 
 def get_config() -> dict:
     return load_config()
+
+
+def render_ticker_search() -> str:
+    selected = st_searchbox(
+        search_tickers,
+        key="ticker_search",
+        label="Ticker",
+        placeholder="Type ticker or company name",
+        default="AAPL | Apple Inc. | NASDAQ",
+        default_searchterm="AAPL",
+        edit_after_submit="option",
+        debounce=250,
+        help="Search by ticker or company name, then select a stock from the suggestions.",
+    )
+    if not selected:
+        return "AAPL"
+    return selected.split(" | ", maxsplit=1)[0].strip().upper()
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def search_tickers(searchterm: str) -> list[str]:
+    query = searchterm.strip()
+    if len(query) < 1:
+        return []
+    try:
+        results = yf.Search(
+            query,
+            max_results=10,
+            news_count=0,
+            lists_count=0,
+            include_cb=False,
+            include_nav_links=False,
+            include_research=False,
+            include_cultural_assets=False,
+            enable_fuzzy_query=True,
+            recommended=0,
+        ).quotes
+    except Exception:
+        return []
+
+    suggestions = []
+    for result in results:
+        if result.get("quoteType") != "EQUITY":
+            continue
+        symbol = result.get("symbol")
+        if not symbol:
+            continue
+        name = result.get("longname") or result.get("shortname") or symbol
+        exchange = result.get("exchDisp") or result.get("exchange") or ""
+        suggestions.append(f"{symbol} | {name} | {exchange}".rstrip(" |"))
+    return suggestions
 
 
 def render_summary(result: dict) -> None:
