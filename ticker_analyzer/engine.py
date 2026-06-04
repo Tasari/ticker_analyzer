@@ -56,6 +56,8 @@ class StockAnalysisEngine:
 
         tab_results, missing = self._score_tabs(raw_metrics, config)
         overall_score = self.scoring.weighted_tab_score(tab_results, config.get("tab_weights", {}))
+        if any(result.get("score") is None for result in tab_results.values()):
+            overall_score = None
         rating = self.scoring.classify_rating(overall_score, config)
 
         return StockAnalysis(
@@ -154,6 +156,7 @@ def build_raw_metrics(
     revenue_estimate_growth = estimate_growth(info, "revenue")
     eps_estimate_growth = estimate_growth(info, "eps")
     price_target_upside = target_upside(info, analyst_targets)
+    financial_company = is_financial_company(info)
 
     raw = {
         "revenue_ttm_range_growth": metric_value(percent_change(revenue_ttm, revenue_range_base), f"Revenue TTM compared with annual revenue from {growth_years} fiscal year(s) ago"),
@@ -163,19 +166,18 @@ def build_raw_metrics(
         "operating_margin": metric_value(operating_margin(annual_income)),
         "price_change": metric_value(price_change),
         "revenue_estimate_growth": metric_value(revenue_estimate_growth, "Uses available yfinance analyst estimate fields"),
-        "revenue_estimate_avg_growth": metric_value(revenue_estimate_growth, "Proxy from available yfinance estimate fields"),
         "eps_estimate_avg_growth": metric_value(eps_estimate_growth, "Proxy from available yfinance estimate fields"),
-        "debt_to_assets": metric_value(debt_to_assets(annual_balance), f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
-        "quick_ratio": metric_value(quick_ratio(info, quarterly_balance, annual_balance), "Uses yfinance quickRatio, then balance sheet fallback"),
-        "cfo_to_debt": metric_value(cfo_to_debt(annual_cashflow, annual_balance), f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
-        "interest_coverage": metric_value(interest_coverage(annual_income), f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
-        "ohlson_probability": metric_value(ohlson_probability(annual_income, annual_balance), f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
-        "ps_vs_3y_median": metric_value(ratio_vs_history(info.get("priceToSalesTrailing12Months"), "ps", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median"),
+        "debt_to_assets": financial_metric_value(debt_to_assets(annual_balance), financial_company, f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
+        "quick_ratio": financial_metric_value(quick_ratio(info, quarterly_balance, annual_balance), financial_company, "Uses yfinance quickRatio, then balance sheet fallback"),
+        "cfo_to_debt": financial_metric_value(cfo_to_debt(annual_cashflow, annual_balance), financial_company, f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
+        "interest_coverage": financial_metric_value(interest_coverage(annual_income), financial_company, f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
+        "ohlson_probability": financial_metric_value(ohlson_probability(annual_income, annual_balance), financial_company, f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
+        "ps_vs_3y_median": financial_metric_value(ratio_vs_history(info.get("priceToSalesTrailing12Months"), "ps", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), financial_company, f"Compared with approximate {value_years}Y median using year-matched annual financials"),
         "pe_vs_3y_median": metric_value(ratio_vs_history(info.get("trailingPE"), "pe", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median"),
-        "ev_ebitda_vs_5y_median": metric_value(ratio_vs_history(info.get("enterpriseToEbitda"), "ev_ebitda", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median"),
-        "price_to_cfo_vs_5y_median": metric_value(ratio_vs_history(current_price_to_cfo(info, annual_cashflow), "price_to_cfo", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median"),
+        "ev_ebitda_vs_5y_median": financial_metric_value(ratio_vs_history(info.get("enterpriseToEbitda"), "ev_ebitda", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), financial_company, f"Compared with approximate {value_years}Y median using year-matched annual financials"),
+        "price_to_cfo_vs_5y_median": financial_metric_value(ratio_vs_history(current_price_to_cfo(info, annual_cashflow), "price_to_cfo", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), financial_company, f"Compared with approximate {value_years}Y median using year-matched annual financials"),
         "price_target": metric_value(price_target_upside),
-        "upside_vs_3y_median": metric_value(None, "Uses configured benchmark when historical analyst upside is unavailable"),
+        "upside_vs_configured_benchmark": metric_value(None, "Uses configured benchmark because historical analyst upside is unavailable"),
     }
     return raw
 
@@ -186,19 +188,39 @@ def apply_configured_metric_fallbacks(
 ) -> dict[str, dict[str, Any]]:
     updated = dict(raw_metrics)
     config_by_id = {metric_config.get("id"): metric_config for metric_config in metric_configs}
-    upside_config = config_by_id.get("upside_vs_3y_median")
+    upside_config = config_by_id.get("upside_vs_configured_benchmark")
     price_target_upside = clean_number(updated.get("price_target", {}).get("value"))
     benchmark = clean_number(upside_config.get("benchmark")) if upside_config else None
     if price_target_upside is not None and benchmark is not None:
-        updated["upside_vs_3y_median"] = metric_value(
+        updated["upside_vs_configured_benchmark"] = metric_value(
             price_target_upside - benchmark,
-            f"Current price target upside minus configured 3Y median benchmark ({benchmark:.2f}%)",
+            f"Current price target upside minus configured benchmark ({benchmark:.2f}%)",
         )
     return updated
 
 
 def metric_value(value: float | None, note: str = "") -> dict[str, Any]:
     return {"value": clean_number(value), "note": note}
+
+
+def financial_metric_value(value: float | None, is_financial: bool, note: str = "") -> dict[str, Any]:
+    if is_financial:
+        return metric_value(None, "Not applicable to financial companies under the default industrial scoring profile")
+    return metric_value(value, note)
+
+
+def is_financial_company(info: dict[str, Any]) -> bool:
+    industry = str(info.get("industry") or info.get("industryDisp") or "").lower()
+    quote_type = str(info.get("quoteType") or "").lower()
+    financial_industries = [
+        "bank",
+        "insurance",
+        "asset management",
+        "capital markets",
+        "mortgage",
+        "reit",
+    ]
+    return quote_type == "equity" and any(keyword in industry for keyword in financial_industries)
 
 
 def clean_number(value: Any) -> float | None:
@@ -436,25 +458,33 @@ def approximate_historical_ratio(
     annual_prices = pd.to_numeric(history["Close"], errors="coerce").dropna().resample("YE").median().tail(years)
     if annual_prices.empty:
         return None
-    shares = latest_row_value(balance, ["Ordinary Shares Number", "Share Issued", "Common Stock Shares Outstanding"])
-    if shares in (None, 0):
-        return None
+
+    shares_series = row_values(balance, ["Ordinary Shares Number", "Share Issued", "Common Stock Shares Outstanding"])
+    revenue_series = row_values(income, ["Total Revenue", "Operating Revenue"])
+    net_income_series = row_values(income, ["Net Income", "Net Income Common Stockholders"])
+    ebitda_series = row_values(income, ["EBITDA", "Normalized EBITDA"])
+    cfo_series = row_values(cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"])
+    debt_series = row_values(balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"])
+    cash_series = row_values(balance, ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"])
 
     ratios: list[float] = []
-    for price in annual_prices:
+    for date, price in annual_prices.items():
+        shares = value_on_or_before(shares_series, date)
+        if shares in (None, 0):
+            continue
         market_cap = price * shares
         if ratio_name == "ps":
-            denominator = latest_row_value(income, ["Total Revenue", "Operating Revenue"])
+            denominator = value_on_or_before(revenue_series, date)
         elif ratio_name == "pe":
-            denominator = latest_row_value(income, ["Net Income", "Net Income Common Stockholders"])
+            denominator = value_on_or_before(net_income_series, date)
         elif ratio_name == "ev_ebitda":
-            ebitda = latest_row_value(income, ["EBITDA", "Normalized EBITDA"])
-            debt = latest_row_value(balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"]) or 0
-            cash = latest_row_value(balance, ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"]) or 0
+            ebitda = value_on_or_before(ebitda_series, date)
+            debt = value_on_or_before(debt_series, date) or 0
+            cash = value_on_or_before(cash_series, date) or 0
             denominator = ebitda
             market_cap = market_cap + debt - cash
         else:
-            denominator = latest_row_value(cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"])
+            denominator = value_on_or_before(cfo_series, date)
         if denominator not in (None, 0):
             ratio = clean_number(market_cap / denominator)
             if ratio and ratio > 0:
@@ -462,6 +492,24 @@ def approximate_historical_ratio(
     if not ratios:
         return None
     return float(np.median(ratios))
+
+
+def value_on_or_before(values: pd.Series, date: Any) -> float | None:
+    if values.empty:
+        return None
+    series = pd.to_numeric(values, errors="coerce").dropna()
+    if series.empty:
+        return None
+    try:
+        index = pd.to_datetime(series.index)
+        target = pd.Timestamp(date)
+        dated = pd.Series(series.to_numpy(), index=index).sort_index()
+        eligible = dated[dated.index <= target]
+        if eligible.empty:
+            eligible = dated
+        return clean_number(eligible.iloc[-1])
+    except Exception:
+        return clean_number(series.iloc[-1])
 
 
 def build_charts_data(
