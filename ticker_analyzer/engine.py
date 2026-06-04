@@ -151,7 +151,7 @@ def build_raw_metrics(
     revenue_range_base = statement_value_years_ago(annual_income, ["Total Revenue", "Operating Revenue"], growth_years)
     net_income_range_base = statement_value_years_ago(annual_income, ["Net Income", "Net Income Common Stockholders"], growth_years)
     cfo_range_base = statement_value_years_ago(annual_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"], growth_years)
-    price_change = percentage_change_from_history(growth_history)
+    momentum = momentum_12_1(growth_history)
 
     revenue_estimate_growth = estimate_growth(info, "revenue")
     eps_estimate_growth = estimate_growth(info, "eps")
@@ -159,19 +159,19 @@ def build_raw_metrics(
     financial_company = is_financial_company(info)
 
     raw = {
-        "revenue_ttm_range_growth": metric_value(percent_change(revenue_ttm, revenue_range_base), f"Revenue TTM compared with annual revenue from {growth_years} fiscal year(s) ago"),
+        "revenue_ttm_range_growth": metric_value(cagr_pct(revenue_ttm, revenue_range_base, growth_years), f"Revenue TTM CAGR compared with annual revenue from {growth_years} fiscal year(s) ago"),
         "revenue_ttm_growth": metric_value(percent_change(revenue_ttm, revenue_prior_ttm), "TTM vs previous TTM"),
-        "net_income_range_growth": metric_value(percent_change(latest_row_value(annual_income, ["Net Income", "Net Income Common Stockholders"]), net_income_range_base), f"Latest annual net income compared with {growth_years} fiscal year(s) ago"),
-        "cfo_range_growth": metric_value(percent_change(latest_row_value(annual_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"]), cfo_range_base), f"Latest annual operating cash flow compared with {growth_years} fiscal year(s) ago"),
+        "net_income_range_growth": metric_value(cagr_pct(latest_row_value(annual_income, ["Net Income", "Net Income Common Stockholders"]), net_income_range_base, growth_years), f"Latest annual net income CAGR over {growth_years} fiscal year(s); missing when the base or current value is not positive"),
+        "cfo_range_growth": metric_value(cagr_pct(latest_row_value(annual_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"]), cfo_range_base, growth_years), f"Latest annual operating cash flow CAGR over {growth_years} fiscal year(s); missing when the base or current value is not positive"),
         "operating_margin": metric_value(operating_margin(annual_income)),
-        "price_change": metric_value(price_change),
+        "price_change": metric_value(momentum, "Adjusted-price momentum from month -13 to month -2, closer to standard 12-1 momentum"),
         "revenue_estimate_growth": metric_value(revenue_estimate_growth, "Uses available yfinance analyst estimate fields"),
         "eps_estimate_avg_growth": metric_value(eps_estimate_growth, "Proxy from available yfinance estimate fields"),
         "debt_to_assets": financial_metric_value(debt_to_assets(annual_balance), financial_company, f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
         "quick_ratio": financial_metric_value(quick_ratio(info, quarterly_balance, annual_balance), financial_company, "Uses yfinance quickRatio, then balance sheet fallback"),
         "cfo_to_debt": financial_metric_value(cfo_to_debt(annual_cashflow, annual_balance), financial_company, f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
         "interest_coverage": financial_metric_value(interest_coverage(annual_income), financial_company, f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
-        "ohlson_probability": financial_metric_value(ohlson_probability(annual_income, annual_balance), financial_company, f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
+        "ohlson_probability": financial_metric_value(ohlson_probability(annual_income, annual_balance, annual_cashflow), financial_company, "Ohlson-style distress estimate using annual statements; SIZE is approximated without a market price deflator"),
         "ps_vs_3y_median": financial_metric_value(ratio_vs_history(info.get("priceToSalesTrailing12Months"), "ps", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), financial_company, f"Compared with approximate {value_years}Y median using year-matched annual financials"),
         "pe_vs_3y_median": metric_value(ratio_vs_history(info.get("trailingPE"), "pe", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median"),
         "ev_ebitda_vs_5y_median": financial_metric_value(ratio_vs_history(info.get("enterpriseToEbitda"), "ev_ebitda", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), financial_company, f"Compared with approximate {value_years}Y median using year-matched annual financials"),
@@ -296,6 +296,16 @@ def percent_change(current: Any, previous: Any) -> float | None:
     return ((current - previous) / abs(previous)) * 100
 
 
+def cagr_pct(current: Any, previous: Any, years: int) -> float | None:
+    current = clean_number(current)
+    previous = clean_number(previous)
+    if current is None or previous is None or years <= 0:
+        return None
+    if current <= 0 or previous <= 0:
+        return None
+    return ((current / previous) ** (1 / years) - 1) * 100
+
+
 def percentage_change_from_history(history: pd.DataFrame) -> float | None:
     if history.empty or "Close" not in history:
         return None
@@ -303,6 +313,18 @@ def percentage_change_from_history(history: pd.DataFrame) -> float | None:
     if len(close) < 2 or close.iloc[0] == 0:
         return None
     return percent_change(close.iloc[-1], close.iloc[0])
+
+
+def momentum_12_1(history: pd.DataFrame) -> float | None:
+    if history.empty or "Close" not in history:
+        return None
+    close = pd.to_numeric(history["Close"], errors="coerce").dropna()
+    if len(close) < 2:
+        return None
+    monthly = close.resample("ME").last().dropna()
+    if len(monthly) < 13:
+        return percentage_change_from_history(history)
+    return percent_change(monthly.iloc[-2], monthly.iloc[-13])
 
 
 def operating_margin(income: pd.DataFrame) -> float | None:
@@ -341,8 +363,10 @@ def quick_ratio(info: dict[str, Any], quarterly_balance: pd.DataFrame, annual_ba
 def cfo_to_debt(cashflow: pd.DataFrame, balance: pd.DataFrame) -> float | None:
     cfo = latest_row_value(cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"])
     debt = latest_row_value(balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"])
-    if cfo is None or debt in (None, 0):
+    if cfo is None or debt is None:
         return None
+    if debt <= 0:
+        return 999.0 if cfo > 0 else None
     return cfo / debt
 
 
@@ -354,26 +378,27 @@ def interest_coverage(income: pd.DataFrame) -> float | None:
     return operating_income / abs(interest)
 
 
-def ohlson_probability(income: pd.DataFrame, balance: pd.DataFrame) -> float | None:
+def ohlson_probability(income: pd.DataFrame, balance: pd.DataFrame, cashflow: pd.DataFrame) -> float | None:
     assets = latest_row_value(balance, ["Total Assets"])
     liabilities = latest_row_value(balance, ["Total Liabilities Net Minority Interest", "Total Liab"])
     current_assets = latest_row_value(balance, ["Current Assets", "Total Current Assets"])
     current_liabilities = latest_row_value(balance, ["Current Liabilities", "Total Current Liabilities"])
     net_income = latest_row_value(income, ["Net Income", "Net Income Common Stockholders"])
     prior_net_income = prior_row_value(income, ["Net Income", "Net Income Common Stockholders"])
+    cfo = latest_row_value(cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"])
     working_capital = None
     if current_assets is not None and current_liabilities is not None:
         working_capital = current_assets - current_liabilities
-    required = [assets, liabilities, current_assets, current_liabilities, net_income, prior_net_income, working_capital]
+    required = [assets, liabilities, current_assets, current_liabilities, net_income, prior_net_income, cfo, working_capital]
     if any(value is None for value in required) or assets == 0:
         return None
-    size = math.log(max(assets, 1))
+    size = math.log(max(assets / 1_000_000, 1))
     tlta = liabilities / assets
     wcta = working_capital / assets
     clca = current_liabilities / current_assets if current_assets else None
     nita = net_income / assets
-    futl = net_income / liabilities if liabilities else None
-    intwo = 1 if net_income < 0 else 0
+    futl = cfo / liabilities if liabilities else None
+    intwo = 1 if net_income < 0 and prior_net_income < 0 else 0
     oeneg = 1 if liabilities > assets else 0
     chin = (net_income - prior_net_income) / (abs(net_income) + abs(prior_net_income))
     if clca is None or futl is None:

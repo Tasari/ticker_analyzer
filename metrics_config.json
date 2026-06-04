@@ -17,6 +17,26 @@
     "weak": "Sell",
     "very_weak": "Strong Sell"
   },
+  "tab_rating_thresholds": {
+    "Growth": {
+      "very_strong": 80,
+      "strong": 60,
+      "neutral": 40,
+      "weak": 20
+    },
+    "Fundamentals": {
+      "very_strong": 80,
+      "strong": 60,
+      "neutral": 40,
+      "weak": 20
+    },
+    "Value": {
+      "very_strong": 80,
+      "strong": 60,
+      "neutral": 40,
+      "weak": 20
+    }
+  },
   "tab_rating_labels": {
     "Growth": {
       "very_strong": "Excellent",
@@ -44,33 +64,33 @@
     "Growth": [
       {
         "id": "revenue_ttm_range_growth",
-        "name": "Revenue TTM Growth vs Selected Range",
+        "name": "Revenue TTM CAGR vs Selected Range",
         "weight": 1.2,
         "direction": "higher",
         "warn": 0,
-        "good": 20,
+        "good": 9,
         "unit": "%",
-        "description": "Revenue TTM Growth measures how much trailing twelve month revenue has grown compared with revenue from the selected Growth range ago. It shows whether the company is expanding its sales base over time. Strong positive growth supports the Growth score; flat or negative growth weakens it."
+        "description": "Revenue TTM CAGR measures the annualized growth rate of trailing twelve month revenue compared with revenue from the selected Growth range ago. It shows whether the company is expanding its sales base at a sustainable yearly pace. Strong positive annualized growth supports the Growth score; flat or negative growth weakens it."
       },
       {
         "id": "net_income_range_growth",
-        "name": "Net Income Growth vs Selected Range",
+        "name": "Net Income CAGR vs Selected Range",
         "weight": 1.15,
         "direction": "higher",
         "warn": 0,
-        "good": 12,
+        "good": 8,
         "unit": "%",
-        "description": "Net Income Growth compares the latest annual net income with net income from the selected Growth range ago. It measures whether the company is turning revenue into growing bottom-line profit. Higher growth improves the Growth score; shrinking profit lowers it."
+        "description": "Net Income CAGR compares the latest annual net income with net income from the selected Growth range ago and annualizes the result. It measures whether the company is turning revenue into growing bottom-line profit. The metric is missing when the starting or current net income is not positive, because percentage growth through zero is not economically stable."
       },
       {
         "id": "cfo_range_growth",
-        "name": "Cash From Operations Growth vs Selected Range",
+        "name": "Cash From Operations CAGR vs Selected Range",
         "weight": 1.25,
         "direction": "higher",
         "warn": 0,
-        "good": 10,
+        "good": 8,
         "unit": "%",
-        "description": "Cash From Operations Growth compares the latest annual operating cash flow with operating cash flow from the selected Growth range ago. It checks whether the core business is producing more cash, not just accounting earnings. Higher cash flow growth improves the Growth score."
+        "description": "Cash From Operations CAGR compares the latest annual operating cash flow with operating cash flow from the selected Growth range ago and annualizes the result. It checks whether the core business is producing more cash, not just accounting earnings. The metric is missing when the starting or current cash flow is not positive."
       },
       {
         "id": "operating_margin",
@@ -84,13 +104,13 @@
       },
       {
         "id": "price_change",
-        "name": "Price Change",
+        "name": "Adjusted Price Momentum 12-1",
         "weight": 0.45,
         "direction": "higher",
         "warn": 0,
-        "good": 20,
+        "good": 15,
         "unit": "%",
-        "description": "Price Change measures the stock price return over the selected Growth range. It is a market momentum signal rather than a fundamental business metric. Positive price performance helps the Growth score, but it has a lower weight so it does not dominate business fundamentals."
+        "description": "Adjusted Price Momentum 12-1 measures adjusted price performance from roughly 13 months ago to 2 months ago, skipping the most recent month. It is a market momentum signal rather than a fundamental business metric. Positive momentum helps the Growth score, but it has a lower weight so it does not dominate business fundamentals."
       },
       {
         "id": "revenue_estimate_growth",
@@ -139,30 +159,30 @@
         "name": "CFO to Debt Annual",
         "weight": 1.25,
         "direction": "higher",
-        "warn": 0,
-        "good": 0.2,
+        "warn": 0.1,
+        "good": 0.25,
         "unit": "x",
-        "description": "CFO to Debt is operating cash flow divided by total debt. It measures how much cash the company generates relative to its debt load. Higher values mean debt is easier to service or reduce from business cash flow, improving the Fundamentals score."
+        "description": "CFO to Debt is operating cash flow divided by total debt. It measures how much cash the company generates relative to its debt load. Higher values mean debt is easier to service or reduce from business cash flow, improving the Fundamentals score. Companies with no debt and positive operating cash flow receive a very strong value."
       },
       {
         "id": "interest_coverage",
         "name": "Interest Coverage Annual",
         "weight": 1.0,
         "direction": "higher",
-        "warn": 1,
+        "warn": 1.5,
         "good": 5,
         "unit": "x",
         "description": "Interest Coverage is operating income divided by interest expense. It measures how comfortably the company can pay interest from operating profit. Higher coverage is safer; values near or below 1 mean operating profit barely covers interest costs."
       },
       {
         "id": "ohlson_probability",
-        "name": "Ohlson Score Default Probability Annual",
+        "name": "Ohlson Distress Probability Estimate",
         "weight": 1.2,
         "direction": "lower",
-        "warn": 20,
-        "good": 5,
+        "warn": 15,
+        "good": 4,
         "unit": "%",
-        "description": "Ohlson Score Default Probability is an estimated distress probability derived from the Ohlson O-score formula using annual financial statements. It combines leverage, profitability, liquidity, and recent losses. Lower probability improves the Fundamentals score."
+        "description": "Ohlson Distress Probability Estimate is an Ohlson-style distress signal using annual financial statements. It combines leverage, profitability, liquidity, operating cash flow to liabilities, and two-year loss history. Lower estimated distress improves the Fundamentals score. Because the app does not apply a market-specific price-level deflator, treat this as a rule-based estimate, not a calibrated bankruptcy probability."
       }
     ],
     "Value": [
@@ -171,8 +191,8 @@
         "name": "P/S Ratio vs Selected Range Median",
         "weight": 0.9,
         "direction": "lower",
-        "warn": 20,
-        "good": -10,
+        "warn": 25,
+        "good": -15,
         "unit": "%",
         "description": "P/S Ratio vs Selected Range Median compares the current price-to-sales ratio with its approximate median over the selected Value range. A lower current P/S than the historical median suggests the stock may be cheaper relative to sales, supporting an Underpriced value signal."
       },
@@ -181,8 +201,8 @@
         "name": "P/E Ratio vs Selected Range Median",
         "weight": 1.1,
         "direction": "lower",
-        "warn": 20,
-        "good": -10,
+        "warn": 25,
+        "good": -15,
         "unit": "%",
         "description": "P/E Ratio vs Selected Range Median compares the current price-to-earnings ratio with its approximate median over the selected Value range. A lower current P/E than the historical median suggests the stock may be cheaper relative to earnings."
       },
@@ -191,8 +211,8 @@
         "name": "EV/EBITDA vs Selected Range Median",
         "weight": 1.25,
         "direction": "lower",
-        "warn": 20,
-        "good": -10,
+        "warn": 25,
+        "good": -15,
         "unit": "%",
         "description": "EV/EBITDA vs Selected Range Median compares current enterprise value to EBITDA with its approximate median over the selected Value range. It evaluates valuation before capital structure effects. Lower than median supports an Underpriced value signal."
       },
@@ -201,31 +221,31 @@
         "name": "Price to CFO Per Share vs Selected Range Median",
         "weight": 1.25,
         "direction": "lower",
-        "warn": 20,
-        "good": -10,
+        "warn": 25,
+        "good": -15,
         "unit": "%",
         "description": "Price to CFO Per Share vs Selected Range Median compares current price to operating cash flow with its approximate median over the selected Value range. It checks whether the stock is cheap or expensive relative to cash generated by operations."
       },
       {
         "id": "price_target",
         "name": "Analyst Price Target",
-        "weight": 0.65,
+        "weight": 0.35,
         "direction": "higher",
         "warn": 0,
-        "good": 15,
+        "good": 10,
         "unit": "%",
         "description": "Analyst Price Target measures upside from the current stock price to the average analyst price target. Higher upside suggests analysts see more room for appreciation. This metric is useful but weighted lower because analyst targets can be stale or revised."
       },
       {
         "id": "upside_vs_configured_benchmark",
         "name": "Upside Next 12M vs Configured Benchmark",
-        "weight": 0.55,
+        "weight": 0,
         "direction": "higher",
         "warn": 0,
         "good": 5,
         "unit": "pp",
         "benchmark": 7.5,
-        "description": "Upside Next 12M vs Configured Benchmark compares current analyst upside with a benchmark stored in this config. It does not use ticker-specific historical upside data. A positive value supports an Underpriced signal; a negative value suggests less upside than the benchmark."
+        "description": "Upside Next 12M vs Configured Benchmark compares current analyst upside with a benchmark stored in this config. It is kept visible as context, but its default weight is 0 because it overlaps heavily with Analyst Price Target."
       }
     ]
   }
