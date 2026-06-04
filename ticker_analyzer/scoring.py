@@ -129,15 +129,8 @@ def score_value(value: float, metric_config: dict[str, Any]) -> float:
 
 def status_from_score(score: float, tab_name: str, config: dict[str, Any]) -> str:
     labels = config.get("tab_rating_labels", {}).get(tab_name, {})
-    if score >= 80:
-        return labels.get("very_strong", labels.get("strong", "Very Good"))
-    if score >= 60:
-        return labels.get("strong", "Good")
-    if score >= 40:
-        return labels.get("neutral", "Watch")
-    if score >= 20:
-        return labels.get("weak", "Weak")
-    return labels.get("very_weak", labels.get("weak", "Very Weak"))
+    thresholds = tab_thresholds(tab_name, config)
+    return classify_five_point_score(score, thresholds, tab_labels(labels))
 
 
 def weighted_score(metrics: list[MetricResult]) -> float | None:
@@ -199,12 +192,22 @@ def classify_tab_rating(tab_name: str, score: float | None, config: dict[str, An
     if score is None:
         return "Not Rated"
     labels = config.get("tab_rating_labels", {}).get(tab_name, {})
-    if score >= 80:
-        return labels.get("very_strong", labels.get("strong", "Very Good"))
-    if score >= 60:
-        return labels.get("strong", "Good")
-    if score >= 40:
-        return labels.get("neutral", "Watch")
-    if score >= 20:
-        return labels.get("weak", "Weak")
-    return labels.get("very_weak", labels.get("weak", "Very Weak"))
+    thresholds = tab_thresholds(tab_name, config)
+    return classify_five_point_score(score, thresholds, tab_labels(labels))
+
+
+def tab_thresholds(tab_name: str, config: dict[str, Any]) -> dict[str, Any]:
+    default_thresholds = config.get("rating_thresholds", {})
+    per_tab = config.get("tab_rating_thresholds", {}).get(tab_name, {})
+    return {**default_thresholds, **per_tab}
+
+
+def tab_labels(labels: dict[str, str]) -> dict[str, str]:
+    defaults = {
+        "very_strong": "Very Good",
+        "strong": "Good",
+        "neutral": "Watch",
+        "weak": "Weak",
+        "very_weak": "Very Weak",
+    }
+    return {**defaults, **labels}
