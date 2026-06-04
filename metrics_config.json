@@ -103,24 +103,14 @@
         "description": "Revenue Estimates Growth uses available analyst revenue growth estimate data from yfinance. It is a forward-looking signal for expected sales expansion. Higher expected growth improves the Growth score, but the metric is weighted lower because estimates can change quickly."
       },
       {
-        "id": "revenue_estimate_avg_growth",
-        "name": "Revenue Average Estimated Annual Growth Next 2Y",
-        "weight": 0.9,
-        "direction": "higher",
-        "warn": 0,
-        "good": 10,
-        "unit": "%",
-        "description": "Revenue Average Estimated Annual Growth Next 2Y estimates average annual revenue growth over the next two fiscal years when yfinance provides enough data. It helps separate companies with durable expected growth from companies whose growth may be slowing."
-      },
-      {
         "id": "eps_estimate_avg_growth",
-        "name": "EPS Average Estimated Annual Growth Next 2Y",
-        "weight": 1.0,
+        "name": "EPS Estimate Growth",
+        "weight": 0.9,
         "direction": "higher",
         "warn": 0,
         "good": 12,
         "unit": "%",
-        "description": "EPS Average Estimated Annual Growth Next 2Y estimates average annual earnings per share growth over the next two fiscal years when available. It shows whether analysts expect profit per share to compound. Higher expected EPS growth improves the Growth score."
+        "description": "EPS Estimate Growth uses available analyst earnings growth data from yfinance. It is a forward-looking earnings signal. Higher expected EPS growth improves the Growth score, but the metric is weighted moderately because estimates can change quickly."
       }
     ],
     "Fundamentals": [
@@ -227,15 +217,15 @@
         "description": "Analyst Price Target measures upside from the current stock price to the average analyst price target. Higher upside suggests analysts see more room for appreciation. This metric is useful but weighted lower because analyst targets can be stale or revised."
       },
       {
-        "id": "upside_vs_3y_median",
-        "name": "Upside Next 12M vs Selected Range Median",
-        "weight": 0.75,
+        "id": "upside_vs_configured_benchmark",
+        "name": "Upside Next 12M vs Configured Benchmark",
+        "weight": 0.55,
         "direction": "higher",
         "warn": 0,
         "good": 5,
         "unit": "pp",
         "benchmark": 7.5,
-        "description": "Upside Next 12M vs Selected Range Median compares current analyst upside with the configured historical median upside benchmark. A positive value means current upside is higher than normal, which supports an Underpriced value signal. A negative value suggests less upside than usual."
+        "description": "Upside Next 12M vs Configured Benchmark compares current analyst upside with a benchmark stored in this config. It does not use ticker-specific historical upside data. A positive value supports an Underpriced signal; a negative value suggests less upside than the benchmark."
       }
     ]
   }
