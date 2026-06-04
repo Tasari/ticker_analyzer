@@ -9,7 +9,7 @@ import streamlit as st
 import yfinance as yf
 from streamlit_searchbox import st_searchbox
 
-from stock_analyzer import analyze_ticker, format_metric_value, load_config, save_config
+from ticker_analyzer import analyze_ticker, format_metric_value, load_config, save_config
 
 
 st.set_page_config(page_title="Stock Analyzer", page_icon="chart_with_upwards_trend", layout="wide")
