@@ -51,6 +51,10 @@ class StockAnalysisEngine:
             value_history=data.value_history,
             earnings_dates=data.earnings_dates,
             analyst_targets=data.analyst_targets,
+            revenue_estimate=data.revenue_estimate,
+            earnings_estimate=data.earnings_estimate,
+            eps_trend=data.eps_trend,
+            growth_estimates=data.growth_estimates,
             range_years=range_years,
         )
 
@@ -139,6 +143,10 @@ def build_raw_metrics(
     value_history: pd.DataFrame,
     earnings_dates: pd.DataFrame,
     analyst_targets: dict[str, Any],
+    revenue_estimate: pd.DataFrame,
+    earnings_estimate: pd.DataFrame,
+    eps_trend: pd.DataFrame,
+    growth_estimates: pd.DataFrame,
     range_years: dict[str, int],
 ) -> dict[str, dict[str, Any]]:
     revenue_ttm = sum_recent(quarterly_income, ["Total Revenue", "Operating Revenue"], 4)
@@ -153,8 +161,8 @@ def build_raw_metrics(
     cfo_range_base = statement_value_years_ago(annual_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"], growth_years)
     momentum = momentum_12_1(growth_history)
 
-    revenue_estimate_growth = estimate_growth(info, "revenue")
-    eps_estimate_growth = estimate_growth(info, "eps")
+    revenue_estimate_growth = estimate_growth(info, "revenue", revenue_estimate, growth_estimates)
+    eps_estimate_growth = estimate_growth(info, "eps", earnings_estimate, growth_estimates)
     price_target_upside = target_upside(info, analyst_targets)
     financial_company = is_financial_company(info)
 
@@ -165,8 +173,8 @@ def build_raw_metrics(
         "cfo_range_growth": metric_value(cagr_pct(latest_row_value(annual_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"]), cfo_range_base, growth_years), f"Latest annual operating cash flow CAGR over {growth_years} fiscal year(s); missing when the base or current value is not positive"),
         "operating_margin": metric_value(operating_margin(annual_income)),
         "price_change": metric_value(momentum, "Adjusted-price momentum from month -13 to month -2, closer to standard 12-1 momentum"),
-        "revenue_estimate_growth": metric_value(revenue_estimate_growth, "Uses available yfinance analyst estimate fields"),
-        "eps_estimate_avg_growth": metric_value(eps_estimate_growth, "Proxy from available yfinance estimate fields"),
+        "revenue_estimate_growth": metric_value(revenue_estimate_growth, "Uses structured yfinance revenue_estimate when enough analysts are available, then falls back to info fields"),
+        "eps_estimate_avg_growth": metric_value(eps_estimate_growth, "Uses structured yfinance earnings_estimate/growth_estimates when enough analysts are available, then falls back to info fields"),
         "debt_to_assets": financial_metric_value(debt_to_assets(annual_balance), financial_company, f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
         "quick_ratio": financial_metric_value(quick_ratio(info, quarterly_balance, annual_balance), financial_company, "Uses yfinance quickRatio, then balance sheet fallback"),
         "cfo_to_debt": financial_metric_value(cfo_to_debt(annual_cashflow, annual_balance), financial_company, f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
@@ -414,7 +422,20 @@ def prior_row_value(frame: pd.DataFrame, names: list[str]) -> float | None:
     return clean_number(values.iloc[-2])
 
 
-def estimate_growth(info: dict[str, Any], kind: str) -> float | None:
+def estimate_growth(
+    info: dict[str, Any],
+    kind: str,
+    estimate_table: pd.DataFrame | None = None,
+    growth_estimates: pd.DataFrame | None = None,
+    *,
+    min_analysts: int = 5,
+) -> float | None:
+    structured_growth = estimate_growth_from_table(estimate_table, min_analysts=min_analysts)
+    if structured_growth is not None:
+        return structured_growth
+    growth_estimate = growth_from_estimates(growth_estimates, period="+1y")
+    if growth_estimate is not None:
+        return growth_estimate
     if kind == "revenue":
         current = clean_number(info.get("revenueCurrentYear"))
         next_year = clean_number(info.get("revenueNextYear"))
@@ -428,6 +449,47 @@ def estimate_growth(info: dict[str, Any], kind: str) -> float | None:
     if growth is not None:
         return growth * 100 if abs(growth) < 2 else growth
     return None
+
+
+def estimate_growth_from_table(table: pd.DataFrame | None, *, min_analysts: int) -> float | None:
+    if table is None or table.empty:
+        return None
+    current = estimate_row(table, "0y")
+    next_year = estimate_row(table, "+1y")
+    if current is None or next_year is None:
+        return None
+    analysts = clean_number(next_year.get("numberOfAnalysts"))
+    if analysts is not None and analysts < min_analysts:
+        return None
+    current_avg = clean_number(current.get("avg"))
+    next_avg = clean_number(next_year.get("avg"))
+    if current_avg not in (None, 0) and next_avg is not None:
+        return percent_change(next_avg, current_avg)
+    growth = clean_number(next_year.get("growth"))
+    if growth is not None:
+        return growth * 100 if abs(growth) < 2 else growth
+    return None
+
+
+def estimate_row(table: pd.DataFrame, period: str) -> dict[str, Any] | None:
+    if period not in table.index:
+        return None
+    row = table.loc[period]
+    if isinstance(row, pd.DataFrame):
+        row = row.iloc[0]
+    return row.to_dict()
+
+
+def growth_from_estimates(table: pd.DataFrame | None, *, period: str) -> float | None:
+    if table is None or table.empty or period not in table.index:
+        return None
+    row = table.loc[period]
+    if isinstance(row, pd.DataFrame):
+        row = row.iloc[0]
+    growth = clean_number(row.get("stockTrend"))
+    if growth is None:
+        return None
+    return growth * 100 if abs(growth) < 2 else growth
 
 
 def target_upside(info: dict[str, Any], analyst_targets: dict[str, Any]) -> float | None:

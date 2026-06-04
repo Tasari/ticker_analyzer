@@ -121,6 +121,10 @@ class MarketData:
     value_history: pd.DataFrame
     earnings_dates: pd.DataFrame
     analyst_targets: dict[str, Any]
+    revenue_estimate: pd.DataFrame
+    earnings_estimate: pd.DataFrame
+    eps_trend: pd.DataFrame
+    growth_estimates: pd.DataFrame
 
 
 def _optional_float(value: Any) -> float | None:

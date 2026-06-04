@@ -2,7 +2,8 @@ import unittest
 
 import pandas as pd
 
-from ticker_analyzer.engine import cagr_pct, cfo_to_debt, momentum_12_1
+from ticker_analyzer.config import ConfigValidationError, normalize_config
+from ticker_analyzer.engine import cagr_pct, cfo_to_debt, estimate_growth, momentum_12_1
 from ticker_analyzer.scoring import classify_tab_rating
 
 
@@ -41,6 +42,30 @@ class MetricsLogicTest(unittest.TestCase):
         }
         self.assertEqual(classify_tab_rating("Value", 86, config), "Very Underpriced")
         self.assertEqual(classify_tab_rating("Value", 80, config), "Underpriced")
+
+    def test_estimate_growth_prefers_structured_table(self):
+        table = pd.DataFrame(
+            {
+                "avg": [100.0, 115.0],
+                "numberOfAnalysts": [8, 9],
+            },
+            index=["0y", "+1y"],
+        )
+        self.assertAlmostEqual(estimate_growth({}, "revenue", table), 15.0)
+
+    def test_estimate_growth_rejects_low_analyst_count(self):
+        table = pd.DataFrame(
+            {
+                "avg": [100.0, 150.0],
+                "numberOfAnalysts": [2, 2],
+            },
+            index=["0y", "+1y"],
+        )
+        self.assertIsNone(estimate_growth({}, "revenue", table))
+
+    def test_normalize_config_rejects_missing_metrics(self):
+        with self.assertRaises(ConfigValidationError):
+            normalize_config({"tab_weights": {}, "rating_thresholds": {}})
 
 
 if __name__ == "__main__":
