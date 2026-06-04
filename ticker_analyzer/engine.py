@@ -59,10 +59,13 @@ class StockAnalysisEngine:
         )
 
         tab_results, missing = self._score_tabs(raw_metrics, config)
-        overall_score = self.scoring.weighted_tab_score(tab_results, config.get("tab_weights", {}))
-        if any(result.get("score") is None for result in tab_results.values()):
-            overall_score = None
+        overall_score = overall_score_with_missing_policy(tab_results, config)
+        partial_note = partial_overall_note(tab_results, overall_score)
+        if partial_note:
+            missing.insert(0, partial_note)
         rating = self.scoring.classify_rating(overall_score, config)
+        if partial_note and rating != "Not Rated":
+            rating = f"Partial {rating}"
 
         return StockAnalysis(
             ticker=ticker_symbol,
@@ -131,6 +134,33 @@ def is_empty_ticker_response(
     has_prices = not history.empty and "Close" in history and not history["Close"].dropna().empty
     has_financials = not annual_income.empty or not annual_balance.empty or not annual_cashflow.empty
     return not has_identity and not has_prices and not has_financials
+
+
+def overall_score_with_missing_policy(tab_results: dict[str, Any], config: dict[str, Any]) -> float | None:
+    tab_weights = config.get("tab_weights", {})
+    policy = config.get("missing_policy", {})
+    scored_tabs = [result for result in tab_results.values() if result.get("score") is not None]
+    if policy.get("require_all_tabs_for_overall", False) and len(scored_tabs) < len(tab_results):
+        return None
+    minimum_scored_tabs = int(clean_number(policy.get("minimum_scored_tabs")) or 1)
+    if len(scored_tabs) < minimum_scored_tabs:
+        return None
+    return weighted_tab_score_from_results(tab_results, tab_weights)
+
+
+def weighted_tab_score_from_results(tab_results: dict[str, Any], tab_weights: dict[str, Any]) -> float | None:
+    scoring = ScoringEngine()
+    return scoring.weighted_tab_score(tab_results, tab_weights)
+
+
+def partial_overall_note(tab_results: dict[str, Any], overall_score: float | None) -> str | None:
+    if overall_score is None:
+        return None
+    scored = sum(1 for result in tab_results.values() if result.get("score") is not None)
+    total = len(tab_results)
+    if scored == total:
+        return None
+    return f"Overall: Partial rating based on {scored} of {total} scored tabs."
 def build_raw_metrics(
     *,
     info: dict[str, Any],

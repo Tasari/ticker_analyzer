@@ -3,7 +3,7 @@ import unittest
 import pandas as pd
 
 from ticker_analyzer.config import ConfigValidationError, normalize_config
-from ticker_analyzer.engine import cagr_pct, cfo_to_debt, estimate_growth, momentum_12_1
+from ticker_analyzer.engine import cagr_pct, cfo_to_debt, estimate_growth, momentum_12_1, overall_score_with_missing_policy
 from ticker_analyzer.scoring import classify_tab_rating
 
 
@@ -66,6 +66,30 @@ class MetricsLogicTest(unittest.TestCase):
     def test_normalize_config_rejects_missing_metrics(self):
         with self.assertRaises(ConfigValidationError):
             normalize_config({"tab_weights": {}, "rating_thresholds": {}})
+
+    def test_overall_score_can_use_partial_tabs_when_configured(self):
+        tab_results = {
+            "Growth": {"score": 80},
+            "Fundamentals": {"score": None},
+            "Value": {"score": 60},
+        }
+        config = {
+            "tab_weights": {"Growth": 1, "Fundamentals": 1, "Value": 1},
+            "missing_policy": {"require_all_tabs_for_overall": False, "minimum_scored_tabs": 2},
+        }
+        self.assertAlmostEqual(overall_score_with_missing_policy(tab_results, config), 70.0)
+
+    def test_overall_score_can_require_all_tabs(self):
+        tab_results = {
+            "Growth": {"score": 80},
+            "Fundamentals": {"score": None},
+            "Value": {"score": 60},
+        }
+        config = {
+            "tab_weights": {"Growth": 1, "Fundamentals": 1, "Value": 1},
+            "missing_policy": {"require_all_tabs_for_overall": True, "minimum_scored_tabs": 2},
+        }
+        self.assertIsNone(overall_score_with_missing_policy(tab_results, config))
 
 
 if __name__ == "__main__":
