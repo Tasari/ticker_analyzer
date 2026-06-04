@@ -58,8 +58,10 @@ class StockAnalysisEngine:
             range_years=range_years,
         )
 
-        tab_results, missing = self._score_tabs(raw_metrics, config)
-        overall_score = overall_score_with_missing_policy(tab_results, config)
+        profile = company_profile(data.info)
+        scoring_config = config_for_profile(config, profile)
+        tab_results, missing = self._score_tabs(raw_metrics, scoring_config)
+        overall_score = overall_score_with_missing_policy(tab_results, scoring_config)
         partial_note = partial_overall_note(tab_results, overall_score)
         if partial_note:
             missing.insert(0, partial_note)
@@ -71,6 +73,7 @@ class StockAnalysisEngine:
             ticker=ticker_symbol,
             company_name=data.info.get("longName") or data.info.get("shortName") or ticker_symbol,
             currency=data.info.get("currency", ""),
+            profile=profile,
             current_price=clean_number(data.info.get("currentPrice") or data.info.get("regularMarketPrice")),
             overall_score=overall_score,
             rating=rating,
@@ -161,6 +164,21 @@ def partial_overall_note(tab_results: dict[str, Any], overall_score: float | Non
     if scored == total:
         return None
     return f"Overall: Partial rating based on {scored} of {total} scored tabs."
+
+
+def company_profile(info: dict[str, Any]) -> str:
+    return "Financial" if is_financial_company(info) else "Industrial"
+
+
+def config_for_profile(config: dict[str, Any], profile: str) -> dict[str, Any]:
+    profile_metrics = config.get("profile_metrics", {}).get(profile)
+    if not profile_metrics:
+        return config
+    selected = dict(config)
+    selected["metrics"] = profile_metrics
+    return selected
+
+
 def build_raw_metrics(
     *,
     info: dict[str, Any],
@@ -194,7 +212,6 @@ def build_raw_metrics(
     revenue_estimate_growth = estimate_growth(info, "revenue", revenue_estimate, growth_estimates)
     eps_estimate_growth = estimate_growth(info, "eps", earnings_estimate, growth_estimates)
     price_target_upside = target_upside(info, analyst_targets)
-    financial_company = is_financial_company(info)
 
     raw = {
         "revenue_ttm_range_growth": metric_value(cagr_pct(revenue_ttm, revenue_range_base, growth_years), f"Revenue TTM CAGR compared with annual revenue from {growth_years} fiscal year(s) ago"),
@@ -205,15 +222,20 @@ def build_raw_metrics(
         "price_change": metric_value(momentum, "Adjusted-price momentum from month -13 to month -2, closer to standard 12-1 momentum"),
         "revenue_estimate_growth": metric_value(revenue_estimate_growth, "Uses structured yfinance revenue_estimate when enough analysts are available, then falls back to info fields"),
         "eps_estimate_avg_growth": metric_value(eps_estimate_growth, "Uses structured yfinance earnings_estimate/growth_estimates when enough analysts are available, then falls back to info fields"),
-        "debt_to_assets": financial_metric_value(debt_to_assets(annual_balance), financial_company, f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
-        "quick_ratio": financial_metric_value(quick_ratio(info, quarterly_balance, annual_balance), financial_company, "Uses yfinance quickRatio, then balance sheet fallback"),
-        "cfo_to_debt": financial_metric_value(cfo_to_debt(annual_cashflow, annual_balance), financial_company, f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
-        "interest_coverage": financial_metric_value(interest_coverage(annual_income), financial_company, f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
-        "ohlson_probability": financial_metric_value(ohlson_probability(annual_income, annual_balance, annual_cashflow), financial_company, "Ohlson-style distress estimate using annual statements; SIZE is approximated without a market price deflator"),
-        "ps_vs_3y_median": financial_metric_value(ratio_vs_history(info.get("priceToSalesTrailing12Months"), "ps", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), financial_company, f"Compared with approximate {value_years}Y median using year-matched annual financials"),
+        "debt_to_assets": metric_value(debt_to_assets(annual_balance), f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
+        "quick_ratio": metric_value(quick_ratio(info, quarterly_balance, annual_balance), "Uses yfinance quickRatio, then balance sheet fallback"),
+        "cfo_to_debt": metric_value(cfo_to_debt(annual_cashflow, annual_balance), f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
+        "interest_coverage": metric_value(interest_coverage(annual_income), f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
+        "ohlson_probability": metric_value(ohlson_probability(annual_income, annual_balance, annual_cashflow), "Ohlson-style distress estimate using annual statements; SIZE is approximated without a market price deflator"),
+        "equity_to_assets": metric_value(equity_to_assets(annual_balance), f"Financial profile capital buffer metric; latest annual value; Fundamentals range is {fundamentals_years}Y"),
+        "return_on_assets": metric_value(return_on_assets(annual_income, annual_balance), "Financial profile profitability metric; latest annual net income divided by assets"),
+        "return_on_equity": metric_value(return_on_equity(annual_income, annual_balance), "Financial profile profitability metric; latest annual net income divided by equity"),
+        "net_margin": metric_value(net_margin(annual_income), "Financial profile profitability metric; latest annual net income divided by revenue"),
+        "ps_vs_3y_median": metric_value(ratio_vs_history(info.get("priceToSalesTrailing12Months"), "ps", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median using year-matched annual financials"),
         "pe_vs_3y_median": metric_value(ratio_vs_history(info.get("trailingPE"), "pe", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median"),
-        "ev_ebitda_vs_5y_median": financial_metric_value(ratio_vs_history(info.get("enterpriseToEbitda"), "ev_ebitda", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), financial_company, f"Compared with approximate {value_years}Y median using year-matched annual financials"),
-        "price_to_cfo_vs_5y_median": financial_metric_value(ratio_vs_history(current_price_to_cfo(info, annual_cashflow), "price_to_cfo", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), financial_company, f"Compared with approximate {value_years}Y median using year-matched annual financials"),
+        "pb_vs_selected_median": metric_value(ratio_vs_history(current_price_to_book(info, annual_balance), "pb", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Financial profile value metric; compared with approximate {value_years}Y median using year-matched book equity"),
+        "ev_ebitda_vs_5y_median": metric_value(ratio_vs_history(info.get("enterpriseToEbitda"), "ev_ebitda", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median using year-matched annual financials"),
+        "price_to_cfo_vs_5y_median": metric_value(ratio_vs_history(current_price_to_cfo(info, annual_cashflow), "price_to_cfo", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median using year-matched annual financials"),
         "price_target": metric_value(price_target_upside),
         "upside_vs_configured_benchmark": metric_value(None, "Uses configured benchmark because historical analyst upside is unavailable"),
     }
@@ -241,12 +263,6 @@ def metric_value(value: float | None, note: str = "") -> dict[str, Any]:
     return {"value": clean_number(value), "note": note}
 
 
-def financial_metric_value(value: float | None, is_financial: bool, note: str = "") -> dict[str, Any]:
-    if is_financial:
-        return metric_value(None, "Not applicable to financial companies under the default industrial scoring profile")
-    return metric_value(value, note)
-
-
 def is_financial_company(info: dict[str, Any]) -> bool:
     industry = str(info.get("industry") or info.get("industryDisp") or "").lower()
     quote_type = str(info.get("quoteType") or "").lower()
@@ -255,6 +271,8 @@ def is_financial_company(info: dict[str, Any]) -> bool:
         "insurance",
         "asset management",
         "capital markets",
+        "credit services",
+        "financial services",
         "mortgage",
         "reit",
     ]
@@ -379,6 +397,38 @@ def debt_to_assets(balance: pd.DataFrame) -> float | None:
     if debt is None or assets in (None, 0):
         return None
     return debt / assets * 100
+
+
+def equity_to_assets(balance: pd.DataFrame) -> float | None:
+    equity = latest_row_value(balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"])
+    assets = latest_row_value(balance, ["Total Assets"])
+    if equity is None or assets in (None, 0):
+        return None
+    return equity / assets * 100
+
+
+def return_on_assets(income: pd.DataFrame, balance: pd.DataFrame) -> float | None:
+    net_income = latest_row_value(income, ["Net Income", "Net Income Common Stockholders"])
+    assets = latest_row_value(balance, ["Total Assets"])
+    if net_income is None or assets in (None, 0):
+        return None
+    return net_income / assets * 100
+
+
+def return_on_equity(income: pd.DataFrame, balance: pd.DataFrame) -> float | None:
+    net_income = latest_row_value(income, ["Net Income", "Net Income Common Stockholders"])
+    equity = latest_row_value(balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"])
+    if net_income is None or equity in (None, 0):
+        return None
+    return net_income / equity * 100
+
+
+def net_margin(income: pd.DataFrame) -> float | None:
+    net_income = latest_row_value(income, ["Net Income", "Net Income Common Stockholders"])
+    revenue = latest_row_value(income, ["Total Revenue", "Operating Revenue"])
+    if net_income is None or revenue in (None, 0):
+        return None
+    return net_income / revenue * 100
 
 
 def quick_ratio(info: dict[str, Any], quarterly_balance: pd.DataFrame, annual_balance: pd.DataFrame) -> float | None:
@@ -543,6 +593,17 @@ def current_price_to_cfo(info: dict[str, Any], cashflow: pd.DataFrame) -> float 
     return market_cap / cfo
 
 
+def current_price_to_book(info: dict[str, Any], balance: pd.DataFrame) -> float | None:
+    reported = clean_number(info.get("priceToBook"))
+    if reported is not None:
+        return reported
+    market_cap = clean_number(info.get("marketCap"))
+    equity = latest_row_value(balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"])
+    if market_cap is None or equity in (None, 0):
+        return None
+    return market_cap / equity
+
+
 def ratio_vs_history(
     current_ratio: Any,
     ratio_name: str,
@@ -581,6 +642,7 @@ def approximate_historical_ratio(
     net_income_series = row_values(income, ["Net Income", "Net Income Common Stockholders"])
     ebitda_series = row_values(income, ["EBITDA", "Normalized EBITDA"])
     cfo_series = row_values(cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"])
+    equity_series = row_values(balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"])
     debt_series = row_values(balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"])
     cash_series = row_values(balance, ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"])
 
@@ -600,6 +662,8 @@ def approximate_historical_ratio(
             cash = value_on_or_before(cash_series, date) or 0
             denominator = ebitda
             market_cap = market_cap + debt - cash
+        elif ratio_name == "pb":
+            denominator = value_on_or_before(equity_series, date)
         else:
             denominator = value_on_or_before(cfo_series, date)
         if denominator not in (None, 0):

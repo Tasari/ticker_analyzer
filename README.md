@@ -26,6 +26,7 @@ python -m unittest discover -s tests
 - Rule-based scorecards with configurable metric weights, thresholds, tab weights, and rating labels.
 - Editable scoring configuration saved locally in `metrics_config.json`.
 - Missing data warnings and partial ratings when enough, but not all, tabs can be scored.
+- Automatic Industrial and Financial analysis profiles.
 - Basic charts for adjusted price history, financial trends, assets, and debt.
 
 ## Scoring Notes
@@ -33,7 +34,8 @@ python -m unittest discover -s tests
 - Growth range metrics use CAGR where positive starting and ending values are available.
 - Price momentum uses adjusted prices and skips the most recent month when enough history exists.
 - Analyst revenue and EPS estimate growth prefer structured `yfinance` estimate tables, with fallback to `info` fields.
-- Fundamentals are built for a default industrial profile. Bank, insurance, asset management, capital markets, mortgage, and REIT-like companies can have non-applicable industrial metrics.
+- Industrial companies use balance-sheet, liquidity, cash-flow, interest-coverage, and distress metrics.
+- Financial companies use a separate profile with financial-sector metrics such as equity to assets, return on assets, return on equity, net margin, P/E vs historical median, and P/B vs historical median.
 - Value metrics compare current valuation multiples against approximate historical medians for the selected Value range.
 - Analyst price target has a low default weight, and the benchmark upside metric is visible but has zero default weight to avoid double counting.
 
@@ -45,6 +47,7 @@ python -m unittest discover -s tests
 - overall rating thresholds and labels,
 - tab rating thresholds and labels,
 - missing-data policy,
+- profile-specific metric sets,
 - metric weights, thresholds, directions, units, descriptions, and optional benchmarks.
 
 The app validates the config when loading or saving it. Invalid JSON or inconsistent settings are rejected with an error.

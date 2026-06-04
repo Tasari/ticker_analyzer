@@ -3,7 +3,15 @@ import unittest
 import pandas as pd
 
 from ticker_analyzer.config import ConfigValidationError, normalize_config
-from ticker_analyzer.engine import cagr_pct, cfo_to_debt, estimate_growth, momentum_12_1, overall_score_with_missing_policy
+from ticker_analyzer.engine import (
+    cagr_pct,
+    cfo_to_debt,
+    company_profile,
+    config_for_profile,
+    estimate_growth,
+    momentum_12_1,
+    overall_score_with_missing_policy,
+)
 from ticker_analyzer.scoring import classify_tab_rating
 
 
@@ -90,6 +98,19 @@ class MetricsLogicTest(unittest.TestCase):
             "missing_policy": {"require_all_tabs_for_overall": True, "minimum_scored_tabs": 2},
         }
         self.assertIsNone(overall_score_with_missing_policy(tab_results, config))
+
+    def test_company_profile_detects_financial_industries(self):
+        self.assertEqual(company_profile({"quoteType": "EQUITY", "industry": "Banks - Diversified"}), "Financial")
+        self.assertEqual(company_profile({"quoteType": "EQUITY", "industry": "Credit Services"}), "Financial")
+        self.assertEqual(company_profile({"quoteType": "EQUITY", "industry": "Consumer Electronics"}), "Industrial")
+
+    def test_config_for_profile_uses_financial_metric_override(self):
+        config = {
+            "metrics": {"Growth": [{"id": "industrial"}]},
+            "profile_metrics": {"Financial": {"Growth": [{"id": "financial"}]}},
+        }
+        self.assertEqual(config_for_profile(config, "Financial")["metrics"]["Growth"][0]["id"], "financial")
+        self.assertEqual(config_for_profile(config, "Industrial")["metrics"]["Growth"][0]["id"], "industrial")
 
 
 if __name__ == "__main__":

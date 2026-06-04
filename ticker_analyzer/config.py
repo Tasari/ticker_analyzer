@@ -61,6 +61,7 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("tab_rating_labels", {})
     normalized.setdefault("tab_rating_thresholds", {})
     normalized.setdefault("missing_policy", {"require_all_tabs_for_overall": False, "minimum_scored_tabs": 2})
+    normalized.setdefault("profile_metrics", {})
     validate_config(normalized)
     return normalized
 
@@ -80,6 +81,7 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ConfigValidationError(f"metrics.{tab_name} must be a non-empty list.")
         for index, metric in enumerate(metrics, start=1):
             validate_metric(metric, f"metrics.{tab_name}[{index}]")
+    validate_profile_metrics(config.get("profile_metrics", {}))
     for tab_name, thresholds in config.get("tab_rating_thresholds", {}).items():
         validate_thresholds(thresholds, f"tab_rating_thresholds.{tab_name}")
 
@@ -93,6 +95,19 @@ def validate_tab_weights(tab_weights: dict[str, Any], metrics_by_tab: dict[str, 
             raise ConfigValidationError(f"tab_weights.{tab_name} must be a number.")
         if weight < 0:
             raise ConfigValidationError(f"tab_weights.{tab_name} cannot be negative.")
+
+
+def validate_profile_metrics(profile_metrics: dict[str, Any]) -> None:
+    if not isinstance(profile_metrics, dict):
+        raise ConfigValidationError("profile_metrics must be an object.")
+    for profile_name, metrics_by_tab in profile_metrics.items():
+        if not isinstance(metrics_by_tab, dict) or not metrics_by_tab:
+            raise ConfigValidationError(f"profile_metrics.{profile_name} must be a non-empty object keyed by tab name.")
+        for tab_name, metrics in metrics_by_tab.items():
+            if not isinstance(metrics, list) or not metrics:
+                raise ConfigValidationError(f"profile_metrics.{profile_name}.{tab_name} must be a non-empty list.")
+            for index, metric in enumerate(metrics, start=1):
+                validate_metric(metric, f"profile_metrics.{profile_name}.{tab_name}[{index}]")
 
 
 def validate_thresholds(thresholds: dict[str, Any], path: str) -> None:
