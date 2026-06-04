@@ -30,6 +30,10 @@ class YFinanceProvider:
             value_history=safe_frame(lambda: ticker.history(start=value_start, auto_adjust=True)),
             earnings_dates=safe_frame(lambda: ticker.get_earnings_dates(limit=16)),
             analyst_targets=safe_dict(lambda: ticker.analyst_price_targets),
+            revenue_estimate=safe_frame(lambda: ticker.revenue_estimate),
+            earnings_estimate=safe_frame(lambda: ticker.earnings_estimate),
+            eps_trend=safe_frame(lambda: ticker.eps_trend),
+            growth_estimates=safe_frame(lambda: ticker.growth_estimates),
         )
 
 
