@@ -83,6 +83,7 @@ class StockAnalysis:
     ticker: str
     company_name: str
     currency: str
+    profile: str
     current_price: float | None
     overall_score: float | None
     rating: str
@@ -97,6 +98,7 @@ class StockAnalysis:
             "ticker": self.ticker,
             "company_name": self.company_name,
             "currency": self.currency,
+            "profile": self.profile,
             "current_price": self.current_price,
             "overall_score": self.overall_score,
             "rating": self.rating,

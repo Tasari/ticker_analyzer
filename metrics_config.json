@@ -65,6 +65,136 @@
       "very_weak": "Very Overpriced"
     }
   },
+  "profile_metrics": {
+    "Financial": {
+      "Growth": [
+        {
+          "id": "revenue_ttm_range_growth",
+          "name": "Revenue TTM CAGR vs Selected Range",
+          "weight": 1.1,
+          "direction": "higher",
+          "warn": 0,
+          "good": 7,
+          "unit": "%",
+          "description": "Revenue TTM CAGR measures the annualized growth rate of trailing twelve month revenue compared with revenue from the selected Growth range ago. For financial companies this is a top-line growth signal, but it should be read together with profitability and capital strength."
+        },
+        {
+          "id": "net_income_range_growth",
+          "name": "Net Income CAGR vs Selected Range",
+          "weight": 1.2,
+          "direction": "higher",
+          "warn": 0,
+          "good": 8,
+          "unit": "%",
+          "description": "Net Income CAGR annualizes bottom-line profit growth over the selected Growth range. For financial companies, consistent earnings growth supports the Growth score, while losses or unstable earnings make the metric unavailable."
+        },
+        {
+          "id": "price_change",
+          "name": "Adjusted Price Momentum 12-1",
+          "weight": 0.35,
+          "direction": "higher",
+          "warn": 0,
+          "good": 15,
+          "unit": "%",
+          "description": "Adjusted Price Momentum 12-1 measures adjusted price performance from roughly 13 months ago to 2 months ago. It is a market signal and has a lower weight than business fundamentals."
+        },
+        {
+          "id": "revenue_estimate_growth",
+          "name": "Revenue Estimates Growth",
+          "weight": 0.85,
+          "direction": "higher",
+          "warn": 0,
+          "good": 7,
+          "unit": "%",
+          "description": "Revenue Estimates Growth uses structured analyst revenue estimates from yfinance when enough analysts are available. Higher expected growth improves the Growth score."
+        },
+        {
+          "id": "eps_estimate_avg_growth",
+          "name": "EPS Estimate Growth",
+          "weight": 1.0,
+          "direction": "higher",
+          "warn": 0,
+          "good": 8,
+          "unit": "%",
+          "description": "EPS Estimate Growth uses structured analyst earnings estimates from yfinance when enough analysts are available. Higher expected EPS growth improves the Growth score."
+        }
+      ],
+      "Fundamentals": [
+        {
+          "id": "equity_to_assets",
+          "name": "Equity to Assets",
+          "weight": 1.25,
+          "direction": "higher",
+          "warn": 4,
+          "good": 8,
+          "unit": "%",
+          "description": "Equity to Assets is stockholders equity divided by total assets. For financial companies it is a simple capital buffer proxy. Higher values suggest more balance-sheet cushion and improve the Fundamentals score."
+        },
+        {
+          "id": "return_on_assets",
+          "name": "Return on Assets",
+          "weight": 1.1,
+          "direction": "higher",
+          "warn": 0.5,
+          "good": 1.5,
+          "unit": "%",
+          "description": "Return on Assets is net income divided by total assets. It measures how efficiently a financial company turns its asset base into profit. Higher values improve the Fundamentals score."
+        },
+        {
+          "id": "return_on_equity",
+          "name": "Return on Equity",
+          "weight": 1.15,
+          "direction": "higher",
+          "warn": 6,
+          "good": 12,
+          "unit": "%",
+          "description": "Return on Equity is net income divided by stockholders equity. For financial companies it measures profitability on shareholder capital. Higher ROE improves the Fundamentals score, but very high ROE should still be read together with capital levels."
+        },
+        {
+          "id": "net_margin",
+          "name": "Net Margin",
+          "weight": 0.8,
+          "direction": "higher",
+          "warn": 10,
+          "good": 25,
+          "unit": "%",
+          "description": "Net Margin is net income divided by revenue. For financial companies it is a broad profitability signal. Higher margins improve the Fundamentals score."
+        }
+      ],
+      "Value": [
+        {
+          "id": "pe_vs_3y_median",
+          "name": "P/E Ratio vs Selected Range Median",
+          "weight": 1.1,
+          "direction": "lower",
+          "warn": 25,
+          "good": -15,
+          "unit": "%",
+          "description": "P/E Ratio vs Selected Range Median compares the current price-to-earnings ratio with its approximate median over the selected Value range. A lower current P/E than the historical median supports an Underpriced value signal."
+        },
+        {
+          "id": "pb_vs_selected_median",
+          "name": "P/B Ratio vs Selected Range Median",
+          "weight": 1.25,
+          "direction": "lower",
+          "warn": 25,
+          "good": -15,
+          "unit": "%",
+          "description": "P/B Ratio vs Selected Range Median compares the current price-to-book ratio with its approximate median over the selected Value range. For financial companies, price-to-book is often more relevant than EV/EBITDA or price-to-cash-flow."
+        },
+        {
+          "id": "price_target",
+          "name": "Analyst Price Target",
+          "weight": 0.35,
+          "direction": "higher",
+          "warn": 0,
+          "good": 10,
+          "unit": "%",
+          "description": "Analyst Price Target measures upside from the current stock price to the average analyst price target. It is useful context but weighted lower because analyst targets can be stale or optimistic."
+        }
+      ]
+    }
+  },
   "metrics": {
     "Growth": [
       {

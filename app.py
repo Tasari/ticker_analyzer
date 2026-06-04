@@ -211,13 +211,14 @@ def render_company_cards(results: list[dict]) -> None:
         price_text = "Missing" if price is None else f"{price:,.2f} {currency}".strip()
         with st.container(border=True):
             st.markdown(f"##### {result['company_name']} ({result['ticker']})")
-            columns = st.columns(6)
+            columns = st.columns(7)
             columns[0].metric("Overall Score", "Missing" if score is None else f"{score:.1f}/100")
             columns[1].metric("Rating", result.get("rating", "Not Rated"))
             columns[2].metric("Price", price_text)
-            columns[3].metric("Growth", result["tabs"]["Growth"].get("rating", "Not Rated"))
-            columns[4].metric("Fundamentals", result["tabs"]["Fundamentals"].get("rating", "Not Rated"))
-            columns[5].metric("Value", result["tabs"]["Value"].get("rating", "Not Rated"))
+            columns[3].metric("Profile", result.get("profile", "Industrial"))
+            columns[4].metric("Growth", result["tabs"]["Growth"].get("rating", "Not Rated"))
+            columns[5].metric("Fundamentals", result["tabs"]["Fundamentals"].get("rating", "Not Rated"))
+            columns[6].metric("Value", result["tabs"]["Value"].get("rating", "Not Rated"))
 
 
 def render_comparison_table(results: list[dict]) -> None:
@@ -228,6 +229,7 @@ def render_comparison_table(results: list[dict]) -> None:
             {
                 "Ticker": result["ticker"],
                 "Company": result["company_name"],
+                "Profile": result.get("profile", "Industrial"),
                 "Price": format_company_price(result),
                 "Overall Score": format_score(result.get("overall_score")),
                 "Overall Rating": result.get("rating", "Not Rated"),
@@ -326,11 +328,12 @@ def render_summary(result: dict) -> None:
     price_label = "Missing" if current_price is None else f"{current_price:,.2f} {currency}".strip()
 
     st.subheader(f"{result['company_name']} ({result['ticker']})")
-    cols = st.columns(4)
+    cols = st.columns(5)
     cols[0].metric("Overall Score", score_label)
     cols[1].metric("Rating", result.get("rating", "Not Rated"))
     cols[2].metric("Current Price", price_label)
-    cols[3].metric("Available Tabs", sum(1 for tab in result["tabs"].values() if tab["score"] is not None))
+    cols[3].metric("Analysis Profile", result.get("profile", "Industrial"))
+    cols[4].metric("Available Tabs", sum(1 for tab in result["tabs"].values() if tab["score"] is not None))
 
     rating_cols = st.columns(3)
     for index, tab_name in enumerate(["Growth", "Fundamentals", "Value"]):
