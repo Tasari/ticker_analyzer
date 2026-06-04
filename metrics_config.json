@@ -5,6 +5,10 @@
     "Fundamentals": 0.3333,
     "Value": 0.3334
   },
+  "missing_policy": {
+    "require_all_tabs_for_overall": false,
+    "minimum_scored_tabs": 2
+  },
   "rating_thresholds": {
     "very_strong": 80,
     "strong": 60,

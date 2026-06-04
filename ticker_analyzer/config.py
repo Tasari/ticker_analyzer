@@ -60,6 +60,7 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("overall_rating_labels", {})
     normalized.setdefault("tab_rating_labels", {})
     normalized.setdefault("tab_rating_thresholds", {})
+    normalized.setdefault("missing_policy", {"require_all_tabs_for_overall": False, "minimum_scored_tabs": 2})
     validate_config(normalized)
     return normalized
 
@@ -73,6 +74,7 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigValidationError("metrics must be a non-empty object keyed by tab name.")
     validate_thresholds(config.get("rating_thresholds", {}), "rating_thresholds")
     validate_tab_weights(config.get("tab_weights", {}), config["metrics"])
+    validate_missing_policy(config.get("missing_policy", {}))
     for tab_name, metrics in config["metrics"].items():
         if not isinstance(metrics, list) or not metrics:
             raise ConfigValidationError(f"metrics.{tab_name} must be a non-empty list.")
@@ -123,6 +125,17 @@ def validate_metric(metric: dict[str, Any], path: str) -> None:
         raise ConfigValidationError(f"{path}.warn and {path}.good must be numbers.")
     if warn == good:
         raise ConfigValidationError(f"{path}.warn and {path}.good cannot be equal.")
+
+
+def validate_missing_policy(policy: dict[str, Any]) -> None:
+    if not isinstance(policy, dict):
+        raise ConfigValidationError("missing_policy must be an object.")
+    require_all = policy.get("require_all_tabs_for_overall", False)
+    if not isinstance(require_all, bool):
+        raise ConfigValidationError("missing_policy.require_all_tabs_for_overall must be true or false.")
+    minimum = optional_number(policy.get("minimum_scored_tabs", 2))
+    if minimum is None or minimum < 1:
+        raise ConfigValidationError("missing_policy.minimum_scored_tabs must be at least 1.")
 
 
 def optional_number(value: Any) -> float | None:
