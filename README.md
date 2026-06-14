@@ -58,3 +58,13 @@ python -m unittest discover -s tests
 - metric weights, thresholds, directions, units, descriptions, and optional benchmarks.
 
 The app validates the config when loading or saving it. Invalid JSON or inconsistent settings are rejected with an error.
+
+## Architecture
+
+- `ticker_analyzer/engine.py`: analysis orchestration, profile selection, scoring, and result assembly.
+- `ticker_analyzer/metric_builder.py`: builds the raw metric dictionary and chart data.
+- `ticker_analyzer/metric_formulas.py`: Growth and Fundamentals business formulas.
+- `ticker_analyzer/valuation_metrics.py`: analyst estimates, targets, and historical valuation comparisons.
+- `ticker_analyzer/metric_utils.py`: reusable statement, range, CAGR, and ratio helpers.
+- `ticker_analyzer/data_provider.py`: yfinance access and normalization.
+- `ticker_analyzer/scoring.py`: metric, tab, and overall scoring.
