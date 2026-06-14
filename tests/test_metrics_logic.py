@@ -12,10 +12,12 @@ from ticker_analyzer.engine import (
     fcf_yield,
     momentum_12_1,
     overall_score_with_missing_policy,
+    range_ratio_metric,
     statement_ratio_median,
     ttm_range_cagr,
 )
 from ticker_analyzer.scoring import classify_tab_rating
+from ticker_analyzer.domain import AnalysisRanges
 
 
 class MetricsLogicTest(unittest.TestCase):
@@ -51,6 +53,16 @@ class MetricsLogicTest(unittest.TestCase):
         denominator = pd.DataFrame({date: [100] for date in dates}, index=["Assets"])
         self.assertEqual(statement_ratio_median(numerator, ["Debt"], denominator, ["Assets"], 1, multiplier=100), 90)
         self.assertEqual(statement_ratio_median(numerator, ["Debt"], denominator, ["Assets"], 3, multiplier=100), 30)
+
+    def test_multi_year_range_metric_requires_two_observations(self):
+        result = range_ratio_metric([25.0], 4)
+        self.assertIsNone(result["value"])
+        self.assertIn("1 available annual observation", result["note"])
+        self.assertIn("requires at least 2", result["note"])
+
+    def test_default_analysis_range_is_two_years(self):
+        ranges = AnalysisRanges.from_input({})
+        self.assertEqual(ranges.as_dict(), {"Growth": "2Y", "Fundamentals": "2Y", "Value": "2Y"})
 
     def test_fcf_yield_uses_free_cash_flow(self):
         cashflow = pd.DataFrame({pd.Timestamp("2025-12-31"): [50]}, index=["Free Cash Flow"])

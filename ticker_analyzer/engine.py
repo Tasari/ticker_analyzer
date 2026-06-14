@@ -123,8 +123,8 @@ def years_from_range(price_range: str) -> int:
         try:
             return max(1, int(normalized[:-1]))
         except ValueError:
-            return 3
-    return 3
+            return 2
+    return 2
 
 
 def is_empty_ticker_response(
@@ -228,6 +228,14 @@ def build_raw_metrics(
     revenue_estimate_growth = estimate_growth(info, "revenue", revenue_estimate, growth_estimates)
     eps_estimate_growth = estimate_growth(info, "eps", earnings_estimate, growth_estimates)
     price_target_upside = target_upside(info, analyst_targets)
+    fundamentals = build_fundamentals_metrics(
+        info,
+        annual_income,
+        annual_balance,
+        annual_cashflow,
+        quarterly_balance,
+        fundamentals_years,
+    )
 
     raw = {
         "revenue_ttm_range_growth": metric_value(revenue_range_growth, revenue_range_note),
@@ -238,20 +246,20 @@ def build_raw_metrics(
         "price_change": metric_value(momentum, "Adjusted-price momentum from month -13 to month -2, closer to standard 12-1 momentum"),
         "revenue_estimate_growth": metric_value(revenue_estimate_growth, "Uses structured yfinance revenue_estimate when enough analysts are available, then falls back to info fields"),
         "eps_estimate_avg_growth": metric_value(eps_estimate_growth, "Uses structured yfinance earnings_estimate/growth_estimates when enough analysts are available, then falls back to info fields"),
-        "debt_to_assets": metric_value(debt_to_assets(annual_balance, fundamentals_years), range_median_note(fundamentals_years)),
-        "quick_ratio": metric_value(quick_ratio(info, quarterly_balance, annual_balance, fundamentals_years), range_median_note(fundamentals_years, "Uses reported yfinance quickRatio only when statement history is unavailable")),
-        "cfo_to_debt": metric_value(cfo_to_debt(annual_cashflow, annual_balance, fundamentals_years), range_median_note(fundamentals_years)),
-        "interest_coverage": metric_value(interest_coverage(annual_income, fundamentals_years), range_median_note(fundamentals_years)),
+        "debt_to_assets": fundamentals["debt_to_assets"],
+        "quick_ratio": fundamentals["quick_ratio"],
+        "cfo_to_debt": fundamentals["cfo_to_debt"],
+        "interest_coverage": fundamentals["interest_coverage"],
         "ohlson_probability": metric_value(ohlson_probability(annual_income, annual_balance, annual_cashflow), "Ohlson-style distress estimate using annual statements; SIZE is approximated without a market price deflator"),
-        "equity_to_assets": metric_value(equity_to_assets(annual_balance, fundamentals_years), range_median_note(fundamentals_years, "Financial profile capital buffer metric")),
-        "return_on_assets": metric_value(return_on_assets(annual_income, annual_balance, fundamentals_years), range_median_note(fundamentals_years, "Financial profile profitability metric")),
-        "return_on_equity": metric_value(return_on_equity(annual_income, annual_balance, fundamentals_years), range_median_note(fundamentals_years, "Financial profile profitability metric")),
-        "net_margin": metric_value(net_margin(annual_income, fundamentals_years), range_median_note(fundamentals_years, "Financial profile profitability metric")),
-        "ps_vs_3y_median": metric_value(ratio_vs_history(info.get("priceToSalesTrailing12Months"), "ps", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median using year-matched annual financials"),
-        "pe_vs_3y_median": metric_value(ratio_vs_history(info.get("trailingPE"), "pe", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median"),
-        "pb_vs_selected_median": metric_value(ratio_vs_history(current_price_to_book(info, annual_balance), "pb", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Financial profile value metric; compared with approximate {value_years}Y median using year-matched book equity"),
-        "ev_ebitda_vs_5y_median": metric_value(ratio_vs_history(info.get("enterpriseToEbitda"), "ev_ebitda", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median using year-matched annual financials"),
-        "price_to_cfo_vs_5y_median": metric_value(ratio_vs_history(current_price_to_cfo(info, annual_cashflow), "price_to_cfo", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median using year-matched annual financials"),
+        "equity_to_assets": fundamentals["equity_to_assets"],
+        "return_on_assets": fundamentals["return_on_assets"],
+        "return_on_equity": fundamentals["return_on_equity"],
+        "net_margin": fundamentals["net_margin"],
+        "ps_vs_3y_median": ratio_vs_history_metric(info.get("priceToSalesTrailing12Months"), "ps", value_history, annual_income, annual_balance, annual_cashflow, years=value_years),
+        "pe_vs_3y_median": ratio_vs_history_metric(info.get("trailingPE"), "pe", value_history, annual_income, annual_balance, annual_cashflow, years=value_years),
+        "pb_vs_selected_median": ratio_vs_history_metric(current_price_to_book(info, annual_balance), "pb", value_history, annual_income, annual_balance, annual_cashflow, years=value_years, prefix="Financial profile value metric"),
+        "ev_ebitda_vs_5y_median": ratio_vs_history_metric(info.get("enterpriseToEbitda"), "ev_ebitda", value_history, annual_income, annual_balance, annual_cashflow, years=value_years),
+        "price_to_cfo_vs_5y_median": ratio_vs_history_metric(current_price_to_cfo(info, annual_cashflow), "price_to_cfo", value_history, annual_income, annual_balance, annual_cashflow, years=value_years),
         "fcf_yield": metric_value(fcf_yield(info, annual_cashflow), "Latest annual free cash flow divided by current market capitalization"),
         "price_target": metric_value(price_target_upside),
         "upside_vs_configured_benchmark": metric_value(None, "Uses configured benchmark because historical analyst upside is unavailable"),
@@ -399,8 +407,8 @@ def ttm_range_cagr(
     )
 
 
-def range_median_note(years: int, prefix: str = "") -> str:
-    detail = f"Median of up to {years} latest annual observation(s)"
+def range_median_note(years: int, observations: int, prefix: str = "") -> str:
+    detail = f"Selected {years}Y range; median from {observations} available annual observation(s)"
     return f"{prefix}; {detail}" if prefix else detail
 
 
@@ -488,6 +496,103 @@ def net_margin(income: pd.DataFrame, years: int = 1) -> float | None:
     )
 
 
+def build_fundamentals_metrics(
+    info: dict[str, Any],
+    income: pd.DataFrame,
+    balance: pd.DataFrame,
+    cashflow: pd.DataFrame,
+    quarterly_balance: pd.DataFrame,
+    years: int,
+) -> dict[str, dict[str, Any]]:
+    return {
+        "debt_to_assets": range_ratio_metric(
+            statement_ratio_observations(
+                balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"],
+                balance, ["Total Assets"], years, multiplier=100,
+            ),
+            years,
+        ),
+        "quick_ratio": quick_ratio_range_metric(info, quarterly_balance, balance, years),
+        "cfo_to_debt": range_ratio_metric(
+            statement_ratio_observations(
+                cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"],
+                balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"],
+                years, zero_denominator_cap=10.0,
+            ),
+            years,
+        ),
+        "interest_coverage": range_ratio_metric(
+            statement_ratio_observations(
+                income, ["Operating Income", "EBIT"],
+                income, ["Interest Expense", "Interest Expense Non Operating"],
+                years, absolute_denominator=True,
+            ),
+            years,
+        ),
+        "equity_to_assets": range_ratio_metric(
+            statement_ratio_observations(
+                balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"],
+                balance, ["Total Assets"], years, multiplier=100,
+            ),
+            years,
+            "Financial profile capital buffer metric",
+        ),
+        "return_on_assets": range_ratio_metric(
+            statement_ratio_observations(
+                income, ["Net Income", "Net Income Common Stockholders"],
+                balance, ["Total Assets"], years, multiplier=100,
+            ),
+            years,
+            "Financial profile profitability metric",
+        ),
+        "return_on_equity": range_ratio_metric(
+            statement_ratio_observations(
+                income, ["Net Income", "Net Income Common Stockholders"],
+                balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"],
+                years, multiplier=100,
+            ),
+            years,
+            "Financial profile profitability metric",
+        ),
+        "net_margin": range_ratio_metric(
+            statement_ratio_observations(
+                income, ["Net Income", "Net Income Common Stockholders"],
+                income, ["Total Revenue", "Operating Revenue"], years, multiplier=100,
+            ),
+            years,
+            "Financial profile profitability metric",
+        ),
+    }
+
+
+def range_ratio_metric(observations: list[float], years: int, prefix: str = "") -> dict[str, Any]:
+    minimum = 1 if years == 1 else 2
+    count = len(observations)
+    note = range_median_note(years, count, prefix)
+    if count < minimum:
+        return metric_value(None, f"{note}; requires at least {minimum} observation(s)")
+    return metric_value(median_or_none(observations), note)
+
+
+def quick_ratio_range_metric(
+    info: dict[str, Any],
+    quarterly_balance: pd.DataFrame,
+    annual_balance: pd.DataFrame,
+    years: int,
+) -> dict[str, Any]:
+    observations = quick_ratio_observations(annual_balance, years)
+    minimum = 1 if years == 1 else 2
+    if len(observations) >= minimum:
+        return metric_value(median_or_none(observations), range_median_note(years, len(observations)))
+    reported = clean_number(info.get("quickRatio"))
+    if years == 1 and reported is not None:
+        return metric_value(reported, "Latest reported yfinance quickRatio; annual statement ratio unavailable")
+    fallback = quick_ratio(info, quarterly_balance, pd.DataFrame(), 1)
+    if years == 1 and fallback is not None:
+        return metric_value(fallback, "Latest quarterly balance-sheet fallback; annual statement ratio unavailable")
+    return metric_value(None, f"{range_median_note(years, len(observations))}; requires at least {minimum} observation(s)")
+
+
 def quick_ratio(
     info: dict[str, Any],
     quarterly_balance: pd.DataFrame,
@@ -514,9 +619,13 @@ def quick_ratio(
 
 
 def quick_ratio_median(balance: pd.DataFrame, years: int) -> float | None:
+    return median_or_none(quick_ratio_observations(balance, years))
+
+
+def quick_ratio_observations(balance: pd.DataFrame, years: int) -> list[float]:
     liabilities = row_values(balance, ["Current Liabilities", "Total Current Liabilities"])
     if liabilities.empty:
-        return None
+        return []
     combined_cash = row_values(balance, ["Cash Cash Equivalents And Short Term Investments"])
     cash = row_values(balance, ["Cash And Cash Equivalents"])
     investments = row_values(balance, ["Other Short Term Investments"])
@@ -531,7 +640,7 @@ def quick_ratio_median(balance: pd.DataFrame, years: int) -> float | None:
             liquid = (value_on_or_before(cash, date) or 0) + (value_on_or_before(investments, date) or 0)
         receivable = value_on_or_before(receivables, date) or 0
         ratios.append((liquid + receivable) / liability)
-    return median_or_none(ratios)
+    return ratios
 
 
 def statement_ratio_median(
@@ -545,10 +654,35 @@ def statement_ratio_median(
     absolute_denominator: bool = False,
     zero_denominator_cap: float | None = None,
 ) -> float | None:
+    return median_or_none(
+        statement_ratio_observations(
+            numerator_frame,
+            numerator_names,
+            denominator_frame,
+            denominator_names,
+            years,
+            multiplier=multiplier,
+            absolute_denominator=absolute_denominator,
+            zero_denominator_cap=zero_denominator_cap,
+        )
+    )
+
+
+def statement_ratio_observations(
+    numerator_frame: pd.DataFrame,
+    numerator_names: list[str],
+    denominator_frame: pd.DataFrame,
+    denominator_names: list[str],
+    years: int,
+    *,
+    multiplier: float = 1.0,
+    absolute_denominator: bool = False,
+    zero_denominator_cap: float | None = None,
+) -> list[float]:
     numerators = row_values(numerator_frame, numerator_names)
     denominators = row_values(denominator_frame, denominator_names)
     if numerators.empty or denominators.empty:
-        return None
+        return []
     ratios: list[float] = []
     for date, numerator_value in numerators.tail(years).items():
         numerator = clean_number(numerator_value)
@@ -563,7 +697,7 @@ def statement_ratio_median(
         if denominator < 0:
             continue
         ratios.append(numerator / denominator * multiplier)
-    return median_or_none(ratios)
+    return ratios
 
 
 def median_or_none(values: list[float]) -> float | None:
@@ -765,6 +899,31 @@ def ratio_vs_history(
     return (current - historical) / abs(historical) * 100
 
 
+def ratio_vs_history_metric(
+    current_ratio: Any,
+    ratio_name: str,
+    history: pd.DataFrame,
+    income: pd.DataFrame,
+    balance: pd.DataFrame,
+    cashflow: pd.DataFrame,
+    *,
+    years: int,
+    prefix: str = "",
+) -> dict[str, Any]:
+    current = clean_number(current_ratio)
+    ratios = approximate_historical_ratios(ratio_name, history, income, balance, cashflow, years)
+    minimum = 1 if years == 1 else 2
+    note = range_median_note(years, len(ratios), prefix)
+    if current is None:
+        return metric_value(None, f"{note}; current ratio unavailable")
+    if len(ratios) < minimum:
+        return metric_value(None, f"{note}; requires at least {minimum} observation(s)")
+    historical = median_or_none(ratios)
+    if historical in (None, 0):
+        return metric_value(None, f"{note}; historical median unavailable")
+    return metric_value((current - historical) / abs(historical) * 100, note)
+
+
 def approximate_historical_ratio(
     ratio_name: str,
     history: pd.DataFrame,
@@ -773,11 +932,22 @@ def approximate_historical_ratio(
     cashflow: pd.DataFrame,
     years: int,
 ) -> float | None:
+    return median_or_none(approximate_historical_ratios(ratio_name, history, income, balance, cashflow, years))
+
+
+def approximate_historical_ratios(
+    ratio_name: str,
+    history: pd.DataFrame,
+    income: pd.DataFrame,
+    balance: pd.DataFrame,
+    cashflow: pd.DataFrame,
+    years: int,
+) -> list[float]:
     if history.empty or "Close" not in history:
-        return None
+        return []
     annual_prices = pd.to_numeric(history["Close"], errors="coerce").dropna().resample("YE").median().tail(years)
     if annual_prices.empty:
-        return None
+        return []
 
     shares_series = row_values(balance, ["Ordinary Shares Number", "Share Issued", "Common Stock Shares Outstanding"])
     revenue_series = row_values(income, ["Total Revenue", "Operating Revenue"])
@@ -812,9 +982,7 @@ def approximate_historical_ratio(
             ratio = clean_number(market_cap / denominator)
             if ratio and ratio > 0:
                 ratios.append(ratio)
-    if not ratios:
-        return None
-    return float(np.median(ratios))
+    return ratios
 
 
 def value_on_or_before(values: pd.Series, date: Any) -> float | None:

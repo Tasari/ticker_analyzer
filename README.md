@@ -23,6 +23,7 @@ python -m unittest discover -s tests
 - Compare selected companies in a Summary view, then inspect each company in detail.
 - Separate Growth, Fundamentals, and Value tabs.
 - Separate range selectors for Growth, Fundamentals, and Value. Fundamentals metrics use medians over the selected annual range where applicable.
+- Available analysis ranges are `1Y`, `2Y`, and `3Y`. A 3Y maximum is more reliable across Growth, Fundamentals, and Value because longer CAGR windows often exceed the statement depth available from yfinance.
 - Rule-based scorecards with configurable metric weights, thresholds, tab weights, and rating labels.
 - Editable scoring configuration saved locally in `metrics_config.json`.
 - Missing data warnings and partial ratings when enough, but not all, tabs can be scored.
@@ -38,6 +39,7 @@ python -m unittest discover -s tests
 - Industrial companies use balance-sheet, liquidity, cash-flow, interest-coverage, and distress metrics.
 - Financial companies use a separate profile with financial-sector metrics such as equity to assets, return on assets, return on equity, net margin, P/E vs historical median, and P/B vs historical median.
 - Value metrics compare current valuation multiples against approximate historical medians for the selected Value range.
+- Multi-year Fundamentals and Value medians require at least two valid historical observations and report the actual observation count used.
 - Industrial Value includes Free Cash Flow Yield.
 - Analyst price target has a low default weight, and the benchmark upside metric is visible but has zero default weight to avoid double counting.
 
