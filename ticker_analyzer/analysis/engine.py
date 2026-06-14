@@ -4,10 +4,15 @@ from typing import Any
 
 import pandas as pd
 
-from ticker_analyzer.data_provider import YFinanceProvider
+from ticker_analyzer.data_provider import MarketDataProvider, YFinanceProvider
 from ticker_analyzer.domain import AnalysisRanges, MarketData, StockAnalysis
-# Re-export metric helpers here to preserve the original public import surface.
-from ticker_analyzer.metrics import *
+from ticker_analyzer.metrics.builder import (
+    apply_configured_metric_fallbacks,
+    build_charts_data,
+    build_raw_metrics,
+)
+from ticker_analyzer.metrics.formulas import is_financial_company
+from ticker_analyzer.metrics.utils import clean_number
 from ticker_analyzer.scoring import ScoringEngine
 
 
@@ -19,7 +24,7 @@ def analyze_ticker(ticker_symbol: str, ranges: str | dict[str, str], config: dic
 class StockAnalysisEngine:
     def __init__(
         self,
-        provider: YFinanceProvider | None = None,
+        provider: MarketDataProvider | None = None,
         scoring: ScoringEngine | None = None,
     ) -> None:
         self.provider = provider or YFinanceProvider()
@@ -50,7 +55,6 @@ class StockAnalysisEngine:
             quarterly_cashflow=data.quarterly_cashflow,
             growth_history=data.growth_history,
             value_history=data.value_history,
-            earnings_dates=data.earnings_dates,
             analyst_targets=data.analyst_targets,
             revenue_estimate=data.revenue_estimate,
             earnings_estimate=data.earnings_estimate,

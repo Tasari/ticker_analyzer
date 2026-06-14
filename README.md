@@ -17,6 +17,8 @@ streamlit run app.py
 python -m unittest discover -s tests
 ```
 
+The suite contains formula-level tests and network-free integration tests for the full analysis engine. GitHub Actions runs the same suite on every push to `main` and every pull request.
+
 ## Features
 
 - Search and select up to five tickers supported by `yfinance`.
@@ -69,3 +71,5 @@ The app validates the config when loading or saving it. Invalid JSON or inconsis
 - `ticker_analyzer/engine.py`: backward-compatible exports for existing imports.
 - `ticker_analyzer/data_provider.py`: yfinance access and normalization.
 - `ticker_analyzer/scoring.py`: metric, tab, and overall scoring.
+
+Metric IDs referring to a historical median use `selected_median`, because the comparison period follows the Value range selected in the UI. Config version 2 automatically migrates the older fixed-range IDs when loading them.

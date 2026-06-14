@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "tab_weights": {
     "Growth": 0.3333,
     "Fundamentals": 0.3333,
@@ -173,7 +173,7 @@
       ],
       "Value": [
         {
-          "id": "pe_vs_3y_median",
+          "id": "pe_vs_selected_median",
           "name": "P/E Ratio vs Selected Range Median",
           "weight": 1.1,
           "direction": "lower",
@@ -392,7 +392,7 @@
     ],
     "Value": [
       {
-        "id": "ps_vs_3y_median",
+        "id": "ps_vs_selected_median",
         "name": "P/S Ratio vs Selected Range Median",
         "weight": 0.9,
         "direction": "lower",
@@ -402,7 +402,7 @@
         "description": "P/S Ratio vs Selected Range Median compares the current price-to-sales ratio with its approximate median over the selected Value range. A lower current P/S than the historical median suggests the stock may be cheaper relative to sales, supporting an Underpriced value signal."
       },
       {
-        "id": "pe_vs_3y_median",
+        "id": "pe_vs_selected_median",
         "name": "P/E Ratio vs Selected Range Median",
         "weight": 1.1,
         "direction": "lower",
@@ -412,7 +412,7 @@
         "description": "P/E Ratio vs Selected Range Median compares the current price-to-earnings ratio with its approximate median over the selected Value range. A lower current P/E than the historical median suggests the stock may be cheaper relative to earnings."
       },
       {
-        "id": "ev_ebitda_vs_5y_median",
+        "id": "ev_ebitda_vs_selected_median",
         "name": "EV/EBITDA vs Selected Range Median",
         "weight": 1.25,
         "direction": "lower",
@@ -422,7 +422,7 @@
         "description": "EV/EBITDA vs Selected Range Median compares current enterprise value to EBITDA with its approximate median over the selected Value range. It evaluates valuation before capital structure effects. Lower than median supports an Underpriced value signal."
       },
       {
-        "id": "price_to_cfo_vs_5y_median",
+        "id": "price_to_cfo_vs_selected_median",
         "name": "Price to CFO Per Share vs Selected Range Median",
         "weight": 1.25,
         "direction": "lower",

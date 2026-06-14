@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 
 CONFIG_PATH = Path("metrics_config.json")
-CONFIG_VERSION = 1
+CONFIG_VERSION = 2
+
+LEGACY_METRIC_IDS = {
+    "ps_vs_3y_median": "ps_vs_selected_median",
+    "pe_vs_3y_median": "pe_vs_selected_median",
+    "ev_ebitda_vs_5y_median": "ev_ebitda_vs_selected_median",
+    "price_to_cfo_vs_5y_median": "price_to_cfo_vs_selected_median",
+}
 
 
 class ConfigValidationError(ValueError):
@@ -53,8 +61,8 @@ def save_config(config: dict[str, Any], path: Path = CONFIG_PATH) -> None:
 def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(config, dict):
         raise ConfigValidationError("Configuration must be a JSON object.")
-    normalized = dict(config)
-    normalized.setdefault("version", CONFIG_VERSION)
+    normalized = deepcopy(config)
+    normalized["version"] = CONFIG_VERSION
     normalized.setdefault("tab_weights", {})
     normalized.setdefault("rating_thresholds", {})
     normalized.setdefault("overall_rating_labels", {})
@@ -62,8 +70,22 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("tab_rating_thresholds", {})
     normalized.setdefault("missing_policy", {"require_all_tabs_for_overall": False, "minimum_scored_tabs": 2})
     normalized.setdefault("profile_metrics", {})
+    migrate_metric_ids(normalized.get("metrics", {}))
+    for profile_metrics in normalized["profile_metrics"].values():
+        migrate_metric_ids(profile_metrics)
     validate_config(normalized)
     return normalized
+
+
+def migrate_metric_ids(metrics_by_tab: dict[str, Any]) -> None:
+    if not isinstance(metrics_by_tab, dict):
+        return
+    for metrics in metrics_by_tab.values():
+        if not isinstance(metrics, list):
+            continue
+        for metric in metrics:
+            if isinstance(metric, dict):
+                metric["id"] = LEGACY_METRIC_IDS.get(metric.get("id"), metric.get("id"))
 
 
 def validate_config(config: dict[str, Any]) -> None:
