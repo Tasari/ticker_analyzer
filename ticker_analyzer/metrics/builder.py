@@ -4,9 +4,34 @@ from typing import Any
 
 import pandas as pd
 
-from ticker_analyzer.metrics.formulas import *
-from ticker_analyzer.metrics.utils import *
-from ticker_analyzer.metrics.valuation import *
+from ticker_analyzer.metrics.formulas import (
+    build_fundamentals_metrics,
+    gross_margin_trend,
+    ohlson_probability,
+    operating_margin,
+    share_count_cagr,
+)
+from ticker_analyzer.metrics.utils import (
+    cagr_pct,
+    clean_number,
+    latest_row_value,
+    metric_value,
+    momentum_12_1,
+    percent_change,
+    row_values,
+    statement_value_years_ago,
+    sum_recent,
+    sum_window,
+    ttm_range_cagr,
+)
+from ticker_analyzer.metrics.valuation import (
+    current_price_to_book,
+    current_price_to_cfo,
+    estimate_growth,
+    fcf_yield,
+    ratio_vs_history_metric,
+    target_upside,
+)
 
 __all__ = ["build_raw_metrics", "apply_configured_metric_fallbacks", "build_charts_data"]
 
@@ -22,7 +47,6 @@ def build_raw_metrics(
     quarterly_cashflow: pd.DataFrame,
     growth_history: pd.DataFrame,
     value_history: pd.DataFrame,
-    earnings_dates: pd.DataFrame,
     analyst_targets: dict[str, Any],
     revenue_estimate: pd.DataFrame,
     earnings_estimate: pd.DataFrame,
@@ -92,11 +116,11 @@ def build_raw_metrics(
         "return_on_assets": fundamentals["return_on_assets"],
         "return_on_equity": fundamentals["return_on_equity"],
         "net_margin": fundamentals["net_margin"],
-        "ps_vs_3y_median": ratio_vs_history_metric(info.get("priceToSalesTrailing12Months"), "ps", value_history, annual_income, annual_balance, annual_cashflow, years=value_years),
-        "pe_vs_3y_median": ratio_vs_history_metric(info.get("trailingPE"), "pe", value_history, annual_income, annual_balance, annual_cashflow, years=value_years),
+        "ps_vs_selected_median": ratio_vs_history_metric(info.get("priceToSalesTrailing12Months"), "ps", value_history, annual_income, annual_balance, annual_cashflow, years=value_years),
+        "pe_vs_selected_median": ratio_vs_history_metric(info.get("trailingPE"), "pe", value_history, annual_income, annual_balance, annual_cashflow, years=value_years),
         "pb_vs_selected_median": ratio_vs_history_metric(current_price_to_book(info, annual_balance), "pb", value_history, annual_income, annual_balance, annual_cashflow, years=value_years, prefix="Financial profile value metric"),
-        "ev_ebitda_vs_5y_median": ratio_vs_history_metric(info.get("enterpriseToEbitda"), "ev_ebitda", value_history, annual_income, annual_balance, annual_cashflow, years=value_years),
-        "price_to_cfo_vs_5y_median": ratio_vs_history_metric(current_price_to_cfo(info, annual_cashflow), "price_to_cfo", value_history, annual_income, annual_balance, annual_cashflow, years=value_years),
+        "ev_ebitda_vs_selected_median": ratio_vs_history_metric(info.get("enterpriseToEbitda"), "ev_ebitda", value_history, annual_income, annual_balance, annual_cashflow, years=value_years),
+        "price_to_cfo_vs_selected_median": ratio_vs_history_metric(current_price_to_cfo(info, annual_cashflow), "price_to_cfo", value_history, annual_income, annual_balance, annual_cashflow, years=value_years),
         "fcf_yield": metric_value(fcf_yield(info, annual_cashflow), "Latest annual free cash flow divided by current market capitalization"),
         "price_target": metric_value(price_target_upside),
         "upside_vs_configured_benchmark": metric_value(None, "Uses configured benchmark because historical analyst upside is unavailable"),

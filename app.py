@@ -33,7 +33,7 @@ def main() -> None:
         analyze_clicked = st.button(
             "Analyze",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             disabled=not st.session_state.selected_tickers,
         )
         st.divider()
@@ -238,7 +238,7 @@ def render_comparison_table(results: list[dict]) -> None:
                 "Value": format_tab_summary(result, "Value"),
             }
         )
-    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
 
 def render_metric_comparison(results: list[dict]) -> None:
@@ -268,7 +268,7 @@ def render_metric_comparison(results: list[dict]) -> None:
             row[ticker] = f"{format_metric_value(metric.value, metric.unit)} | {metric.status}{score}"
         row["Metric"] = metric_name
         rows.append(row)
-    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
 
 def format_company_price(result: dict) -> str:
@@ -389,7 +389,7 @@ def render_line_chart(frame: pd.DataFrame | None, title: str) -> None:
     chart_frame = chart_frame.reset_index(names="Date")
     melted = chart_frame.melt(id_vars="Date", var_name="Metric", value_name="Value")
     fig = px.line(melted, x="Date", y="Value", color="Metric", markers=True, title=title)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def render_metrics_table(metrics: list) -> None:
@@ -464,7 +464,7 @@ def render_config_editor(config: dict) -> None:
             label_visibility="collapsed",
         )
         cols = st.columns(2)
-        if cols[0].button("Save settings", use_container_width=True):
+        if cols[0].button("Save settings", width="stretch"):
             try:
                 parsed = json.loads(edited)
                 save_config(parsed)
@@ -472,7 +472,7 @@ def render_config_editor(config: dict) -> None:
                 st.rerun()
             except Exception as exc:
                 st.error(f"Could not save settings: {exc}")
-        if cols[1].button("Reload settings", use_container_width=True):
+        if cols[1].button("Reload settings", width="stretch"):
             st.rerun()
 
 

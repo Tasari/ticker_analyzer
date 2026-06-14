@@ -122,7 +122,6 @@ class MarketData:
     quarterly_cashflow: pd.DataFrame
     growth_history: pd.DataFrame
     value_history: pd.DataFrame
-    earnings_dates: pd.DataFrame
     analyst_targets: dict[str, Any]
     revenue_estimate: pd.DataFrame
     earnings_estimate: pd.DataFrame
