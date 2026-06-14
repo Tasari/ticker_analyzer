@@ -10,9 +10,14 @@ from ticker_analyzer.engine import (
     config_for_profile,
     estimate_growth,
     fcf_yield,
+    fcf_margin_observations,
+    gross_margin_trend,
     momentum_12_1,
+    net_debt_to_ebitda_observations,
     overall_score_with_missing_policy,
     range_ratio_metric,
+    roic_observations,
+    share_count_cagr,
     statement_ratio_median,
     ttm_range_cagr,
 )
@@ -67,6 +72,42 @@ class MetricsLogicTest(unittest.TestCase):
     def test_fcf_yield_uses_free_cash_flow(self):
         cashflow = pd.DataFrame({pd.Timestamp("2025-12-31"): [50]}, index=["Free Cash Flow"])
         self.assertEqual(fcf_yield({"marketCap": 1000}, cashflow), 5.0)
+
+    def test_share_count_cagr_detects_dilution(self):
+        dates = pd.date_range("2023-12-31", periods=3, freq="YE")
+        balance = pd.DataFrame({date: [value] for date, value in zip(dates, [100, 110, 121])}, index=["Ordinary Shares Number"])
+        self.assertAlmostEqual(share_count_cagr(balance, 2), 10.0)
+
+    def test_gross_margin_trend_returns_percentage_point_change(self):
+        dates = pd.date_range("2024-12-31", periods=2, freq="YE")
+        income = pd.DataFrame(
+            {
+                dates[0]: [40, 100],
+                dates[1]: [50, 100],
+            },
+            index=["Gross Profit", "Total Revenue"],
+        )
+        self.assertAlmostEqual(gross_margin_trend(income, 1), 10.0)
+
+    def test_roic_observations_use_nopat_and_invested_capital(self):
+        date = pd.Timestamp("2025-12-31")
+        income = pd.DataFrame({date: [100, 0.2]}, index=["EBIT", "Tax Rate For Calcs"])
+        balance = pd.DataFrame({date: [400]}, index=["Invested Capital"])
+        self.assertEqual(roic_observations(income, balance, 1), [20.0])
+
+    def test_roic_observations_accept_percentage_tax_rate(self):
+        date = pd.Timestamp("2025-12-31")
+        income = pd.DataFrame({date: [100, 20]}, index=["EBIT", "Tax Rate For Calcs"])
+        balance = pd.DataFrame({date: [400]}, index=["Invested Capital"])
+        self.assertEqual(roic_observations(income, balance, 1), [20.0])
+
+    def test_fcf_margin_and_net_debt_to_ebitda_observations(self):
+        date = pd.Timestamp("2025-12-31")
+        income = pd.DataFrame({date: [200, 50]}, index=["Total Revenue", "EBITDA"])
+        cashflow = pd.DataFrame({date: [20]}, index=["Free Cash Flow"])
+        balance = pd.DataFrame({date: [100]}, index=["Net Debt"])
+        self.assertEqual(fcf_margin_observations(income, cashflow, 1), [10.0])
+        self.assertEqual(net_debt_to_ebitda_observations(income, balance, 1), [2.0])
 
     def test_tab_rating_uses_configured_tab_thresholds(self):
         config = {

@@ -243,6 +243,8 @@ def build_raw_metrics(
         "net_income_range_growth": metric_value(cagr_pct(latest_row_value(annual_income, ["Net Income", "Net Income Common Stockholders"]), net_income_range_base, growth_years), f"Latest annual net income CAGR over {growth_years} fiscal year(s); missing when the base or current value is not positive"),
         "cfo_range_growth": metric_value(cfo_range_growth, cfo_range_note),
         "operating_margin": metric_value(operating_margin(annual_income)),
+        "gross_margin_trend": metric_value(gross_margin_trend(annual_income, growth_years), f"Gross margin change over {growth_years} fiscal year(s)"),
+        "share_count_cagr": metric_value(share_count_cagr(annual_balance, growth_years), f"Ordinary share count CAGR over {growth_years} fiscal year(s); positive values indicate dilution"),
         "price_change": metric_value(momentum, "Adjusted-price momentum from month -13 to month -2, closer to standard 12-1 momentum"),
         "revenue_estimate_growth": metric_value(revenue_estimate_growth, "Uses structured yfinance revenue_estimate when enough analysts are available, then falls back to info fields"),
         "eps_estimate_avg_growth": metric_value(eps_estimate_growth, "Uses structured yfinance earnings_estimate/growth_estimates when enough analysts are available, then falls back to info fields"),
@@ -250,7 +252,11 @@ def build_raw_metrics(
         "quick_ratio": fundamentals["quick_ratio"],
         "cfo_to_debt": fundamentals["cfo_to_debt"],
         "interest_coverage": fundamentals["interest_coverage"],
-        "ohlson_probability": metric_value(ohlson_probability(annual_income, annual_balance, annual_cashflow), "Ohlson-style distress estimate using annual statements; SIZE is approximated without a market price deflator"),
+        "ohlson_probability": metric_value(ohlson_probability(annual_income, annual_balance, annual_cashflow), "Ohlson-style informational distress estimate; excluded from scoring until market calibration is validated"),
+        "roic": fundamentals["roic"],
+        "fcf_margin": fundamentals["fcf_margin"],
+        "accruals_ratio": fundamentals["accruals_ratio"],
+        "net_debt_to_ebitda": fundamentals["net_debt_to_ebitda"],
         "equity_to_assets": fundamentals["equity_to_assets"],
         "return_on_assets": fundamentals["return_on_assets"],
         "return_on_equity": fundamentals["return_on_equity"],
@@ -441,6 +447,29 @@ def operating_margin(income: pd.DataFrame) -> float | None:
     return operating_income / revenue * 100
 
 
+def gross_margin_trend(income: pd.DataFrame, years: int) -> float | None:
+    gross_profit = row_values(income, ["Gross Profit"])
+    revenue = row_values(income, ["Total Revenue", "Operating Revenue"])
+    if len(gross_profit) < years + 1:
+        return None
+    current_date = gross_profit.index[-1]
+    base_date = gross_profit.index[-(years + 1)]
+    current_revenue = value_on_or_before(revenue, current_date)
+    base_revenue = value_on_or_before(revenue, base_date)
+    current_profit = clean_number(gross_profit.iloc[-1])
+    base_profit = clean_number(gross_profit.iloc[-(years + 1)])
+    if current_profit is None or base_profit is None or current_revenue in (None, 0) or base_revenue in (None, 0):
+        return None
+    return (current_profit / current_revenue - base_profit / base_revenue) * 100
+
+
+def share_count_cagr(balance: pd.DataFrame, years: int) -> float | None:
+    shares = row_values(balance, ["Ordinary Shares Number", "Share Issued", "Common Stock Shares Outstanding"])
+    if len(shares) < years + 1:
+        return None
+    return cagr_pct(shares.iloc[-1], shares.iloc[-(years + 1)], years)
+
+
 def debt_to_assets(balance: pd.DataFrame, years: int = 1) -> float | None:
     return statement_ratio_median(
         balance,
@@ -562,6 +591,10 @@ def build_fundamentals_metrics(
             years,
             "Financial profile profitability metric",
         ),
+        "roic": range_ratio_metric(roic_observations(income, balance, years), years),
+        "fcf_margin": range_ratio_metric(fcf_margin_observations(income, cashflow, years), years),
+        "accruals_ratio": range_ratio_metric(accruals_ratio_observations(income, balance, cashflow, years), years),
+        "net_debt_to_ebitda": range_ratio_metric(net_debt_to_ebitda_observations(income, balance, years), years),
     }
 
 
@@ -641,6 +674,108 @@ def quick_ratio_observations(balance: pd.DataFrame, years: int) -> list[float]:
         receivable = value_on_or_before(receivables, date) or 0
         ratios.append((liquid + receivable) / liability)
     return ratios
+
+
+def roic_observations(income: pd.DataFrame, balance: pd.DataFrame, years: int) -> list[float]:
+    ebit = row_values(income, ["EBIT", "Operating Income"])
+    tax_rates = row_values(income, ["Tax Rate For Calcs"])
+    invested_capital = row_values(balance, ["Invested Capital"])
+    values: list[float] = []
+    for date, ebit_value in ebit.tail(years).items():
+        capital = value_on_or_before(invested_capital, date)
+        tax_rate = value_on_or_before(tax_rates, date)
+        ebit_number = clean_number(ebit_value)
+        if ebit_number is None or capital is None or capital <= 0:
+            continue
+        if tax_rate is None:
+            normalized_tax_rate = 0.21
+        else:
+            normalized_tax_rate = tax_rate / 100 if tax_rate > 1 else tax_rate
+            normalized_tax_rate = min(max(normalized_tax_rate, 0), 1)
+        values.append(ebit_number * (1 - normalized_tax_rate) / capital * 100)
+    return values
+
+
+def fcf_margin_observations(income: pd.DataFrame, cashflow: pd.DataFrame, years: int) -> list[float]:
+    revenue = row_values(income, ["Total Revenue", "Operating Revenue"])
+    free_cash_flow = free_cash_flow_series(cashflow)
+    return aligned_ratio_observations(free_cash_flow, revenue, years, multiplier=100)
+
+
+def accruals_ratio_observations(
+    income: pd.DataFrame,
+    balance: pd.DataFrame,
+    cashflow: pd.DataFrame,
+    years: int,
+) -> list[float]:
+    net_income = row_values(income, ["Net Income", "Net Income Common Stockholders"])
+    cfo = row_values(cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"])
+    assets = row_values(balance, ["Total Assets"])
+    values: list[float] = []
+    for date, net_income_value in net_income.tail(years).items():
+        ni = clean_number(net_income_value)
+        operating_cash = value_on_or_before(cfo, date)
+        total_assets = value_on_or_before(assets, date)
+        if ni is None or operating_cash is None or total_assets in (None, 0):
+            continue
+        values.append((ni - operating_cash) / total_assets * 100)
+    return values
+
+
+def net_debt_to_ebitda_observations(income: pd.DataFrame, balance: pd.DataFrame, years: int) -> list[float]:
+    ebitda = row_values(income, ["EBITDA", "Normalized EBITDA"])
+    net_debt = row_values(balance, ["Net Debt"])
+    debt = row_values(balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"])
+    cash = row_values(balance, ["Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents"])
+    values: list[float] = []
+    for date, ebitda_value in ebitda.tail(years).items():
+        denominator = clean_number(ebitda_value)
+        if denominator is None or denominator <= 0:
+            continue
+        numerator = value_on_or_before(net_debt, date)
+        if numerator is None:
+            total_debt = value_on_or_before(debt, date)
+            cash_value = value_on_or_before(cash, date) or 0
+            if total_debt is None:
+                continue
+            numerator = total_debt - cash_value
+        values.append(numerator / denominator)
+    return values
+
+
+def free_cash_flow_series(cashflow: pd.DataFrame) -> pd.Series:
+    reported = row_values(cashflow, ["Free Cash Flow"])
+    if not reported.empty:
+        return reported
+    cfo = row_values(cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"])
+    capex = row_values(cashflow, ["Capital Expenditure", "Capital Expenditures"])
+    if cfo.empty or capex.empty:
+        return pd.Series(dtype=float)
+    values: dict[Any, float] = {}
+    for date, cfo_value in cfo.items():
+        operating_cash = clean_number(cfo_value)
+        capital_expenditure = value_on_or_before(capex, date)
+        if operating_cash is None or capital_expenditure is None:
+            continue
+        values[date] = operating_cash + capital_expenditure if capital_expenditure < 0 else operating_cash - capital_expenditure
+    return pd.Series(values, dtype=float)
+
+
+def aligned_ratio_observations(
+    numerators: pd.Series,
+    denominators: pd.Series,
+    years: int,
+    *,
+    multiplier: float = 1.0,
+) -> list[float]:
+    values: list[float] = []
+    for date, numerator_value in numerators.tail(years).items():
+        numerator = clean_number(numerator_value)
+        denominator = value_on_or_before(denominators, date)
+        if numerator is None or denominator in (None, 0):
+            continue
+        values.append(numerator / denominator * multiplier)
+    return values
 
 
 def statement_ratio_median(
