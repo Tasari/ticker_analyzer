@@ -5,7 +5,7 @@ from typing import Any
 
 import pandas as pd
 
-from ticker_analyzer.metric_utils import *
+from ticker_analyzer.metrics.utils import *
 
 
 def is_financial_company(info: dict[str, Any]) -> bool:
