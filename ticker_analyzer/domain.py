@@ -119,6 +119,7 @@ class MarketData:
     annual_cashflow: pd.DataFrame
     quarterly_income: pd.DataFrame
     quarterly_balance: pd.DataFrame
+    quarterly_cashflow: pd.DataFrame
     growth_history: pd.DataFrame
     value_history: pd.DataFrame
     earnings_dates: pd.DataFrame

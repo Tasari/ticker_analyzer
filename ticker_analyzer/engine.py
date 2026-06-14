@@ -47,6 +47,7 @@ class StockAnalysisEngine:
             annual_cashflow=data.annual_cashflow,
             quarterly_income=data.quarterly_income,
             quarterly_balance=data.quarterly_balance,
+            quarterly_cashflow=data.quarterly_cashflow,
             growth_history=data.growth_history,
             value_history=data.value_history,
             earnings_dates=data.earnings_dates,
@@ -187,6 +188,7 @@ def build_raw_metrics(
     annual_cashflow: pd.DataFrame,
     quarterly_income: pd.DataFrame,
     quarterly_balance: pd.DataFrame,
+    quarterly_cashflow: pd.DataFrame,
     growth_history: pd.DataFrame,
     value_history: pd.DataFrame,
     earnings_dates: pd.DataFrame,
@@ -208,34 +210,49 @@ def build_raw_metrics(
     net_income_range_base = statement_value_years_ago(annual_income, ["Net Income", "Net Income Common Stockholders"], growth_years)
     cfo_range_base = statement_value_years_ago(annual_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"], growth_years)
     momentum = momentum_12_1(growth_history)
+    revenue_range_growth, revenue_range_note = ttm_range_cagr(
+        quarterly_income,
+        ["Total Revenue", "Operating Revenue"],
+        growth_years,
+        fallback_current=revenue_ttm,
+        fallback_base=revenue_range_base,
+    )
+    cfo_range_growth, cfo_range_note = ttm_range_cagr(
+        quarterly_cashflow,
+        ["Operating Cash Flow", "Total Cash From Operating Activities"],
+        growth_years,
+        fallback_current=latest_row_value(annual_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"]),
+        fallback_base=cfo_range_base,
+    )
 
     revenue_estimate_growth = estimate_growth(info, "revenue", revenue_estimate, growth_estimates)
     eps_estimate_growth = estimate_growth(info, "eps", earnings_estimate, growth_estimates)
     price_target_upside = target_upside(info, analyst_targets)
 
     raw = {
-        "revenue_ttm_range_growth": metric_value(cagr_pct(revenue_ttm, revenue_range_base, growth_years), f"Revenue TTM CAGR compared with annual revenue from {growth_years} fiscal year(s) ago"),
+        "revenue_ttm_range_growth": metric_value(revenue_range_growth, revenue_range_note),
         "revenue_ttm_growth": metric_value(percent_change(revenue_ttm, revenue_prior_ttm), "TTM vs previous TTM"),
         "net_income_range_growth": metric_value(cagr_pct(latest_row_value(annual_income, ["Net Income", "Net Income Common Stockholders"]), net_income_range_base, growth_years), f"Latest annual net income CAGR over {growth_years} fiscal year(s); missing when the base or current value is not positive"),
-        "cfo_range_growth": metric_value(cagr_pct(latest_row_value(annual_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"]), cfo_range_base, growth_years), f"Latest annual operating cash flow CAGR over {growth_years} fiscal year(s); missing when the base or current value is not positive"),
+        "cfo_range_growth": metric_value(cfo_range_growth, cfo_range_note),
         "operating_margin": metric_value(operating_margin(annual_income)),
         "price_change": metric_value(momentum, "Adjusted-price momentum from month -13 to month -2, closer to standard 12-1 momentum"),
         "revenue_estimate_growth": metric_value(revenue_estimate_growth, "Uses structured yfinance revenue_estimate when enough analysts are available, then falls back to info fields"),
         "eps_estimate_avg_growth": metric_value(eps_estimate_growth, "Uses structured yfinance earnings_estimate/growth_estimates when enough analysts are available, then falls back to info fields"),
-        "debt_to_assets": metric_value(debt_to_assets(annual_balance), f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
-        "quick_ratio": metric_value(quick_ratio(info, quarterly_balance, annual_balance), "Uses yfinance quickRatio, then balance sheet fallback"),
-        "cfo_to_debt": metric_value(cfo_to_debt(annual_cashflow, annual_balance), f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
-        "interest_coverage": metric_value(interest_coverage(annual_income), f"Latest annual value; Fundamentals range is {fundamentals_years}Y"),
+        "debt_to_assets": metric_value(debt_to_assets(annual_balance, fundamentals_years), range_median_note(fundamentals_years)),
+        "quick_ratio": metric_value(quick_ratio(info, quarterly_balance, annual_balance, fundamentals_years), range_median_note(fundamentals_years, "Uses reported yfinance quickRatio only when statement history is unavailable")),
+        "cfo_to_debt": metric_value(cfo_to_debt(annual_cashflow, annual_balance, fundamentals_years), range_median_note(fundamentals_years)),
+        "interest_coverage": metric_value(interest_coverage(annual_income, fundamentals_years), range_median_note(fundamentals_years)),
         "ohlson_probability": metric_value(ohlson_probability(annual_income, annual_balance, annual_cashflow), "Ohlson-style distress estimate using annual statements; SIZE is approximated without a market price deflator"),
-        "equity_to_assets": metric_value(equity_to_assets(annual_balance), f"Financial profile capital buffer metric; latest annual value; Fundamentals range is {fundamentals_years}Y"),
-        "return_on_assets": metric_value(return_on_assets(annual_income, annual_balance), "Financial profile profitability metric; latest annual net income divided by assets"),
-        "return_on_equity": metric_value(return_on_equity(annual_income, annual_balance), "Financial profile profitability metric; latest annual net income divided by equity"),
-        "net_margin": metric_value(net_margin(annual_income), "Financial profile profitability metric; latest annual net income divided by revenue"),
+        "equity_to_assets": metric_value(equity_to_assets(annual_balance, fundamentals_years), range_median_note(fundamentals_years, "Financial profile capital buffer metric")),
+        "return_on_assets": metric_value(return_on_assets(annual_income, annual_balance, fundamentals_years), range_median_note(fundamentals_years, "Financial profile profitability metric")),
+        "return_on_equity": metric_value(return_on_equity(annual_income, annual_balance, fundamentals_years), range_median_note(fundamentals_years, "Financial profile profitability metric")),
+        "net_margin": metric_value(net_margin(annual_income, fundamentals_years), range_median_note(fundamentals_years, "Financial profile profitability metric")),
         "ps_vs_3y_median": metric_value(ratio_vs_history(info.get("priceToSalesTrailing12Months"), "ps", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median using year-matched annual financials"),
         "pe_vs_3y_median": metric_value(ratio_vs_history(info.get("trailingPE"), "pe", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median"),
         "pb_vs_selected_median": metric_value(ratio_vs_history(current_price_to_book(info, annual_balance), "pb", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Financial profile value metric; compared with approximate {value_years}Y median using year-matched book equity"),
         "ev_ebitda_vs_5y_median": metric_value(ratio_vs_history(info.get("enterpriseToEbitda"), "ev_ebitda", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median using year-matched annual financials"),
         "price_to_cfo_vs_5y_median": metric_value(ratio_vs_history(current_price_to_cfo(info, annual_cashflow), "price_to_cfo", value_history, annual_income, annual_balance, annual_cashflow, years=value_years), f"Compared with approximate {value_years}Y median using year-matched annual financials"),
+        "fcf_yield": metric_value(fcf_yield(info, annual_cashflow), "Latest annual free cash flow divided by current market capitalization"),
         "price_target": metric_value(price_target_upside),
         "upside_vs_configured_benchmark": metric_value(None, "Uses configured benchmark because historical analyst upside is unavailable"),
     }
@@ -362,6 +379,31 @@ def cagr_pct(current: Any, previous: Any, years: int) -> float | None:
     return ((current / previous) ** (1 / years) - 1) * 100
 
 
+def ttm_range_cagr(
+    frame: pd.DataFrame,
+    names: list[str],
+    years: int,
+    *,
+    fallback_current: Any = None,
+    fallback_base: Any = None,
+) -> tuple[float | None, str]:
+    values = row_values(frame, names)
+    needed = 4 * (years + 1)
+    if len(values) >= needed:
+        current_ttm = clean_number(values.iloc[-4:].sum())
+        past_ttm = clean_number(values.iloc[-needed:-needed + 4].sum())
+        return cagr_pct(current_ttm, past_ttm, years), f"TTM vs TTM CAGR over {years} year(s)"
+    return (
+        cagr_pct(fallback_current, fallback_base, years),
+        f"Annual fallback over {years} year(s); yfinance did not provide the {needed} quarters required for TTM vs TTM",
+    )
+
+
+def range_median_note(years: int, prefix: str = "") -> str:
+    detail = f"Median of up to {years} latest annual observation(s)"
+    return f"{prefix}; {detail}" if prefix else detail
+
+
 def percentage_change_from_history(history: pd.DataFrame) -> float | None:
     if history.empty or "Close" not in history:
         return None
@@ -391,47 +433,70 @@ def operating_margin(income: pd.DataFrame) -> float | None:
     return operating_income / revenue * 100
 
 
-def debt_to_assets(balance: pd.DataFrame) -> float | None:
-    debt = latest_row_value(balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"])
-    assets = latest_row_value(balance, ["Total Assets"])
-    if debt is None or assets in (None, 0):
-        return None
-    return debt / assets * 100
+def debt_to_assets(balance: pd.DataFrame, years: int = 1) -> float | None:
+    return statement_ratio_median(
+        balance,
+        ["Total Debt", "Long Term Debt And Capital Lease Obligation"],
+        balance,
+        ["Total Assets"],
+        years,
+        multiplier=100,
+    )
 
 
-def equity_to_assets(balance: pd.DataFrame) -> float | None:
-    equity = latest_row_value(balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"])
-    assets = latest_row_value(balance, ["Total Assets"])
-    if equity is None or assets in (None, 0):
-        return None
-    return equity / assets * 100
+def equity_to_assets(balance: pd.DataFrame, years: int = 1) -> float | None:
+    return statement_ratio_median(
+        balance,
+        ["Stockholders Equity", "Total Equity Gross Minority Interest"],
+        balance,
+        ["Total Assets"],
+        years,
+        multiplier=100,
+    )
 
 
-def return_on_assets(income: pd.DataFrame, balance: pd.DataFrame) -> float | None:
-    net_income = latest_row_value(income, ["Net Income", "Net Income Common Stockholders"])
-    assets = latest_row_value(balance, ["Total Assets"])
-    if net_income is None or assets in (None, 0):
-        return None
-    return net_income / assets * 100
+def return_on_assets(income: pd.DataFrame, balance: pd.DataFrame, years: int = 1) -> float | None:
+    return statement_ratio_median(
+        income,
+        ["Net Income", "Net Income Common Stockholders"],
+        balance,
+        ["Total Assets"],
+        years,
+        multiplier=100,
+    )
 
 
-def return_on_equity(income: pd.DataFrame, balance: pd.DataFrame) -> float | None:
-    net_income = latest_row_value(income, ["Net Income", "Net Income Common Stockholders"])
-    equity = latest_row_value(balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"])
-    if net_income is None or equity in (None, 0):
-        return None
-    return net_income / equity * 100
+def return_on_equity(income: pd.DataFrame, balance: pd.DataFrame, years: int = 1) -> float | None:
+    return statement_ratio_median(
+        income,
+        ["Net Income", "Net Income Common Stockholders"],
+        balance,
+        ["Stockholders Equity", "Total Equity Gross Minority Interest"],
+        years,
+        multiplier=100,
+    )
 
 
-def net_margin(income: pd.DataFrame) -> float | None:
-    net_income = latest_row_value(income, ["Net Income", "Net Income Common Stockholders"])
-    revenue = latest_row_value(income, ["Total Revenue", "Operating Revenue"])
-    if net_income is None or revenue in (None, 0):
-        return None
-    return net_income / revenue * 100
+def net_margin(income: pd.DataFrame, years: int = 1) -> float | None:
+    return statement_ratio_median(
+        income,
+        ["Net Income", "Net Income Common Stockholders"],
+        income,
+        ["Total Revenue", "Operating Revenue"],
+        years,
+        multiplier=100,
+    )
 
 
-def quick_ratio(info: dict[str, Any], quarterly_balance: pd.DataFrame, annual_balance: pd.DataFrame) -> float | None:
+def quick_ratio(
+    info: dict[str, Any],
+    quarterly_balance: pd.DataFrame,
+    annual_balance: pd.DataFrame,
+    years: int = 1,
+) -> float | None:
+    historical = quick_ratio_median(annual_balance, years)
+    if historical is not None:
+        return historical
     reported = clean_number(info.get("quickRatio"))
     if reported is not None:
         return reported
@@ -448,22 +513,86 @@ def quick_ratio(info: dict[str, Any], quarterly_balance: pd.DataFrame, annual_ba
     return (cash_and_investments + receivables) / liabilities
 
 
-def cfo_to_debt(cashflow: pd.DataFrame, balance: pd.DataFrame) -> float | None:
-    cfo = latest_row_value(cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"])
-    debt = latest_row_value(balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"])
-    if cfo is None or debt is None:
+def quick_ratio_median(balance: pd.DataFrame, years: int) -> float | None:
+    liabilities = row_values(balance, ["Current Liabilities", "Total Current Liabilities"])
+    if liabilities.empty:
         return None
-    if debt <= 0:
-        return 999.0 if cfo > 0 else None
-    return cfo / debt
+    combined_cash = row_values(balance, ["Cash Cash Equivalents And Short Term Investments"])
+    cash = row_values(balance, ["Cash And Cash Equivalents"])
+    investments = row_values(balance, ["Other Short Term Investments"])
+    receivables = row_values(balance, ["Receivables", "Accounts Receivable"])
+    ratios: list[float] = []
+    for date, liability in liabilities.tail(years).items():
+        liability = clean_number(liability)
+        if liability is None or liability <= 0:
+            continue
+        liquid = value_on_or_before(combined_cash, date)
+        if liquid is None:
+            liquid = (value_on_or_before(cash, date) or 0) + (value_on_or_before(investments, date) or 0)
+        receivable = value_on_or_before(receivables, date) or 0
+        ratios.append((liquid + receivable) / liability)
+    return median_or_none(ratios)
 
 
-def interest_coverage(income: pd.DataFrame) -> float | None:
-    operating_income = latest_row_value(income, ["Operating Income", "EBIT"])
-    interest = latest_row_value(income, ["Interest Expense", "Interest Expense Non Operating"])
-    if operating_income is None or interest in (None, 0):
+def statement_ratio_median(
+    numerator_frame: pd.DataFrame,
+    numerator_names: list[str],
+    denominator_frame: pd.DataFrame,
+    denominator_names: list[str],
+    years: int,
+    *,
+    multiplier: float = 1.0,
+    absolute_denominator: bool = False,
+    zero_denominator_cap: float | None = None,
+) -> float | None:
+    numerators = row_values(numerator_frame, numerator_names)
+    denominators = row_values(denominator_frame, denominator_names)
+    if numerators.empty or denominators.empty:
         return None
-    return operating_income / abs(interest)
+    ratios: list[float] = []
+    for date, numerator_value in numerators.tail(years).items():
+        numerator = clean_number(numerator_value)
+        denominator = value_on_or_before(denominators, date)
+        if numerator is None or denominator is None:
+            continue
+        denominator = abs(denominator) if absolute_denominator else denominator
+        if denominator == 0:
+            if zero_denominator_cap is not None and numerator > 0:
+                ratios.append(zero_denominator_cap)
+            continue
+        if denominator < 0:
+            continue
+        ratios.append(numerator / denominator * multiplier)
+    return median_or_none(ratios)
+
+
+def median_or_none(values: list[float]) -> float | None:
+    cleaned = [number for value in values if (number := clean_number(value)) is not None]
+    if not cleaned:
+        return None
+    return float(np.median(cleaned))
+
+
+def cfo_to_debt(cashflow: pd.DataFrame, balance: pd.DataFrame, years: int = 1, cap_if_debt_free: float = 10.0) -> float | None:
+    return statement_ratio_median(
+        cashflow,
+        ["Operating Cash Flow", "Total Cash From Operating Activities"],
+        balance,
+        ["Total Debt", "Long Term Debt And Capital Lease Obligation"],
+        years,
+        zero_denominator_cap=cap_if_debt_free,
+    )
+
+
+def interest_coverage(income: pd.DataFrame, years: int = 1) -> float | None:
+    return statement_ratio_median(
+        income,
+        ["Operating Income", "EBIT"],
+        income,
+        ["Interest Expense", "Interest Expense Non Operating"],
+        years,
+        absolute_denominator=True,
+    )
 
 
 def ohlson_probability(income: pd.DataFrame, balance: pd.DataFrame, cashflow: pd.DataFrame) -> float | None:
@@ -593,6 +722,19 @@ def current_price_to_cfo(info: dict[str, Any], cashflow: pd.DataFrame) -> float 
     return market_cap / cfo
 
 
+def fcf_yield(info: dict[str, Any], cashflow: pd.DataFrame) -> float | None:
+    market_cap = clean_number(info.get("marketCap"))
+    free_cash_flow = latest_row_value(cashflow, ["Free Cash Flow"])
+    if free_cash_flow is None:
+        cfo = latest_row_value(cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"])
+        capex = latest_row_value(cashflow, ["Capital Expenditure", "Capital Expenditures"])
+        if cfo is not None and capex is not None:
+            free_cash_flow = cfo + capex if capex < 0 else cfo - capex
+    if market_cap in (None, 0) or free_cash_flow is None:
+        return None
+    return free_cash_flow / market_cap * 100
+
+
 def current_price_to_book(info: dict[str, Any], balance: pd.DataFrame) -> float | None:
     reported = clean_number(info.get("priceToBook"))
     if reported is not None:
@@ -687,7 +829,7 @@ def value_on_or_before(values: pd.Series, date: Any) -> float | None:
         dated = pd.Series(series.to_numpy(), index=index).sort_index()
         eligible = dated[dated.index <= target]
         if eligible.empty:
-            eligible = dated
+            return None
         return clean_number(eligible.iloc[-1])
     except Exception:
         return clean_number(series.iloc[-1])

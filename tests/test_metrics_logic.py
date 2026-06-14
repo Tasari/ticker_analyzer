@@ -9,8 +9,11 @@ from ticker_analyzer.engine import (
     company_profile,
     config_for_profile,
     estimate_growth,
+    fcf_yield,
     momentum_12_1,
     overall_score_with_missing_policy,
+    statement_ratio_median,
+    ttm_range_cagr,
 )
 from ticker_analyzer.scoring import classify_tab_rating
 
@@ -32,7 +35,26 @@ class MetricsLogicTest(unittest.TestCase):
     def test_cfo_to_debt_rewards_debt_free_positive_cash_flow(self):
         cashflow = pd.DataFrame({pd.Timestamp("2025-12-31"): [100]}, index=["Operating Cash Flow"])
         balance = pd.DataFrame({pd.Timestamp("2025-12-31"): [0]}, index=["Total Debt"])
-        self.assertEqual(cfo_to_debt(cashflow, balance), 999.0)
+        self.assertEqual(cfo_to_debt(cashflow, balance), 10.0)
+
+    def test_ttm_range_cagr_uses_quarterly_ttm_windows(self):
+        dates = pd.date_range("2024-03-31", periods=8, freq="QE")
+        values = [25, 25, 25, 25, 30.25, 30.25, 30.25, 30.25]
+        frame = pd.DataFrame({date: [value] for date, value in zip(dates, values)}, index=["Total Revenue"])
+        result, note = ttm_range_cagr(frame, ["Total Revenue"], 1)
+        self.assertAlmostEqual(result, 21.0)
+        self.assertIn("TTM vs TTM", note)
+
+    def test_statement_ratio_median_changes_with_selected_range(self):
+        dates = pd.date_range("2023-12-31", periods=3, freq="YE")
+        numerator = pd.DataFrame({date: [value] for date, value in zip(dates, [10, 30, 90])}, index=["Debt"])
+        denominator = pd.DataFrame({date: [100] for date in dates}, index=["Assets"])
+        self.assertEqual(statement_ratio_median(numerator, ["Debt"], denominator, ["Assets"], 1, multiplier=100), 90)
+        self.assertEqual(statement_ratio_median(numerator, ["Debt"], denominator, ["Assets"], 3, multiplier=100), 30)
+
+    def test_fcf_yield_uses_free_cash_flow(self):
+        cashflow = pd.DataFrame({pd.Timestamp("2025-12-31"): [50]}, index=["Free Cash Flow"])
+        self.assertEqual(fcf_yield({"marketCap": 1000}, cashflow), 5.0)
 
     def test_tab_rating_uses_configured_tab_thresholds(self):
         config = {
