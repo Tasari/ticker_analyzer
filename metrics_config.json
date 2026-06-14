@@ -89,6 +89,16 @@
           "description": "Net Income CAGR annualizes bottom-line profit growth over the selected Growth range. For financial companies, consistent earnings growth supports the Growth score, while losses or unstable earnings make the metric unavailable."
         },
         {
+          "id": "share_count_cagr",
+          "name": "Share Count CAGR",
+          "weight": 0.8,
+          "direction": "lower",
+          "warn": 5,
+          "good": -2,
+          "unit": "%",
+          "description": "Share Count CAGR measures annualized change in ordinary shares over the selected Growth range. Positive values indicate dilution; negative values indicate net buybacks."
+        },
+        {
           "id": "price_change",
           "name": "Adjusted Price Momentum 12-1",
           "weight": 0.35,
@@ -238,6 +248,26 @@
         "description": "Operating Margin Annual is operating income divided by revenue for the latest annual period. It shows how much operating profit the company keeps from each dollar of sales before interest and taxes. A higher margin usually means stronger pricing power, better cost control, or a more scalable business model, so it improves the Growth score."
       },
       {
+        "id": "gross_margin_trend",
+        "name": "Gross Margin Trend",
+        "weight": 0.75,
+        "direction": "higher",
+        "warn": -3,
+        "good": 3,
+        "unit": "pp",
+        "description": "Gross Margin Trend measures the change in gross margin over the selected Growth range. Expanding gross margin can indicate stronger pricing power or improving unit economics."
+      },
+      {
+        "id": "share_count_cagr",
+        "name": "Share Count CAGR",
+        "weight": 0.8,
+        "direction": "lower",
+        "warn": 5,
+        "good": -2,
+        "unit": "%",
+        "description": "Share Count CAGR measures annualized change in ordinary shares over the selected Growth range. Positive values indicate dilution; negative values indicate net buybacks."
+      },
+      {
         "id": "price_change",
         "name": "Adjusted Price Momentum 12-1",
         "weight": 0.45,
@@ -311,13 +341,53 @@
       },
       {
         "id": "ohlson_probability",
-        "name": "Ohlson Distress Probability Estimate (Latest)",
-        "weight": 1.2,
+        "name": "Ohlson Distress Estimate (Informational)",
+        "weight": 0,
         "direction": "lower",
         "warn": 15,
         "good": 4,
         "unit": "%",
-        "description": "Ohlson Distress Probability Estimate is an Ohlson-style distress signal using annual financial statements. It combines leverage, profitability, liquidity, operating cash flow to liabilities, and two-year loss history. Lower estimated distress improves the Fundamentals score. Because the app does not apply a market-specific price-level deflator, treat this as a rule-based estimate, not a calibrated bankruptcy probability."
+        "description": "Ohlson Distress Estimate is an experimental Ohlson-style signal. It remains visible for context but has zero scoring weight until market-specific calibration and validation are completed."
+      },
+      {
+        "id": "roic",
+        "name": "ROIC Range Median",
+        "weight": 1.2,
+        "direction": "higher",
+        "warn": 5,
+        "good": 12,
+        "unit": "%",
+        "description": "ROIC estimates after-tax operating profit divided by invested capital and shows the median over the selected Fundamentals range. Higher ROIC suggests stronger capital allocation and business quality."
+      },
+      {
+        "id": "fcf_margin",
+        "name": "FCF Margin Range Median",
+        "weight": 1.1,
+        "direction": "higher",
+        "warn": 0,
+        "good": 10,
+        "unit": "%",
+        "description": "FCF Margin is free cash flow divided by revenue and shows the median over the selected Fundamentals range. Higher values indicate that revenue converts efficiently into discretionary cash."
+      },
+      {
+        "id": "accruals_ratio",
+        "name": "Accruals Ratio Range Median",
+        "weight": 0.8,
+        "direction": "lower",
+        "warn": 10,
+        "good": 0,
+        "unit": "%",
+        "description": "Accruals Ratio is net income minus operating cash flow, divided by total assets. Lower values suggest earnings are better supported by cash flow."
+      },
+      {
+        "id": "net_debt_to_ebitda",
+        "name": "Net Debt to EBITDA Range Median",
+        "weight": 1.15,
+        "direction": "lower",
+        "warn": 4,
+        "good": 2,
+        "unit": "x",
+        "description": "Net Debt to EBITDA compares debt net of cash with EBITDA and shows the median over the selected Fundamentals range. Lower leverage generally improves financial resilience."
       }
     ],
     "Value": [

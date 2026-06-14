@@ -41,6 +41,9 @@ python -m unittest discover -s tests
 - Value metrics compare current valuation multiples against approximate historical medians for the selected Value range.
 - Multi-year Fundamentals and Value medians require at least two valid historical observations and report the actual observation count used.
 - Industrial Value includes Free Cash Flow Yield.
+- Industrial Growth includes gross-margin trend and share-count CAGR to surface improving unit economics, dilution, and buybacks.
+- Industrial Fundamentals include ROIC, FCF margin, accruals ratio, and net debt to EBITDA as quality and balance-sheet signals.
+- The Ohlson distress estimate is informational and has zero default scoring weight until it can be properly calibrated.
 - Analyst price target has a low default weight, and the benchmark upside metric is visible but has zero default weight to avoid double counting.
 
 ## Configuration
