@@ -17,9 +17,9 @@ class AnalysisRanges:
         if isinstance(ranges, str):
             return cls(growth=ranges, fundamentals=ranges, value=ranges)
         return cls(
-            growth=ranges.get("Growth", "3Y"),
-            fundamentals=ranges.get("Fundamentals", "3Y"),
-            value=ranges.get("Value", "3Y"),
+            growth=ranges.get("Growth", "2Y"),
+            fundamentals=ranges.get("Fundamentals", "2Y"),
+            value=ranges.get("Value", "2Y"),
         )
 
     def as_dict(self) -> dict[str, str]:

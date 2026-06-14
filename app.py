@@ -26,7 +26,7 @@ def main() -> None:
         st.header("Analysis")
         render_ticker_search()
         render_selected_tickers()
-        range_options = ["1Y", "3Y", "5Y"]
+        range_options = ["1Y", "2Y", "3Y"]
         growth_range = st.selectbox("Growth range", range_options, index=1)
         fundamentals_range = st.selectbox("Fundamentals range", range_options, index=1)
         value_range = st.selectbox("Value range", range_options, index=1)

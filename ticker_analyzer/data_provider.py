@@ -75,10 +75,10 @@ def history_start_date(range_label: str) -> str:
 
 
 def range_years(range_label: str) -> int:
-    normalized = str(range_label or "3Y").strip().lower()
+    normalized = str(range_label or "2Y").strip().lower()
     if normalized.endswith("y"):
         try:
             return max(1, int(normalized[:-1]))
         except ValueError:
-            return 3
-    return 3
+            return 2
+    return 2
