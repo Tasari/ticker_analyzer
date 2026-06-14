@@ -4,8 +4,8 @@ from typing import Any
 
 import pandas as pd
 
-from ticker_analyzer.metric_formulas import free_cash_flow_series
-from ticker_analyzer.metric_utils import *
+from ticker_analyzer.metrics.formulas import free_cash_flow_series
+from ticker_analyzer.metrics.utils import *
 
 
 def estimate_growth(

@@ -4,9 +4,9 @@ from typing import Any
 
 import pandas as pd
 
-from ticker_analyzer.metric_formulas import *
-from ticker_analyzer.metric_utils import *
-from ticker_analyzer.valuation_metrics import *
+from ticker_analyzer.metrics.formulas import *
+from ticker_analyzer.metrics.utils import *
+from ticker_analyzer.metrics.valuation import *
 
 __all__ = ["build_raw_metrics", "apply_configured_metric_fallbacks", "build_charts_data"]
 
