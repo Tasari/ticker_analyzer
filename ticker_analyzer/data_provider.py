@@ -26,6 +26,7 @@ class YFinanceProvider:
             annual_cashflow=normalize_statement(safe_frame(lambda: ticker.cashflow)),
             quarterly_income=normalize_statement(safe_frame(lambda: ticker.quarterly_financials)),
             quarterly_balance=normalize_statement(safe_frame(lambda: ticker.quarterly_balance_sheet)),
+            quarterly_cashflow=normalize_statement(safe_frame(lambda: ticker.quarterly_cashflow)),
             growth_history=safe_frame(lambda: ticker.history(start=growth_start, auto_adjust=True)),
             value_history=safe_frame(lambda: ticker.history(start=value_start, auto_adjust=True)),
             earnings_dates=safe_frame(lambda: ticker.get_earnings_dates(limit=16)),
