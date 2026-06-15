@@ -136,7 +136,7 @@ def momentum_12_1(history: pd.DataFrame) -> float | None:
         return None
     monthly = close.resample("ME").last().dropna()
     if len(monthly) < 13:
-        return percentage_change_from_history(history)
+        return None
     return percent_change(monthly.iloc[-2], monthly.iloc[-13])
 
 

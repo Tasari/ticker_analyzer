@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import pandas as pd
@@ -92,6 +92,8 @@ class StockAnalysis:
     raw: dict[str, dict[str, Any]]
     ranges: dict[str, str]
     charts: dict[str, pd.DataFrame]
+    coverage: dict[str, Any] = field(default_factory=dict)
+    diagnostics: list[dict[str, str]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -107,6 +109,8 @@ class StockAnalysis:
             "raw": self.raw,
             "ranges": self.ranges,
             "charts": self.charts,
+            "coverage": self.coverage,
+            "diagnostics": self.diagnostics,
         }
 
 
@@ -127,6 +131,7 @@ class MarketData:
     earnings_estimate: pd.DataFrame
     eps_trend: pd.DataFrame
     growth_estimates: pd.DataFrame
+    diagnostics: list[dict[str, str]] = field(default_factory=list)
 
 
 def _optional_float(value: Any) -> float | None:

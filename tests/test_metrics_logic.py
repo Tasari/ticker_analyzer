@@ -39,6 +39,11 @@ class MetricsLogicTest(unittest.TestCase):
         expected = (112 - 101) / 101 * 100
         self.assertAlmostEqual(momentum_12_1(history), expected)
 
+    def test_momentum_12_1_is_missing_when_history_is_too_short(self):
+        index = pd.date_range("2025-01-31", periods=12, freq="ME")
+        history = pd.DataFrame({"Close": range(100, 112)}, index=index)
+        self.assertIsNone(momentum_12_1(history))
+
     def test_cfo_to_debt_rewards_debt_free_positive_cash_flow(self):
         cashflow = pd.DataFrame({pd.Timestamp("2025-12-31"): [100]}, index=["Operating Cash Flow"])
         balance = pd.DataFrame({pd.Timestamp("2025-12-31"): [0]}, index=["Total Debt"])
@@ -145,6 +150,21 @@ class MetricsLogicTest(unittest.TestCase):
             index=["0y", "+1y"],
         )
         self.assertIsNone(estimate_growth({}, "revenue", table))
+
+    def test_eps_estimate_growth_treats_transition_through_zero_as_turnaround(self):
+        table = pd.DataFrame(
+            {
+                "avg": [-1.0, 1.0],
+                "numberOfAnalysts": [8, 9],
+            },
+            index=["0y", "+1y"],
+        )
+        self.assertIsNone(estimate_growth({}, "eps", table))
+
+    def test_eps_turnaround_does_not_fall_back_to_generic_growth_estimate(self):
+        growth_estimates = pd.DataFrame({"stockTrend": [0.5]}, index=["+1y"])
+        info = {"epsCurrentYear": -1.0, "epsNextYear": 1.0}
+        self.assertIsNone(estimate_growth(info, "eps", growth_estimates=growth_estimates))
 
     def test_normalize_config_rejects_missing_metrics(self):
         with self.assertRaises(ConfigValidationError):

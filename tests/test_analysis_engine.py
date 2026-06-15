@@ -114,6 +114,8 @@ class AnalysisEngineTest(unittest.TestCase):
         self.assertEqual(result.profile, "Industrial")
         self.assertEqual(set(result.tabs), {"Growth", "Fundamentals", "Value"})
         self.assertIsNotNone(result.overall_score)
+        self.assertEqual(result.coverage["confidence"], "High")
+        self.assertGreater(result.coverage["percentage"], 85)
         self.assertEqual(provider.calls[0][0], "TEST")
         self.assertEqual(provider.calls[0][1].as_dict(), {"Growth": "2Y", "Fundamentals": "2Y", "Value": "2Y"})
 
@@ -128,6 +130,37 @@ class AnalysisEngineTest(unittest.TestCase):
         value_metric_ids = {metric.id for metric in result.tabs["Value"]["metrics"]}
         self.assertIn("pb_vs_selected_median", value_metric_ids)
         self.assertNotIn("ev_ebitda_vs_selected_median", value_metric_ids)
+
+    def test_engine_exposes_provider_diagnostics_in_missing_warnings(self):
+        data = market_data()
+        data.diagnostics.append(
+            {"source": "earnings estimates", "kind": "provider_error", "message": "upstream failure"}
+        )
+
+        result = StockAnalysisEngine(provider=FakeProvider(data)).analyze("TEST", "2Y", load_config())
+
+        self.assertEqual(result.diagnostics[0]["source"], "earnings estimates")
+        self.assertTrue(any("earnings estimates failed" in warning for warning in result.missing))
+
+    def test_engine_distinguishes_company_info_provider_failure(self):
+        data = market_data()
+        data.info = {}
+        data.diagnostics.append(
+            {"source": "company info", "kind": "network_error", "message": "request timed out"}
+        )
+
+        with self.assertRaisesRegex(ValueError, "network_error"):
+            StockAnalysisEngine(provider=FakeProvider(data)).analyze("TEST", "2Y", load_config())
+
+    def test_tab_coverage_falls_when_weighted_metric_is_missing(self):
+        data = market_data()
+        data.annual_income = pd.DataFrame()
+        data.quarterly_income = pd.DataFrame()
+        result = StockAnalysisEngine(provider=FakeProvider(data)).analyze("TEST", "2Y", load_config())
+
+        growth_coverage = result.tabs["Growth"]["coverage"]
+        self.assertLess(growth_coverage["percentage"], 100)
+        self.assertLess(result.coverage["percentage"], 100)
 
     def test_config_normalization_migrates_legacy_metric_ids(self):
         config = load_config()

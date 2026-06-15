@@ -37,6 +37,15 @@ class StockAnalysisEngine:
         selected_ranges = AnalysisRanges.from_input(ranges)
         data = self.provider.fetch(ticker_symbol, selected_ranges)
         if not data.info and ticker_symbol:
+            info_failure = next(
+                (item for item in data.diagnostics if item.get("source") == "company info"),
+                None,
+            )
+            if info_failure:
+                raise ValueError(
+                    f"Could not fetch company info for {ticker_symbol} "
+                    f"({info_failure.get('kind', 'provider_error')}). Try again later."
+                )
             raise ValueError(f"No data returned for {ticker_symbol}.")
         if self._is_empty_ticker_response(data):
             raise ValueError(f"No usable data returned for {ticker_symbol}. Check the ticker symbol and try again.")
@@ -66,10 +75,12 @@ class StockAnalysisEngine:
         profile = company_profile(data.info)
         scoring_config = config_for_profile(config, profile)
         tab_results, missing = self._score_tabs(raw_metrics, scoring_config)
+        coverage = analysis_coverage(tab_results, scoring_config)
         overall_score = overall_score_with_missing_policy(tab_results, scoring_config)
         partial_note = partial_overall_note(tab_results, overall_score)
         if partial_note:
             missing.insert(0, partial_note)
+        missing.extend(diagnostic_warnings(data.diagnostics))
         rating = self.scoring.classify_rating(overall_score, config)
         if partial_note and rating != "Not Rated":
             rating = f"Partial {rating}"
@@ -87,6 +98,8 @@ class StockAnalysisEngine:
             raw=raw_metrics,
             ranges=selected_ranges.as_dict(),
             charts=build_charts_data(data.annual_income, data.annual_cashflow, data.annual_balance, data.growth_history),
+            coverage=coverage,
+            diagnostics=data.diagnostics,
         )
 
     def _score_tabs(self, raw_metrics: dict[str, dict[str, Any]], config: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -99,10 +112,12 @@ class StockAnalysisEngine:
                 for metric_config in metric_configs
             ]
             tab_score = self.scoring.weighted_score(metric_results)
+            coverage = metric_coverage(metric_results)
             tab_results[tab_name] = {
                 "score": tab_score,
                 "rating": self.scoring.classify_tab_rating(tab_name, tab_score, config),
                 "metrics": metric_results,
+                "coverage": coverage,
             }
             missing.extend(
                 f"{tab_name}: {metric.name} ({metric.note or 'data unavailable'})"
@@ -169,6 +184,61 @@ def partial_overall_note(tab_results: dict[str, Any], overall_score: float | Non
     if scored == total:
         return None
     return f"Overall: Partial rating based on {scored} of {total} scored tabs."
+
+
+def metric_coverage(metrics: list[Any]) -> dict[str, Any]:
+    scored = [metric for metric in metrics if metric.weight > 0 and metric.score is not None]
+    eligible = [metric for metric in metrics if metric.weight > 0]
+    scored_weight = sum(metric.weight for metric in scored)
+    total_weight = sum(metric.weight for metric in eligible)
+    percentage = scored_weight / total_weight * 100 if total_weight > 0 else 0.0
+    return {
+        "scored_metrics": len(scored),
+        "total_metrics": len(eligible),
+        "scored_weight": scored_weight,
+        "total_weight": total_weight,
+        "percentage": percentage,
+        "confidence": confidence_label(percentage),
+    }
+
+
+def analysis_coverage(tab_results: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    tab_weights = config.get("tab_weights", {})
+    weighted_coverage = 0.0
+    total_tab_weight = 0.0
+    scored_tabs = 0
+    for tab_name, result in tab_results.items():
+        if result.get("score") is not None:
+            scored_tabs += 1
+        weight = clean_number(tab_weights.get(tab_name)) or 0
+        if weight <= 0:
+            continue
+        percentage = clean_number(result.get("coverage", {}).get("percentage")) or 0
+        weighted_coverage += percentage * weight
+        total_tab_weight += weight
+    percentage = weighted_coverage / total_tab_weight if total_tab_weight > 0 else 0.0
+    return {
+        "scored_tabs": scored_tabs,
+        "total_tabs": len(tab_results),
+        "percentage": percentage,
+        "confidence": confidence_label(percentage),
+    }
+
+
+def confidence_label(percentage: float) -> str:
+    if percentage >= 85:
+        return "High"
+    if percentage >= 60:
+        return "Medium"
+    return "Low"
+
+
+def diagnostic_warnings(diagnostics: list[dict[str, str]]) -> list[str]:
+    return [
+        f"Data source: {item.get('source', 'unknown source')} failed "
+        f"({item.get('kind', 'provider_error')}): {item.get('message', 'unknown error')}"
+        for item in diagnostics
+    ]
 
 
 def company_profile(info: dict[str, Any]) -> str:
