@@ -28,7 +28,8 @@ The suite contains formula-level tests and network-free integration tests for th
 - Available analysis ranges are `1Y`, `2Y`, and `3Y`. A 3Y maximum is more reliable across Growth, Fundamentals, and Value because longer CAGR windows often exceed the statement depth available from yfinance.
 - Rule-based scorecards with configurable metric weights, thresholds, tab weights, and rating labels.
 - Editable scoring configuration saved locally in `metrics_config.json`.
-- Missing data warnings and partial ratings when enough, but not all, tabs can be scored.
+- Missing data warnings, provider-failure diagnostics, and partial ratings when enough, but not all, tabs can be scored.
+- Weighted data coverage and High/Medium/Low confidence indicators for the overall result and every analysis tab.
 - Automatic Industrial and Financial analysis profiles.
 - Basic charts for adjusted price history, financial trends, assets, and debt.
 
@@ -36,8 +37,9 @@ The suite contains formula-level tests and network-free integration tests for th
 
 - Revenue and operating cash flow growth prefer TTM-vs-TTM CAGR for the selected range and clearly fall back to annual data when yfinance provides too few quarters.
 - Other Growth range metrics use CAGR where positive starting and ending values are available.
-- Price momentum uses adjusted prices and skips the most recent month when enough history exists.
-- Analyst revenue and EPS estimate growth prefer structured `yfinance` estimate tables, with fallback to `info` fields.
+- Price momentum uses adjusted prices and skips the most recent month. It remains missing when fewer than 13 monthly observations are available.
+- Analyst revenue and EPS estimate growth prefer structured `yfinance` estimate tables, with fallback to other estimate fields.
+- EPS estimates crossing zero are treated as a turnaround and excluded from percentage-growth scoring.
 - Industrial companies use balance-sheet, liquidity, cash-flow, interest-coverage, and distress metrics.
 - Financial companies use a separate profile with financial-sector metrics such as equity to assets, return on assets, return on equity, net margin, P/E vs historical median, and P/B vs historical median.
 - Value metrics compare current valuation multiples against approximate historical medians for the selected Value range.
@@ -47,6 +49,7 @@ The suite contains formula-level tests and network-free integration tests for th
 - Industrial Fundamentals include ROIC, FCF margin, accruals ratio, and net debt to EBITDA as quality and balance-sheet signals.
 - The Ohlson distress estimate is informational and has zero default scoring weight until it can be properly calibrated.
 - Analyst price target has a low default weight, and the benchmark upside metric is visible but has zero default weight to avoid double counting.
+- Coverage is calculated from scored metric weights, so missing zero-weight informational metrics do not reduce confidence.
 
 ## Configuration
 

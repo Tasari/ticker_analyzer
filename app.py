@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 
 import pandas as pd
 import plotly.express as px
@@ -11,6 +12,7 @@ from streamlit_searchbox import st_searchbox
 
 from ticker_analyzer import analyze_ticker, format_metric_value, load_config, save_config
 
+logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="Stock Analyzer", page_icon="chart_with_upwards_trend", layout="wide")
 
@@ -134,8 +136,11 @@ def analyze_selected_tickers(tickers: list[str], ranges: dict[str, str], config:
     for ticker in tickers:
         try:
             results[ticker] = analyze_ticker(ticker, ranges, config)
-        except Exception as exc:
+        except ValueError as exc:
             errors[ticker] = str(exc)
+        except Exception:
+            logger.exception("Unexpected analysis failure for %s", ticker)
+            errors[ticker] = "Unexpected internal error. Check application logs."
     return results, errors
 
 
@@ -219,6 +224,11 @@ def render_company_cards(results: list[dict]) -> None:
             columns[4].metric("Growth", result["tabs"]["Growth"].get("rating", "Not Rated"))
             columns[5].metric("Fundamentals", result["tabs"]["Fundamentals"].get("rating", "Not Rated"))
             columns[6].metric("Value", result["tabs"]["Value"].get("rating", "Not Rated"))
+            coverage = result.get("coverage", {})
+            st.caption(
+                f"Data confidence: {coverage.get('confidence', 'Unknown')} "
+                f"({coverage.get('percentage', 0):.0f}% weighted metric coverage)"
+            )
 
 
 def render_comparison_table(results: list[dict]) -> None:
@@ -233,6 +243,7 @@ def render_comparison_table(results: list[dict]) -> None:
                 "Price": format_company_price(result),
                 "Overall Score": format_score(result.get("overall_score")),
                 "Overall Rating": result.get("rating", "Not Rated"),
+                "Confidence": format_coverage(result.get("coverage", {})),
                 "Growth": format_tab_summary(result, "Growth"),
                 "Fundamentals": format_tab_summary(result, "Fundamentals"),
                 "Value": format_tab_summary(result, "Value"),
@@ -283,7 +294,17 @@ def format_score(score: float | None) -> str:
 
 def format_tab_summary(result: dict, tab_name: str) -> str:
     tab_result = result.get("tabs", {}).get(tab_name, {})
-    return f"{format_score(tab_result.get('score'))} | {tab_result.get('rating', 'Not Rated')}"
+    return (
+        f"{format_score(tab_result.get('score'))} | {tab_result.get('rating', 'Not Rated')} | "
+        f"{format_coverage(tab_result.get('coverage', {}))}"
+    )
+
+
+def format_coverage(coverage: dict) -> str:
+    percentage = coverage.get("percentage")
+    if percentage is None:
+        return "Unknown"
+    return f"{coverage.get('confidence', 'Unknown')} ({percentage:.0f}%)"
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -305,6 +326,7 @@ def search_tickers(searchterm: str) -> list[str]:
             recommended=0,
         ).quotes
     except Exception:
+        logger.warning("Ticker search failed for query %s", query, exc_info=True)
         return []
 
     suggestions = []
@@ -328,12 +350,13 @@ def render_summary(result: dict) -> None:
     price_label = "Missing" if current_price is None else f"{current_price:,.2f} {currency}".strip()
 
     st.subheader(f"{result['company_name']} ({result['ticker']})")
-    cols = st.columns(5)
+    cols = st.columns(6)
     cols[0].metric("Overall Score", score_label)
     cols[1].metric("Rating", result.get("rating", "Not Rated"))
     cols[2].metric("Current Price", price_label)
     cols[3].metric("Analysis Profile", result.get("profile", "Industrial"))
     cols[4].metric("Available Tabs", sum(1 for tab in result["tabs"].values() if tab["score"] is not None))
+    cols[5].metric("Data Confidence", format_coverage(result.get("coverage", {})))
 
     rating_cols = st.columns(3)
     for index, tab_name in enumerate(["Growth", "Fundamentals", "Value"]):
@@ -342,7 +365,9 @@ def render_summary(result: dict) -> None:
         score_text = "" if tab_score is None else f"{tab_score:.1f}/100"
         tab_range = result.get("ranges", {}).get(tab_name, "")
         label = f"{tab_name} Rating" if not tab_range else f"{tab_name} Rating ({tab_range})"
+        coverage = format_coverage(tab_result.get("coverage", {}))
         rating_cols[index].metric(label, tab_result.get("rating", "Not Rated"), score_text)
+        rating_cols[index].caption(f"Data confidence: {coverage}")
 
     if result.get("missing"):
         with st.expander("Missing data warnings", expanded=False):
@@ -365,9 +390,10 @@ def render_tabs(result: dict) -> None:
 def render_tab(name: str, tab_result: dict, charts: dict) -> None:
     score = tab_result.get("score")
     score_text = "Missing" if score is None else f"{score:.1f}/100"
-    score_col, rating_col = st.columns(2)
+    score_col, rating_col, coverage_col = st.columns(3)
     score_col.metric(f"{name} Score", score_text)
     rating_col.metric(f"{name} Rating", tab_result.get("rating", "Not Rated"))
+    coverage_col.metric("Data Confidence", format_coverage(tab_result.get("coverage", {})))
     metrics = tab_result.get("metrics", [])
     render_metrics_table(metrics)
 
