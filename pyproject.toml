@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ticker-analyzer"
+version = "0.1.0"
+description = "Local Streamlit app for rule-based stock analysis using yfinance."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "streamlit>=1.35",
+  "streamlit-searchbox>=0.1.24",
+  "yfinance>=0.2.40",
+  "pandas>=2.0",
+  "numpy>=1.24",
+  "plotly>=5.20",
+]
+
+[project.optional-dependencies]
+dev = [
+  "coverage[toml]>=7.6",
+  "ruff>=0.8",
+]
+
+[tool.setuptools]
+packages = ["ticker_analyzer", "ticker_analyzer.analysis", "ticker_analyzer.metrics"]
+py-modules = ["stock_analyzer"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["ticker_analyzer", "tests", "app.py", "stock_analyzer.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = [
+  "E501",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["ticker_analyzer"]
+omit = [
+  "ticker_analyzer/engine.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 70
+exclude_lines = [
+  "if __name__ == .__main__.:",
+  "pragma: no cover",
+  "raise NotImplementedError",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"ticker_analyzer/engine.py" = ["F403"]
+"ticker_analyzer/metrics/__init__.py" = ["F401"]

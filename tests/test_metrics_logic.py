@@ -1,30 +1,29 @@
 import unittest
 
 import pandas as pd
-
 from ticker_analyzer.config import ConfigValidationError, normalize_config
+from ticker_analyzer.domain import AnalysisRanges
 from ticker_analyzer.engine import (
+    build_historical_ratio_context,
     cagr_pct,
     cfo_to_debt,
     company_profile,
     config_for_profile,
     estimate_growth,
-    fcf_yield,
     fcf_margin_observations,
+    fcf_yield,
     gross_margin_trend,
-    build_historical_ratio_context,
     momentum_12_1,
     net_debt_to_ebitda_observations,
     overall_score_with_missing_policy,
     range_ratio_metric,
     roic_observations,
     share_count_cagr,
-    statement_ratio_median,
     statement_aligned_ratio_vs_history_metric,
+    statement_ratio_median,
     ttm_range_cagr,
 )
 from ticker_analyzer.scoring import classify_tab_rating
-from ticker_analyzer.domain import AnalysisRanges
 
 
 class MetricsLogicTest(unittest.TestCase):
@@ -54,14 +53,14 @@ class MetricsLogicTest(unittest.TestCase):
     def test_ttm_range_cagr_uses_quarterly_ttm_windows(self):
         dates = pd.date_range("2024-03-31", periods=8, freq="QE")
         values = [25, 25, 25, 25, 30.25, 30.25, 30.25, 30.25]
-        frame = pd.DataFrame({date: [value] for date, value in zip(dates, values)}, index=["Total Revenue"])
+        frame = pd.DataFrame({date: [value] for date, value in zip(dates, values, strict=True)}, index=["Total Revenue"])
         result, note = ttm_range_cagr(frame, ["Total Revenue"], 1)
         self.assertAlmostEqual(result, 21.0)
         self.assertIn("TTM vs TTM", note)
 
     def test_statement_ratio_median_changes_with_selected_range(self):
         dates = pd.date_range("2023-12-31", periods=3, freq="YE")
-        numerator = pd.DataFrame({date: [value] for date, value in zip(dates, [10, 30, 90])}, index=["Debt"])
+        numerator = pd.DataFrame({date: [value] for date, value in zip(dates, [10, 30, 90], strict=True)}, index=["Debt"])
         denominator = pd.DataFrame({date: [100] for date in dates}, index=["Assets"])
         self.assertEqual(statement_ratio_median(numerator, ["Debt"], denominator, ["Assets"], 1, multiplier=100), 90)
         self.assertEqual(statement_ratio_median(numerator, ["Debt"], denominator, ["Assets"], 3, multiplier=100), 30)
@@ -82,7 +81,7 @@ class MetricsLogicTest(unittest.TestCase):
 
     def test_share_count_cagr_detects_dilution(self):
         dates = pd.date_range("2023-12-31", periods=3, freq="YE")
-        balance = pd.DataFrame({date: [value] for date, value in zip(dates, [100, 110, 121])}, index=["Ordinary Shares Number"])
+        balance = pd.DataFrame({date: [value] for date, value in zip(dates, [100, 110, 121], strict=True)}, index=["Ordinary Shares Number"])
         self.assertAlmostEqual(share_count_cagr(balance, 2), 10.0)
 
     def test_gross_margin_trend_returns_percentage_point_change(self):
@@ -119,7 +118,7 @@ class MetricsLogicTest(unittest.TestCase):
     def test_value_ratio_uses_statement_aligned_current_before_feed_fallback(self):
         dates = pd.date_range("2023-12-31", periods=3, freq="YE")
         history = pd.DataFrame({"Close": [10, 20, 30]}, index=dates)
-        income = pd.DataFrame({date: [revenue] for date, revenue in zip(dates, [100, 200, 300])}, index=["Total Revenue"])
+        income = pd.DataFrame({date: [revenue] for date, revenue in zip(dates, [100, 200, 300], strict=True)}, index=["Total Revenue"])
         balance = pd.DataFrame(
             {date: [10] for date in dates},
             index=["Ordinary Shares Number"],
@@ -140,7 +139,7 @@ class MetricsLogicTest(unittest.TestCase):
     def test_ev_ebitda_history_uses_debt_and_cash(self):
         dates = pd.date_range("2023-12-31", periods=3, freq="YE")
         history = pd.DataFrame({"Close": [10, 20, 30]}, index=dates)
-        income = pd.DataFrame({date: [ebitda] for date, ebitda in zip(dates, [50, 100, 120])}, index=["EBITDA"])
+        income = pd.DataFrame({date: [ebitda] for date, ebitda in zip(dates, [50, 100, 120], strict=True)}, index=["EBITDA"])
         balance = pd.DataFrame(
             {
                 dates[0]: [10, 30, 5],
@@ -162,7 +161,7 @@ class MetricsLogicTest(unittest.TestCase):
     def test_historical_pe_skips_negative_earnings_observations(self):
         dates = pd.date_range("2023-12-31", periods=3, freq="YE")
         history = pd.DataFrame({"Close": [10, 20, 30]}, index=dates)
-        income = pd.DataFrame({date: [ni] for date, ni in zip(dates, [-10, 100, 150])}, index=["Net Income"])
+        income = pd.DataFrame({date: [ni] for date, ni in zip(dates, [-10, 100, 150], strict=True)}, index=["Net Income"])
         balance = pd.DataFrame({date: [10] for date in dates}, index=["Ordinary Shares Number"])
         context = build_historical_ratio_context(history, income, balance, pd.DataFrame(), years=3)
 

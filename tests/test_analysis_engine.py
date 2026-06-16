@@ -1,7 +1,6 @@
 import unittest
 
 import pandas as pd
-
 from ticker_analyzer.analysis.engine import StockAnalysisEngine
 from ticker_analyzer.config import load_config, normalize_config
 from ticker_analyzer.domain import AnalysisRanges, MarketData

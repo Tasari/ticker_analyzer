@@ -9,7 +9,6 @@ import plotly.express as px
 import streamlit as st
 import yfinance as yf
 from streamlit_searchbox import st_searchbox
-
 from ticker_analyzer import analyze_ticker, format_metric_value, load_config, save_config
 
 logger = logging.getLogger(__name__)
@@ -188,9 +187,11 @@ def render_comparison_summary(results: dict[str, dict]) -> None:
 def rank_results(results: dict[str, dict], sort_option: str) -> list[dict]:
     ranked = list(results.values())
     if sort_option == "Overall":
-        score_for = lambda result: result.get("overall_score")
+        def score_for(result: dict) -> float | None:
+            return result.get("overall_score")
     else:
-        score_for = lambda result: result.get("tabs", {}).get(sort_option, {}).get("score")
+        def score_for(result: dict) -> float | None:
+            return result.get("tabs", {}).get(sort_option, {}).get("score")
     return sorted(
         ranked,
         key=lambda result: -1 if score_for(result) is None else score_for(result),

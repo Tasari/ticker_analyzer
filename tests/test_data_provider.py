@@ -1,7 +1,6 @@
 import unittest
 
 import pandas as pd
-
 from ticker_analyzer.data_provider import safe_dict, safe_frame
 
 

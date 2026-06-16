@@ -1,5 +1,5 @@
-from ticker_analyzer.engine import analyze_ticker
 from ticker_analyzer.config import load_config, save_config
+from ticker_analyzer.engine import analyze_ticker
 from ticker_analyzer.scoring import format_metric_value
 
 __all__ = [

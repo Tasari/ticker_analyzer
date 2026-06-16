@@ -14,10 +14,13 @@ streamlit run app.py
 ## Tests
 
 ```powershell
-python -m unittest discover -s tests
+pip install -e ".[dev]"
+ruff check .
+coverage run -m unittest discover -s tests -v
+coverage report
 ```
 
-The suite contains formula-level tests and network-free integration tests for the full analysis engine. GitHub Actions runs the same suite on every push to `main` and every pull request.
+The suite contains formula-level tests and network-free integration tests for the full analysis engine. GitHub Actions runs linting and coverage-backed tests on Python 3.11 and 3.12 for every push to `main` and every pull request.
 
 ## Features
 

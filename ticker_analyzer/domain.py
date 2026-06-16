@@ -13,7 +13,7 @@ class AnalysisRanges:
     value: str
 
     @classmethod
-    def from_input(cls, ranges: str | dict[str, str]) -> "AnalysisRanges":
+    def from_input(cls, ranges: str | dict[str, str]) -> AnalysisRanges:
         if isinstance(ranges, str):
             return cls(growth=ranges, fundamentals=ranges, value=ranges)
         return cls(
@@ -43,7 +43,7 @@ class MetricDefinition:
     benchmark: float | None = None
 
     @classmethod
-    def from_config(cls, config: dict[str, Any]) -> "MetricDefinition":
+    def from_config(cls, config: dict[str, Any]) -> MetricDefinition:
         return cls(
             id=config["id"],
             name=config.get("name", config["id"]),
