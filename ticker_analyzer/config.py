@@ -5,7 +5,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-
 CONFIG_PATH = Path("metrics_config.json")
 CONFIG_VERSION = 2
 
@@ -26,7 +25,7 @@ class MetricsConfig:
         self.data = data
 
     @classmethod
-    def load(cls, path: Path = CONFIG_PATH) -> "MetricsConfig":
+    def load(cls, path: Path = CONFIG_PATH) -> MetricsConfig:
         return cls(load_config(path))
 
     def save(self, path: Path = CONFIG_PATH) -> None:
