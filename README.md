@@ -77,5 +77,6 @@ The app validates the config when loading or saving it. Invalid JSON or inconsis
 - `ticker_analyzer/engine.py`: backward-compatible exports for existing imports.
 - `ticker_analyzer/data_provider.py`: yfinance access and normalization.
 - `ticker_analyzer/scoring.py`: metric, tab, and overall scoring.
+- `ticker_analyzer/ui/`: Streamlit state, actions, and rendering helpers.
 
 Metric IDs referring to a historical median use `selected_median`, because the comparison period follows the Value range selected in the UI. Config version 2 automatically migrates the older fixed-range IDs when loading them.
