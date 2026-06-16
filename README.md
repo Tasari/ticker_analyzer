@@ -25,7 +25,7 @@ The suite contains formula-level tests and network-free integration tests for th
 ## Features
 
 - Search and select up to five tickers supported by `yfinance`.
-- Compare selected companies in a Summary view, then inspect each company in detail.
+- Compare selected companies in a Summary view, then inspect each company in detail. Multi-ticker analysis runs ticker fetches concurrently.
 - Separate Growth, Fundamentals, and Value tabs.
 - Separate range selectors for Growth, Fundamentals, and Value. Fundamentals metrics use medians over the selected annual range where applicable.
 - Available analysis ranges are `1Y`, `2Y`, and `3Y`. A 3Y maximum is more reliable across Growth, Fundamentals, and Value because longer CAGR windows often exceed the statement depth available from yfinance.
