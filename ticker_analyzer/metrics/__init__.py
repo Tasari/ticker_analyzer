@@ -53,8 +53,10 @@ from ticker_analyzer.metrics.utils import (
     value_on_or_before,
 )
 from ticker_analyzer.metrics.valuation import (
+    HistoricalRatioContext,
     approximate_historical_ratio,
     approximate_historical_ratios,
+    build_historical_ratio_context,
     current_price_to_book,
     current_price_to_cfo,
     estimate_growth,
@@ -64,6 +66,7 @@ from ticker_analyzer.metrics.valuation import (
     growth_from_estimates,
     ratio_vs_history,
     ratio_vs_history_metric,
+    statement_aligned_ratio_vs_history_metric,
     target_upside,
 )
 
