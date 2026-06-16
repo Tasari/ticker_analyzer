@@ -43,6 +43,7 @@ branch = true
 source = ["ticker_analyzer"]
 omit = [
   "ticker_analyzer/engine.py",
+  "ticker_analyzer/ui/*",
 ]
 
 [tool.coverage.report]
