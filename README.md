@@ -42,7 +42,7 @@ The suite contains formula-level tests and network-free integration tests for th
 - EPS estimates crossing zero are treated as a turnaround and excluded from percentage-growth scoring.
 - Industrial companies use balance-sheet, liquidity, cash-flow, interest-coverage, and distress metrics.
 - Financial companies use a separate profile with financial-sector metrics such as equity to assets, return on assets, return on equity, net margin, P/E vs historical median, and P/B vs historical median.
-- Value metrics compare current valuation multiples against approximate historical medians for the selected Value range.
+- Value metrics compare statement-aligned current valuation multiples against approximate historical medians for the selected Value range, with reported yfinance multiples used only as fallbacks when a current multiple cannot be computed from available statements.
 - Multi-year Fundamentals and Value medians require at least two valid historical observations and report the actual observation count used.
 - Industrial Value includes Free Cash Flow Yield.
 - Industrial Growth includes gross-margin trend and share-count CAGR to surface improving unit economics, dilution, and buybacks.

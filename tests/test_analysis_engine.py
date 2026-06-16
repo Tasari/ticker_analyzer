@@ -131,6 +131,39 @@ class AnalysisEngineTest(unittest.TestCase):
         self.assertIn("pb_vs_selected_median", value_metric_ids)
         self.assertNotIn("ev_ebitda_vs_selected_median", value_metric_ids)
 
+    def test_engine_builds_all_configured_industrial_metrics(self):
+        config = load_config()
+        result = StockAnalysisEngine(provider=FakeProvider(market_data())).analyze("TEST", "2Y", config)
+
+        for tab_name, metric_configs in config["metrics"].items():
+            expected = {metric["id"] for metric in metric_configs}
+            actual = {metric.id for metric in result.tabs[tab_name]["metrics"]}
+            self.assertEqual(actual, expected)
+
+    def test_engine_builds_all_configured_financial_metrics(self):
+        config = load_config()
+        result = StockAnalysisEngine(provider=FakeProvider(market_data(industry="Banks - Diversified"))).analyze(
+            "TEST",
+            "2Y",
+            config,
+        )
+
+        for tab_name, metric_configs in config["profile_metrics"]["Financial"].items():
+            expected = {metric["id"] for metric in metric_configs}
+            actual = {metric.id for metric in result.tabs[tab_name]["metrics"]}
+            self.assertEqual(actual, expected)
+
+    def test_engine_marks_growth_metric_missing_for_net_income_loss(self):
+        data = market_data()
+        latest_date = data.annual_income.columns[-1]
+        data.annual_income.loc["Net Income", latest_date] = -10
+
+        result = StockAnalysisEngine(provider=FakeProvider(data)).analyze("TEST", "2Y", load_config())
+        growth_metrics = {metric.id: metric for metric in result.tabs["Growth"]["metrics"]}
+
+        self.assertIsNone(growth_metrics["net_income_range_growth"].score)
+        self.assertIn("not positive", growth_metrics["net_income_range_growth"].note)
+
     def test_engine_exposes_provider_diagnostics_in_missing_warnings(self):
         data = market_data()
         data.diagnostics.append(

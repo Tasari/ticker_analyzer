@@ -12,6 +12,7 @@ from ticker_analyzer.engine import (
     fcf_yield,
     fcf_margin_observations,
     gross_margin_trend,
+    build_historical_ratio_context,
     momentum_12_1,
     net_debt_to_ebitda_observations,
     overall_score_with_missing_policy,
@@ -19,6 +20,7 @@ from ticker_analyzer.engine import (
     roic_observations,
     share_count_cagr,
     statement_ratio_median,
+    statement_aligned_ratio_vs_history_metric,
     ttm_range_cagr,
 )
 from ticker_analyzer.scoring import classify_tab_rating
@@ -113,6 +115,58 @@ class MetricsLogicTest(unittest.TestCase):
         balance = pd.DataFrame({date: [100]}, index=["Net Debt"])
         self.assertEqual(fcf_margin_observations(income, cashflow, 1), [10.0])
         self.assertEqual(net_debt_to_ebitda_observations(income, balance, 1), [2.0])
+
+    def test_value_ratio_uses_statement_aligned_current_before_feed_fallback(self):
+        dates = pd.date_range("2023-12-31", periods=3, freq="YE")
+        history = pd.DataFrame({"Close": [10, 20, 30]}, index=dates)
+        income = pd.DataFrame({date: [revenue] for date, revenue in zip(dates, [100, 200, 300])}, index=["Total Revenue"])
+        balance = pd.DataFrame(
+            {date: [10] for date in dates},
+            index=["Ordinary Shares Number"],
+        )
+        cashflow = pd.DataFrame()
+        context = build_historical_ratio_context(history, income, balance, cashflow, years=3)
+
+        result = statement_aligned_ratio_vs_history_metric(
+            {"marketCap": 450, "priceToSalesTrailing12Months": 99},
+            "ps",
+            context,
+            fallback_current_ratio=99,
+        )
+
+        self.assertAlmostEqual(result["value"], 50.0)
+        self.assertIn("statement-aligned current multiple", result["note"])
+
+    def test_ev_ebitda_history_uses_debt_and_cash(self):
+        dates = pd.date_range("2023-12-31", periods=3, freq="YE")
+        history = pd.DataFrame({"Close": [10, 20, 30]}, index=dates)
+        income = pd.DataFrame({date: [ebitda] for date, ebitda in zip(dates, [50, 100, 120])}, index=["EBITDA"])
+        balance = pd.DataFrame(
+            {
+                dates[0]: [10, 30, 5],
+                dates[1]: [10, 40, 10],
+                dates[2]: [10, 50, 20],
+            },
+            index=["Ordinary Shares Number", "Total Debt", "Cash And Cash Equivalents"],
+        )
+        context = build_historical_ratio_context(history, income, balance, pd.DataFrame(), years=3)
+
+        result = statement_aligned_ratio_vs_history_metric(
+            {"marketCap": 450},
+            "ev_ebitda",
+            context,
+        )
+
+        self.assertAlmostEqual(result["value"], 60.0)
+
+    def test_historical_pe_skips_negative_earnings_observations(self):
+        dates = pd.date_range("2023-12-31", periods=3, freq="YE")
+        history = pd.DataFrame({"Close": [10, 20, 30]}, index=dates)
+        income = pd.DataFrame({date: [ni] for date, ni in zip(dates, [-10, 100, 150])}, index=["Net Income"])
+        balance = pd.DataFrame({date: [10] for date in dates}, index=["Ordinary Shares Number"])
+        context = build_historical_ratio_context(history, income, balance, pd.DataFrame(), years=3)
+
+        self.assertEqual(context.historical_ratios("pe"), [2.0, 2.0])
 
     def test_tab_rating_uses_configured_tab_thresholds(self):
         config = {
