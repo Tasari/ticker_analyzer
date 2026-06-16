@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
 
 import streamlit as st
 import yfinance as yf
@@ -8,19 +10,62 @@ import yfinance as yf
 from ticker_analyzer import analyze_ticker
 
 logger = logging.getLogger(__name__)
+MAX_ANALYSIS_WORKERS = 5
+AnalysisResult = dict[str, Any]
+AnalysisError = str
+TickerAnalysisOutcome = tuple[AnalysisResult | None, AnalysisError | None]
 
 
 def analyze_selected_tickers(tickers: list[str], ranges: dict[str, str], config: dict) -> tuple[dict, dict]:
+    if len(tickers) <= 1:
+        return analyze_tickers_sequentially(tickers, ranges, config)
+
+    completed: dict[str, TickerAnalysisOutcome] = {}
+    with ThreadPoolExecutor(max_workers=analysis_worker_count(tickers)) as executor:
+        futures = {
+            executor.submit(analyze_one_ticker, ticker, ranges, config): ticker
+            for ticker in tickers
+        }
+        for future in as_completed(futures):
+            ticker = futures[future]
+            completed[ticker] = future.result()
+    return ordered_analysis_results(tickers, completed)
+
+
+def analysis_worker_count(tickers: list[str]) -> int:
+    return min(MAX_ANALYSIS_WORKERS, max(1, len(tickers)))
+
+
+def analyze_tickers_sequentially(tickers: list[str], ranges: dict[str, str], config: dict) -> tuple[dict, dict]:
+    completed = {
+        ticker: analyze_one_ticker(ticker, ranges, config)
+        for ticker in tickers
+    }
+    return ordered_analysis_results(tickers, completed)
+
+
+def analyze_one_ticker(ticker: str, ranges: dict[str, str], config: dict) -> TickerAnalysisOutcome:
+    try:
+        return analyze_ticker(ticker, ranges, config), None
+    except ValueError as exc:
+        return None, str(exc)
+    except Exception:
+        logger.exception("Unexpected analysis failure for %s", ticker)
+        return None, "Unexpected internal error. Check application logs."
+
+
+def ordered_analysis_results(
+    tickers: list[str],
+    completed: dict[str, TickerAnalysisOutcome],
+) -> tuple[dict, dict]:
     results = {}
     errors = {}
     for ticker in tickers:
-        try:
-            results[ticker] = analyze_ticker(ticker, ranges, config)
-        except ValueError as exc:
-            errors[ticker] = str(exc)
-        except Exception:
-            logger.exception("Unexpected analysis failure for %s", ticker)
-            errors[ticker] = "Unexpected internal error. Check application logs."
+        result, error = completed.get(ticker, (None, "Analysis did not complete."))
+        if error is not None:
+            errors[ticker] = error
+        elif result is not None:
+            results[ticker] = result
     return results, errors
 
 
