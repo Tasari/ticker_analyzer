@@ -9,7 +9,8 @@ import streamlit as st
 from streamlit_searchbox import st_searchbox
 
 from ticker_analyzer import format_metric_value, save_config
-from ticker_analyzer.ui.actions import search_tickers
+from ticker_analyzer.ranking import load_ranking
+from ticker_analyzer.ui.actions import refresh_large_cap_ranking, search_tickers
 
 
 def render_sidebar(config: dict) -> tuple[dict[str, str], bool]:
@@ -45,15 +46,12 @@ def render_ticker_search() -> None:
         edit_after_submit="disabled",
         clear_on_submit=True,
         debounce=250,
-        help="Search by ticker or company name, then select up to five stocks.",
+        help="Search by ticker or company name, then add it to the comparison queue.",
     )
     if not selected:
         return
     ticker = selected.split(" | ", maxsplit=1)[0].strip().upper()
     if ticker in st.session_state.selected_tickers:
-        return
-    if len(st.session_state.selected_tickers) >= 5:
-        st.warning("You can compare up to five stocks.")
         return
     st.session_state.selected_tickers.append(ticker)
     st.session_state.analysis_results = {}
@@ -113,10 +111,89 @@ def render_comparison_summary(results: dict[str, dict]) -> None:
     )
     ranked_results = rank_results(results, sort_option)
     render_ranking(ranked_results, sort_option)
-    render_company_cards(ranked_results)
+    if len(ranked_results) <= 10:
+        render_company_cards(ranked_results)
+    else:
+        st.caption("Company cards are omitted for large comparisons; select any company in Company Details.")
     render_comparison_table(ranked_results)
-    with st.expander("Compare all metrics", expanded=False):
-        render_metric_comparison(ranked_results)
+    if len(ranked_results) <= 25:
+        with st.expander("Compare all metrics", expanded=False):
+            render_metric_comparison(ranked_results)
+    else:
+        st.caption("The all-metrics matrix is available for comparisons of up to 25 companies.")
+
+
+def render_large_cap_ranking() -> None:
+    st.subheader("Large Cap Ranking — Scoring v3")
+    update_col, note_col = st.columns([1, 3])
+    update_clicked = update_col.button(
+        "Update Ranking",
+        type="primary",
+        help="Rebuild all 1,000 companies. This normally takes a few minutes.",
+    )
+    note_col.caption("The current snapshot stays visible until a complete replacement is ready.")
+    if update_clicked:
+        with st.spinner("Updating 1,000 companies. This can take several minutes; keep this page open..."):
+            success, message, _metadata = refresh_large_cap_ranking()
+        if success:
+            st.success(message)
+            st.rerun()
+        else:
+            st.error(message)
+    payload = load_ranking()
+    metadata = payload.get("metadata", {})
+    companies = payload.get("companies", [])
+    if not companies:
+        st.info("Ranking data has not been generated yet.")
+        return
+    st.caption(
+        f"{metadata.get('universe', 'Large-cap equities')} · generated {metadata.get('generated_at', 'unknown')} · "
+        f"analyzed {metadata.get('analyzed', 0)}/{metadata.get('requested', 0)} · "
+        f"scored {metadata.get('scored', 0)} · insufficient data {metadata.get('insufficient_data', 0)}"
+    )
+    profiles = sorted({row.get("profile") for row in companies if row.get("profile")})
+    ratings = sorted({row.get("rating") for row in companies if row.get("rating")})
+    filter_cols = st.columns(4)
+    profile = filter_cols[0].selectbox("Profile", ["All", *profiles])
+    rating = filter_cols[1].selectbox("Rating", ["All", *ratings])
+    minimum_confidence = filter_cols[2].slider("Minimum confidence", 0, 95, 60)
+    maximum_rows = filter_cols[3].selectbox("Rows", [50, 100, 250, 500, 1000], index=1)
+    filtered = [
+        row
+        for row in companies
+        if (profile == "All" or row.get("profile") == profile)
+        and (rating == "All" or row.get("rating") == rating)
+        and float(row.get("confidence") or 0) >= minimum_confidence
+    ][:maximum_rows]
+    table = pd.DataFrame(filtered)
+    columns = {
+        "rank": "Rank",
+        "ticker": "Ticker",
+        "company_name": "Company",
+        "market_cap": "Market Cap",
+        "profile": "Profile",
+        "overall_score": "Overall",
+        "rating": "Rating",
+        "confidence": "Confidence",
+        "growth_score": "Growth",
+        "fundamentals_score": "Fundamentals",
+        "value_score": "Value",
+    }
+    available = [name for name in columns if name in table.columns]
+    st.dataframe(
+        table[available].rename(columns=columns),
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Market Cap": st.column_config.NumberColumn(format="$%.0f"),
+            "Overall": st.column_config.NumberColumn(format="%.1f"),
+            "Confidence": st.column_config.NumberColumn(format="%.1f%%"),
+            "Growth": st.column_config.NumberColumn(format="%.1f"),
+            "Fundamentals": st.column_config.NumberColumn(format="%.1f"),
+            "Value": st.column_config.NumberColumn(format="%.1f"),
+        },
+    )
+    st.caption("Ranking is a model-based screening tool, not investment advice. Missing tabs are never treated as neutral scores.")
 
 
 def rank_results(results: dict[str, dict], sort_option: str) -> list[dict]:
@@ -140,6 +217,18 @@ def rank_results(results: dict[str, dict], sort_option: str) -> list[dict]:
 
 def render_ranking(results: list[dict], sort_option: str) -> None:
     st.markdown(f"#### {sort_option} Ranking")
+    if len(results) > 5:
+        rows = []
+        for index, result in enumerate(results):
+            score = result.get("overall_score") if sort_option == "Overall" else result["tabs"][sort_option].get("score")
+            rows.append({"Rank": index + 1, "Ticker": result["ticker"], "Score": score})
+        st.dataframe(
+            pd.DataFrame(rows),
+            hide_index=True,
+            width="stretch",
+            column_config={"Score": st.column_config.NumberColumn(format="%.1f")},
+        )
+        return
     columns = st.columns(len(results))
     for index, result in enumerate(results):
         score = result.get("overall_score") if sort_option == "Overall" else result["tabs"][sort_option].get("score")

@@ -24,7 +24,7 @@ The suite contains formula-level tests and network-free integration tests for th
 
 ## Features
 
-- Search and select up to five tickers supported by `yfinance`.
+- Search and select any number of tickers supported by `yfinance`; data fetching remains capped at five concurrent workers to avoid provider overload.
 - Compare selected companies in a Summary view, then inspect each company in detail. Multi-ticker analysis runs ticker fetches concurrently.
 - Separate Growth, Fundamentals, and Value tabs.
 - Separate range selectors for Growth, Fundamentals, and Value. Fundamentals metrics use medians over the selected annual range where applicable.
@@ -35,6 +35,19 @@ The suite contains formula-level tests and network-free integration tests for th
 - Separate weighted coverage and quality-based confidence (capped at 95) with a diagnostic breakdown.
 - Automatic Industrial and Financial analysis profiles.
 - Basic charts for adjusted price history, financial trends, assets, and debt.
+- A precomputed Large Cap Ranking covering 1,000 equities ordered by scoring-v3 Overall Score.
+
+## Large Cap Ranking
+
+The ranking universe is the 1,000 largest equities returned by the Nasdaq stock screener, ordered by market capitalization. Each company is analyzed with the same scoring-v3 engine as the single-stock view. Missing data remains `Insufficient Data` and is not replaced with a neutral score.
+
+The snapshot is stored in `data/large_cap_ranking_v3.json`. Refresh or resume it with:
+
+```powershell
+python scripts/build_large_cap_ranking.py --limit 1000 --workers 5 --ranges 3Y --public-fallback
+```
+
+The job checkpoints every ten completed companies. The public fallback uses Yahoo annual fundamentals and price history when the normal crumb-based yfinance client is rate limited; unavailable analyst consensus data lowers coverage and confidence normally.
 
 ## Scoring Notes
 

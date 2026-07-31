@@ -7,6 +7,7 @@ from ticker_analyzer.ui.state import initialize_state
 from ticker_analyzer.ui.views import (
     render_analysis_errors,
     render_company_analysis,
+    render_large_cap_ranking,
     render_multi_ticker_analysis,
     render_sidebar,
 )
@@ -20,6 +21,10 @@ def main() -> None:
 
     config = load_config()
     initialize_state()
+    page = st.sidebar.radio("View", ["Stock Analyzer", "Large Cap Ranking"])
+    if page == "Large Cap Ranking":
+        render_large_cap_ranking()
+        return
     ranges, analyze_clicked = render_sidebar(config)
 
     if analyze_clicked or not st.session_state.analysis_results:
