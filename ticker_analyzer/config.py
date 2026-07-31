@@ -11,7 +11,16 @@ CONFIG_PATH = Path("metrics_config.json")
 CONFIG_VERSION = 5
 SUPPORTED_CONFIG_VERSIONS = {3, 4, 5}
 SCORING_MODEL = "piecewise_anchor_25_75_v1"
-CALIBRATION_VERSION = "v5-audit-2026Q3"
+CALIBRATION_VERSION = "v5.1-calibration-2026Q3"
+
+DEFAULT_MINIMUM_COVERAGE = {"Growth": 0.55, "Fundamentals": 0.60, "Value": 0.50}
+DEFAULT_FULL_CONFIDENCE_COVERAGE = {"Growth": 0.80, "Fundamentals": 0.80, "Value": 0.75}
+DEFAULT_MISSING_POLICY = {
+    "require_all_tabs_for_overall": False,
+    "minimum_scored_tabs": 2,
+    "required_tabs": ["Fundamentals"],
+    "missing_tab_penalty": {"0": 0, "1": 5, "2": 15},
+}
 
 LEGACY_METRIC_IDS = {
     "ps_vs_3y_median": "ps_vs_selected_median",
@@ -95,8 +104,15 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("overall_rating_labels", {})
     normalized.setdefault("tab_rating_labels", {})
     normalized.setdefault("tab_rating_thresholds", {})
-    normalized.setdefault("missing_policy", {"require_all_tabs_for_overall": True, "minimum_scored_tabs": 3})
-    normalized.setdefault("minimum_weight_coverage", {"Growth": 0.70, "Fundamentals": 0.75, "Value": 0.70})
+    normalized.setdefault("missing_policy", deepcopy(DEFAULT_MISSING_POLICY))
+    normalized.setdefault("minimum_weight_coverage", deepcopy(DEFAULT_MINIMUM_COVERAGE))
+    normalized.setdefault(
+        "coverage_policy",
+        {
+            "minimum_to_score": deepcopy(normalized["minimum_weight_coverage"]),
+            "minimum_for_full_confidence": deepcopy(DEFAULT_FULL_CONFIDENCE_COVERAGE),
+        },
+    )
     normalized.setdefault("tab_groups", {})
     normalized.setdefault("profile_metrics", {})
     normalized.setdefault("peer_medians", {})
@@ -129,7 +145,13 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_thresholds(config.get("rating_thresholds", {}), "rating_thresholds")
     validate_tab_weights(config.get("tab_weights", {}), config["metrics"])
     validate_missing_policy(config.get("missing_policy", {}))
+    unknown_required_tabs = set(config.get("missing_policy", {}).get("required_tabs", [])) - set(config["metrics"])
+    if unknown_required_tabs:
+        raise ConfigValidationError(
+            f"missing_policy.required_tabs references unknown tabs: {sorted(unknown_required_tabs)}"
+        )
     validate_minimum_coverage(config.get("minimum_weight_coverage", {}), config["metrics"])
+    validate_coverage_policy(config.get("coverage_policy", {}), config["metrics"])
     for tab_name, metrics in config["metrics"].items():
         if not isinstance(metrics, list) or not metrics:
             raise ConfigValidationError(f"metrics.{tab_name} must be a non-empty list.")
@@ -223,6 +245,14 @@ def validate_missing_policy(policy: dict[str, Any]) -> None:
     minimum = optional_number(policy.get("minimum_scored_tabs", 2))
     if minimum is None or minimum < 1:
         raise ConfigValidationError("missing_policy.minimum_scored_tabs must be at least 1.")
+    required_tabs = policy.get("required_tabs", [])
+    if not isinstance(required_tabs, list) or any(not isinstance(name, str) for name in required_tabs):
+        raise ConfigValidationError("missing_policy.required_tabs must be a list of tab names.")
+    penalties = policy.get("missing_tab_penalty", {})
+    if not isinstance(penalties, dict) or any(
+        optional_number(value) is None or float(value) < 0 for value in penalties.values()
+    ):
+        raise ConfigValidationError("missing_policy.missing_tab_penalty values must be non-negative numbers.")
 
 
 def validate_minimum_coverage(coverage: dict[str, Any], metrics_by_tab: dict[str, Any]) -> None:
@@ -232,6 +262,19 @@ def validate_minimum_coverage(coverage: dict[str, Any], metrics_by_tab: dict[str
         value = optional_number(coverage.get(tab_name))
         if value is None or not 0 <= value <= 1:
             raise ConfigValidationError(f"minimum_weight_coverage.{tab_name} must be between 0 and 1.")
+
+
+def validate_coverage_policy(policy: dict[str, Any], metrics_by_tab: dict[str, Any]) -> None:
+    if not isinstance(policy, dict):
+        raise ConfigValidationError("coverage_policy must be an object.")
+    for section in ("minimum_to_score", "minimum_for_full_confidence"):
+        values = policy.get(section)
+        if not isinstance(values, dict):
+            raise ConfigValidationError(f"coverage_policy.{section} must be an object.")
+        for tab_name in metrics_by_tab:
+            value = optional_number(values.get(tab_name))
+            if value is None or not 0 <= value <= 1:
+                raise ConfigValidationError(f"coverage_policy.{section}.{tab_name} must be between 0 and 1.")
 
 
 def validate_data_quality(data_quality: dict[str, Any]) -> None:
@@ -338,25 +381,28 @@ def migrate_v4_to_v5(config: dict[str, Any]) -> dict[str, Any]:
     migrated = deepcopy(config)
     migrated["version"] = 5
     migrated["calibration_version"] = CALIBRATION_VERSION
-    migrated["missing_policy"] = {"require_all_tabs_for_overall": True, "minimum_scored_tabs": 3}
-    migrated["minimum_weight_coverage"] = {"Growth": 0.70, "Fundamentals": 0.75, "Value": 0.70}
+    migrated["missing_policy"] = deepcopy(DEFAULT_MISSING_POLICY)
+    migrated["minimum_weight_coverage"] = deepcopy(DEFAULT_MINIMUM_COVERAGE)
+    migrated["coverage_policy"] = {
+        "minimum_to_score": deepcopy(DEFAULT_MINIMUM_COVERAGE),
+        "minimum_for_full_confidence": deepcopy(DEFAULT_FULL_CONFIDENCE_COVERAGE),
+    }
     migrated["data_quality"] = default_data_quality_config()
     migrated.setdefault(
         "rating_gates",
         {
-            "minimum_data_quality_for_directional_rating": 60,
+            "minimum_data_quality_for_rating": 40,
             "very_strong": {
-                "minimum_overall_score": 85,
-                "minimum_data_quality": 80,
-                "minimum_each_tab": 50,
-                "minimum_fundamentals": 55,
-                "minimum_value": 45,
-            },
-            "strong": {
-                "minimum_overall_score": 72,
-                "minimum_data_quality": 70,
+                "minimum_overall_score": 80,
+                "minimum_data_quality": 65,
                 "minimum_each_tab": 40,
                 "minimum_fundamentals": 50,
+            },
+            "strong": {
+                "minimum_overall_score": 67,
+                "minimum_data_quality": 55,
+                "minimum_each_tab": 30,
+                "minimum_fundamentals": 45,
             },
         },
     )
@@ -388,23 +434,33 @@ def ensure_v5_defaults(migrated: dict[str, Any]) -> None:
     migrated.setdefault(
         "rating_gates",
         {
-            "minimum_data_quality_for_directional_rating": 60,
+            "minimum_data_quality_for_rating": 40,
             "very_strong": {
-                "minimum_overall_score": 85,
-                "minimum_data_quality": 80,
-                "minimum_each_tab": 50,
-                "minimum_fundamentals": 55,
-                "minimum_value": 45,
-            },
-            "strong": {
-                "minimum_overall_score": 72,
-                "minimum_data_quality": 70,
+                "minimum_overall_score": 80,
+                "minimum_data_quality": 65,
                 "minimum_each_tab": 40,
                 "minimum_fundamentals": 50,
+            },
+            "strong": {
+                "minimum_overall_score": 67,
+                "minimum_data_quality": 55,
+                "minimum_each_tab": 30,
+                "minimum_fundamentals": 45,
             },
         },
     )
     migrated.setdefault("profile_metrics", {})
+    migrated.setdefault("model_applicability", {
+        "native": 90,
+        "generic_financial_maximum": 65,
+        "manual_override_without_evidence": 60,
+    })
+    migrated.setdefault("absolute_guardrails", {
+        "fcf_margin": [{"at_or_below": 0, "maximum_score": 35, "reason": "non_positive_fcf"}],
+        "equity_to_assets": [{"at_or_below": 0, "maximum_score": 30, "reason": "negative_equity"}],
+        "interest_coverage": [{"at_or_below": 1, "maximum_score": 25, "reason": "interest_not_covered"}],
+        "roic": [{"at_or_below": 0, "maximum_score": 30, "reason": "non_positive_roic"}],
+    })
     financial_metrics = migrated.get("profile_metrics", {}).get("Financial")
     if financial_metrics:
         for profile in specialized_financial_profiles():
@@ -464,21 +520,21 @@ def financial_groups(profile: str) -> dict[str, Any]:
 def default_profile_rules() -> dict[str, Any]:
     industrial = {
         "Growth": {
-            "minimum_coverage": 0.70,
+            "minimum_coverage": 0.55,
             "required_groups": {
                 "historical": {"minimum_available_metrics": 1},
                 "forward_or_trend": {"minimum_available_metrics": 1},
             },
         },
         "Fundamentals": {
-            "minimum_coverage": 0.75,
+            "minimum_coverage": 0.60,
             "required_groups": {
                 "solvency": {"minimum_available_metrics": 1},
                 "quality": {"minimum_available_metrics": 2},
             },
         },
         "Value": {
-            "minimum_coverage": 0.70,
+            "minimum_coverage": 0.50,
             "required_groups": {
                 "historical_multiples": {"minimum_available_metrics": 2},
                 "absolute_cash_yield": {"minimum_available_metrics": 1},
@@ -487,24 +543,24 @@ def default_profile_rules() -> dict[str, Any]:
     }
     financial = {
         "Growth": {
-            "minimum_coverage": 0.65,
+            "minimum_coverage": 0.55,
             "required_groups": {"business_growth": {"minimum_available_metrics": 1}},
         },
         "Fundamentals": {
-            "minimum_coverage": 0.80,
+            "minimum_coverage": 0.60,
             "required_groups": {
                 "capital": {"minimum_available_metrics": 1},
                 "quality": {"minimum_available_metrics": 2},
             },
         },
         "Value": {
-            "minimum_coverage": 0.65,
+            "minimum_coverage": 0.50,
             "required_groups": {"historical_or_peer": {"minimum_available_metrics": 1}},
         },
     }
     specialized = {profile: deepcopy(financial) for profile in specialized_financial_profiles()}
-    specialized["FinancialBroker"]["Fundamentals"]["minimum_coverage"] = 0.75
-    specialized["FinancialLender"]["Value"]["minimum_coverage"] = 0.60
+    specialized["FinancialBroker"]["Fundamentals"]["minimum_coverage"] = 0.60
+    specialized["FinancialLender"]["Value"]["minimum_coverage"] = 0.50
     specialized["FinancialBroker"]["Growth"]["required_groups"]["business_growth"][
         "minimum_available_metrics"
     ] = 2
@@ -530,15 +586,10 @@ def default_data_quality_config() -> dict[str, Any]:
         "display_unit": "points",
         "maximum": 95,
         "weights": {
-            "metric_weight_coverage": 0.20,
-            "tab_completeness": 0.10,
-            "filing_freshness": 0.15,
-            "actual_observation_depth": 0.10,
-            "source_provenance": 0.15,
+            "effective_metric_coverage": 0.50,
+            "data_freshness": 0.25,
+            "source_quality": 0.15,
             "cross_source_reconciliation": 0.10,
-            "temporal_alignment": 0.10,
-            "estimate_quality": 0.05,
-            "profile_fit": 0.05,
         },
     }
 

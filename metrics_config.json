@@ -1,22 +1,28 @@
 {
   "version": 5,
   "scoring_model": "piecewise_anchor_25_75_v1",
-  "calibration_version": "v5-audit-2026Q3",
+  "calibration_version": "v5.1-calibration-2026Q3",
   "data_quality": {
     "display_name": "Data Quality",
     "display_unit": "points",
     "maximum": 95,
     "weights": {
-      "metric_weight_coverage": 0.20,
-      "tab_completeness": 0.10,
-      "filing_freshness": 0.15,
-      "actual_observation_depth": 0.10,
-      "source_provenance": 0.15,
-      "cross_source_reconciliation": 0.10,
-      "temporal_alignment": 0.10,
-      "estimate_quality": 0.05,
-      "profile_fit": 0.05
+      "effective_metric_coverage": 0.50,
+      "data_freshness": 0.25,
+      "source_quality": 0.15,
+      "cross_source_reconciliation": 0.10
     }
+  },
+  "model_applicability": {
+    "native": 90,
+    "generic_financial_maximum": 65,
+    "manual_override_without_evidence": 60
+  },
+  "absolute_guardrails": {
+    "fcf_margin": [{"at_or_below": 0, "maximum_score": 35, "reason": "non_positive_fcf"}],
+    "equity_to_assets": [{"at_or_below": 0, "maximum_score": 30, "reason": "negative_equity"}],
+    "interest_coverage": [{"at_or_below": 1, "maximum_score": 25, "reason": "interest_not_covered"}],
+    "roic": [{"at_or_below": 0, "maximum_score": 30, "reason": "non_positive_roic"}]
   },
   "profile_overrides": {
     "FUTU": "FinancialBroker",
@@ -46,14 +52,14 @@
   },
   "profile_rules": {
     "Industrial": {
-      "Growth": {"minimum_coverage": 0.70, "required_groups": {"historical": {"minimum_available_metrics": 1}, "forward_or_trend": {"minimum_available_metrics": 1}}},
-      "Fundamentals": {"minimum_coverage": 0.75, "required_groups": {"solvency": {"minimum_available_metrics": 1}, "quality": {"minimum_available_metrics": 2}}},
-      "Value": {"minimum_coverage": 0.70, "required_groups": {"historical_multiples": {"minimum_available_metrics": 2}, "absolute_cash_yield": {"minimum_available_metrics": 1}}}
+      "Growth": {"minimum_coverage": 0.55, "required_groups": {"historical": {"minimum_available_metrics": 1}, "forward_or_trend": {"minimum_available_metrics": 1}}},
+      "Fundamentals": {"minimum_coverage": 0.60, "required_groups": {"solvency": {"minimum_available_metrics": 1}, "quality": {"minimum_available_metrics": 2}}},
+      "Value": {"minimum_coverage": 0.50, "required_groups": {"historical_multiples": {"minimum_available_metrics": 2}, "absolute_cash_yield": {"minimum_available_metrics": 1}}}
     },
     "Financial": {
-      "Growth": {"minimum_coverage": 0.65, "required_groups": {"business_growth": {"minimum_available_metrics": 1}}},
-      "Fundamentals": {"minimum_coverage": 0.80, "required_groups": {"capital": {"minimum_available_metrics": 1}, "quality": {"minimum_available_metrics": 2}}},
-      "Value": {"minimum_coverage": 0.65, "required_groups": {"historical_or_peer": {"minimum_available_metrics": 1}}}
+      "Growth": {"minimum_coverage": 0.55, "required_groups": {"business_growth": {"minimum_available_metrics": 1}}},
+      "Fundamentals": {"minimum_coverage": 0.60, "required_groups": {"capital": {"minimum_available_metrics": 1}, "quality": {"minimum_available_metrics": 2}}},
+      "Value": {"minimum_coverage": 0.50, "required_groups": {"historical_or_peer": {"minimum_available_metrics": 1}}}
     }
   },
   "tab_weights": {
@@ -62,13 +68,19 @@
     "Value": 0.3334
   },
   "missing_policy": {
-    "require_all_tabs_for_overall": true,
-    "minimum_scored_tabs": 3
+    "require_all_tabs_for_overall": false,
+    "minimum_scored_tabs": 2,
+    "required_tabs": ["Fundamentals"],
+    "missing_tab_penalty": {"0": 0, "1": 5, "2": 15}
   },
   "minimum_weight_coverage": {
-    "Growth": 0.70,
-    "Fundamentals": 0.75,
-    "Value": 0.70
+    "Growth": 0.55,
+    "Fundamentals": 0.60,
+    "Value": 0.50
+  },
+  "coverage_policy": {
+    "minimum_to_score": {"Growth": 0.55, "Fundamentals": 0.60, "Value": 0.50},
+    "minimum_for_full_confidence": {"Growth": 0.80, "Fundamentals": 0.80, "Value": 0.75}
   },
   "tab_groups": {
     "Growth": {
@@ -91,8 +103,8 @@
     }
   },
   "rating_thresholds": {
-    "very_strong": 85,
-    "strong": 70,
+    "very_strong": 80,
+    "strong": 67,
     "neutral": 45,
     "weak": 30
   },
@@ -104,9 +116,9 @@
     "very_weak": "Strong Sell"
   },
   "rating_gates": {
-    "minimum_data_quality_for_directional_rating": 60,
-    "very_strong": {"minimum_overall_score": 85, "minimum_data_quality": 80, "minimum_each_tab": 50, "minimum_fundamentals": 55, "minimum_value": 45},
-    "strong": {"minimum_overall_score": 72, "minimum_data_quality": 70, "minimum_each_tab": 40, "minimum_fundamentals": 50}
+    "minimum_data_quality_for_rating": 40,
+    "very_strong": {"minimum_overall_score": 80, "minimum_data_quality": 65, "minimum_each_tab": 40, "minimum_fundamentals": 50},
+    "strong": {"minimum_overall_score": 67, "minimum_data_quality": 55, "minimum_each_tab": 30, "minimum_fundamentals": 45}
   },
   "tab_rating_thresholds": {
     "Growth": {

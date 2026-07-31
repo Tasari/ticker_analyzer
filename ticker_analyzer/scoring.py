@@ -62,7 +62,15 @@ class ScoringEngine:
                 description=metric_description(metric_config),
                 provenance=raw.get("provenance"),
             )
-        score = score_value(value, metric_config)
+        scoring_config = metric_config
+        if metric_config.get("scoring") == "percentile":
+            scoring_config = {**metric_config, "percentile": raw.get("percentile")}
+        score = apply_absolute_guardrail(
+            metric_id,
+            value,
+            score_value(value, scoring_config),
+            config,
+        )
         return MetricResult(
             id=metric_id,
             name=metric_config.get("name", metric_id),
@@ -166,6 +174,11 @@ def score_lower(value: float, warn: float, good: float) -> float:
 
 
 def score_value(value: float, metric_config: dict[str, Any]) -> float:
+    if metric_config.get("scoring") == "percentile":
+        percentile = clean_number(metric_config.get("percentile"))
+        if percentile is None:
+            raise ValueError("percentile scoring requires a finite percentile")
+        return percentile_score(percentile)
     good = clean_number(metric_config.get("good"))
     warn = clean_number(metric_config.get("warn"))
     direction = metric_config.get("direction", "higher")
@@ -176,6 +189,41 @@ def score_value(value: float, metric_config: dict[str, Any]) -> float:
     if direction == "higher":
         return score_higher(value, warn, good)
     raise ValueError(f"unsupported metric direction: {direction}")
+
+
+def percentile_score(percentile: float) -> float:
+    """Map a 0..1 peer percentile to the v5.1 score anchors."""
+    if not math.isfinite(percentile):
+        raise ValueError("percentile must be finite")
+    value = max(0.0, min(float(percentile), 1.0))
+    anchors = [
+        (0.00, 0.0),
+        (0.10, 15.0),
+        (0.25, 30.0),
+        (0.50, 50.0),
+        (0.75, 70.0),
+        (0.90, 85.0),
+        (0.97, 95.0),
+        (1.00, 100.0),
+    ]
+    for (left_x, left_y), (right_x, right_y) in zip(anchors, anchors[1:], strict=False):
+        if value <= right_x:
+            fraction = (value - left_x) / (right_x - left_x)
+            return left_y + fraction * (right_y - left_y)
+    return 100.0
+
+
+def apply_absolute_guardrail(
+    metric_id: str, value: float, score: float, config: dict[str, Any]
+) -> float:
+    """Cap peer/absolute scores when a raw metric reveals economic distress."""
+    rules = config.get("absolute_guardrails", {}).get(metric_id, [])
+    for rule in rules:
+        boundary = clean_number(rule.get("at_or_below"))
+        maximum = clean_number(rule.get("maximum_score"))
+        if boundary is not None and maximum is not None and value <= boundary:
+            score = min(score, maximum)
+    return score
 
 
 def status_from_score(score: float, tab_name: str, config: dict[str, Any]) -> str:
@@ -235,46 +283,103 @@ def calculate_overall_rating_code(
     tabs: dict[str, float | None],
     config: dict[str, Any],
 ) -> RatingCode:
+    return calculate_rating_decision(overall, data_quality, tabs, config)["rating_code"]
+
+
+def calculate_rating_decision(
+    overall: float | None,
+    data_quality: float,
+    tabs: dict[str, float | None],
+    config: dict[str, Any],
+    *,
+    model_applicability: float = 100.0,
+    profile_rating_cap: RatingCode | None = None,
+) -> dict[str, Any]:
+    """Return the v5.1 rating plus every gate/cap used to reach it."""
     gates = config.get("rating_gates", {})
-    minimum_quality = number_or_default(gates.get("minimum_data_quality_for_directional_rating"), 60)
-    if data_quality < minimum_quality:
-        return "not_rated"
-    if overall is None or any(tabs.get(name) is None for name in ("Growth", "Fundamentals", "Value")):
-        return "insufficient_data"
-    growth = float(tabs["Growth"])
-    fundamentals = float(tabs["Fundamentals"])
-    value = float(tabs["Value"])
-    minimum_tab = min(growth, fundamentals, value)
+    reasons: list[str] = []
+    active_caps: list[str] = []
+    fundamentals = clean_number(tabs.get("Fundamentals"))
+    available_tabs = [clean_number(value) for value in tabs.values()]
+    available_tabs = [value for value in available_tabs if value is not None]
+    if overall is None or fundamentals is None or len(available_tabs) < 2:
+        return _rating_decision("insufficient_data", "None", active_caps, ["insufficient_scored_tabs"])
+    if data_quality < number_or_default(gates.get("minimum_data_quality_for_rating"), 40):
+        return _rating_decision("insufficient_data", "None", active_caps, ["data_quality_below_40"])
+
+    minimum_tab = min(available_tabs)
     code = classify_rating_code(overall, config)
+    reasons.append(f"base_rating_{code}")
+    if len(available_tabs) < len(tabs):
+        reasons.append(f"partial_overall_{len(tabs) - len(available_tabs)}_missing_tab")
+    if minimum_tab < 30:
+        reasons.append("weakest_tab_penalty_4")
+    elif minimum_tab < 40:
+        reasons.append("weakest_tab_penalty_2")
     very_strong = gates.get("very_strong", {})
     if code == "very_strong" and not (
-        overall >= number_or_default(very_strong.get("minimum_overall_score"), 85)
-        and data_quality >= number_or_default(very_strong.get("minimum_data_quality"), 80)
-        and minimum_tab >= number_or_default(very_strong.get("minimum_each_tab"), 50)
-        and fundamentals >= number_or_default(very_strong.get("minimum_fundamentals"), 55)
-        and value >= number_or_default(very_strong.get("minimum_value"), 45)
+        overall >= number_or_default(very_strong.get("minimum_overall_score"), 80)
+        and data_quality >= number_or_default(very_strong.get("minimum_data_quality"), 65)
+        and minimum_tab >= number_or_default(very_strong.get("minimum_each_tab"), 40)
+        and fundamentals >= number_or_default(very_strong.get("minimum_fundamentals"), 50)
     ):
         code = "strong"
+        reasons.append("strong_buy_gate_failed")
     strong = gates.get("strong", {})
     if code == "strong" and not (
-        overall >= number_or_default(strong.get("minimum_overall_score"), 72)
-        and data_quality >= number_or_default(strong.get("minimum_data_quality"), 70)
-        and minimum_tab >= number_or_default(strong.get("minimum_each_tab"), 40)
-        and fundamentals >= number_or_default(strong.get("minimum_fundamentals"), 50)
+        overall >= number_or_default(strong.get("minimum_overall_score"), 67)
+        and data_quality >= number_or_default(strong.get("minimum_data_quality"), 55)
+        and minimum_tab >= number_or_default(strong.get("minimum_each_tab"), 30)
+        and fundamentals >= number_or_default(strong.get("minimum_fundamentals"), 45)
     ):
         code = "neutral"
-    if fundamentals < 30:
-        code = cap_rating_code(code, "neutral")
-    if value < 20:
-        code = cap_rating_code(code, "neutral")
-    return code
+        reasons.append("buy_gate_failed")
+
+    confidence = "High" if data_quality >= 65 else "Medium" if data_quality >= 55 else "Low"
+    if data_quality < 55:
+        code = _apply_cap(code, "neutral", "data_quality_cap_hold", active_caps, reasons)
+    elif data_quality < 65:
+        code = _apply_cap(code, "strong", "data_quality_cap_buy", active_caps, reasons)
+    if model_applicability < 40:
+        code = _apply_cap(code, "neutral", "model_applicability_cap_hold", active_caps, reasons)
+    elif model_applicability < 65:
+        code = _apply_cap(code, "strong", "model_applicability_cap_buy", active_caps, reasons)
+    if profile_rating_cap is not None:
+        code = _apply_cap(code, profile_rating_cap, "profile_model_cap", active_caps, reasons)
+    return _rating_decision(code, confidence, active_caps, reasons)
+
+
+def _apply_cap(
+    code: RatingCode,
+    maximum: RatingCode,
+    reason: str,
+    active_caps: list[str],
+    reasons: list[str],
+) -> RatingCode:
+    if reason not in active_caps:
+        active_caps.append(reason)
+    capped = cap_rating_code(code, maximum)
+    if capped != code:
+        reasons.append(reason)
+    return capped
+
+
+def _rating_decision(
+    code: RatingCode, confidence: str, active_caps: list[str], reasons: list[str]
+) -> dict[str, Any]:
+    return {
+        "rating_code": code,
+        "rating_confidence": confidence,
+        "rating_caps": active_caps,
+        "rating_reason_codes": reasons,
+    }
 
 
 def classify_rating_code(score: float, config: dict[str, Any]) -> RatingCode:
     thresholds = config.get("rating_thresholds", {})
-    if score >= number_or_default(thresholds.get("very_strong"), 85):
+    if score >= number_or_default(thresholds.get("very_strong"), 80):
         return "very_strong"
-    if score >= number_or_default(thresholds.get("strong"), 70):
+    if score >= number_or_default(thresholds.get("strong"), 67):
         return "strong"
     if score >= number_or_default(thresholds.get("neutral"), 45):
         return "neutral"

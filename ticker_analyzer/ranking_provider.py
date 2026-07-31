@@ -6,7 +6,7 @@ from typing import Any
 import pandas as pd
 import requests
 
-from ticker_analyzer.domain import AnalysisRanges, MarketData
+from ticker_analyzer.domain import AnalysisRanges, DataProvenance, MarketData
 
 TIMESERIES_TYPES = {
     "annualTotalRevenue": ("income", "Total Revenue"),
@@ -52,7 +52,9 @@ class PublicYahooRankingProvider:
     def fetch(self, ticker_symbol: str, ranges: AnalysisRanges) -> MarketData:
         item = self.universe_by_ticker.get(ticker_symbol, {})
         statements = self._statements(ticker_symbol)
-        history, chart_meta = self._history(ticker_symbol, max(_years(value) for value in ranges.as_dict().values()))
+        growth_history, value_history, chart_meta = self._history(
+            ticker_symbol, max(_years(value) for value in ranges.as_dict().values())
+        )
         current_price = chart_meta.get("regularMarketPrice")
         info = {
             "symbol": ticker_symbol,
@@ -71,6 +73,17 @@ class PublicYahooRankingProvider:
         if shares is not None:
             info["sharesOutstanding"] = shares
         empty = pd.DataFrame()
+        latest_statement_period = max(
+            (
+                pd.Timestamp(column).to_pydatetime()
+                for frame in statements.values()
+                for column in frame.columns
+            ),
+            default=None,
+        )
+        latest_price_period = (
+            pd.Timestamp(value_history.index.max()).to_pydatetime() if not value_history.empty else None
+        )
         return MarketData(
             ticker=ticker_symbol,
             info=info,
@@ -80,8 +93,8 @@ class PublicYahooRankingProvider:
             quarterly_income=empty,
             quarterly_balance=empty,
             quarterly_cashflow=empty,
-            growth_history=history,
-            value_history=history,
+            growth_history=growth_history,
+            value_history=value_history,
             analyst_targets={},
             revenue_estimate=empty,
             earnings_estimate=empty,
@@ -94,6 +107,24 @@ class PublicYahooRankingProvider:
                     "message": "Public Yahoo timeseries fallback; analyst consensus data unavailable",
                 }
             ],
+            provenance={
+                "financials": DataProvenance(
+                    provider="Yahoo Finance public",
+                    source_url="https://query2.finance.yahoo.com/ws/fundamentals-timeseries/",
+                    period_end=latest_statement_period,
+                    observation_count=sum(frame.size for frame in statements.values()),
+                    fallback_level="secondary_source",
+                    is_primary_source=False,
+                ),
+                "prices": DataProvenance(
+                    provider="Yahoo Finance public",
+                    source_url="https://query1.finance.yahoo.com/v8/finance/chart/",
+                    period_end=latest_price_period,
+                    observation_count=len(value_history),
+                    fallback_level="secondary_source",
+                    is_primary_source=False,
+                ),
+            },
         )
 
     def _statements(self, ticker: str) -> dict[str, pd.DataFrame]:
@@ -125,7 +156,7 @@ class PublicYahooRankingProvider:
                 values[statement][row_name] = observations
         return {name: _statement_frame(rows) for name, rows in values.items()}
 
-    def _history(self, ticker: str, years: int) -> tuple[pd.DataFrame, dict[str, Any]]:
+    def _history(self, ticker: str, years: int) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
         response = self.session.get(
             f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
             params={"range": f"{max(1, years)}y", "interval": "1mo", "events": "div,splits", "includeAdjustedClose": "true"},
@@ -135,10 +166,13 @@ class PublicYahooRankingProvider:
         result = next(iter(response.json().get("chart", {}).get("result") or []), {})
         timestamps = result.get("timestamp", [])
         quote = next(iter(result.get("indicators", {}).get("quote", [])), {})
+        raw_close = quote.get("close", [])
         adjusted = next(iter(result.get("indicators", {}).get("adjclose", [])), {}).get("adjclose")
-        close = adjusted or quote.get("close", [])
-        frame = pd.DataFrame({"Close": close}, index=pd.to_datetime(timestamps, unit="s", utc=True).tz_localize(None))
-        return frame.dropna(), result.get("meta", {})
+        adjusted_close = adjusted or raw_close
+        index = pd.to_datetime(timestamps, unit="s", utc=True).tz_localize(None)
+        growth = pd.DataFrame({"Close": adjusted_close}, index=index).dropna()
+        value = pd.DataFrame({"Close": raw_close}, index=index).dropna()
+        return growth, value, result.get("meta", {})
 
 
 def _statement_frame(rows: dict[str, dict[pd.Timestamp, float]]) -> pd.DataFrame:

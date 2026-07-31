@@ -125,7 +125,7 @@ def render_comparison_summary(results: dict[str, dict]) -> None:
 
 
 def render_large_cap_ranking() -> None:
-    st.subheader("Large Cap Ranking — Scoring v5")
+    st.subheader("Large Cap Ranking — Scoring v5.1")
     refresh_allowed = mutation_allowed("ALLOW_RANKING_REFRESH")
     update_col, note_col = st.columns([1, 3])
     update_clicked = update_col.button(
@@ -161,7 +161,7 @@ def render_large_cap_ranking() -> None:
     filter_cols = st.columns(4)
     profile = filter_cols[0].selectbox("Profile", ["All", *profiles])
     rating = filter_cols[1].selectbox("Rating", ["All", *ratings])
-    minimum_quality = filter_cols[2].slider("Minimum Data Quality", 0, 95, 60)
+    minimum_quality = filter_cols[2].slider("Minimum Data Quality", 0, 95, 0)
     maximum_rows = filter_cols[3].selectbox("Rows", [50, 100, 250, 500, 1000], index=1)
     filtered = [
         row
@@ -171,6 +171,9 @@ def render_large_cap_ranking() -> None:
         and float(row.get("data_quality", row.get("confidence")) or 0) >= minimum_quality
     ][:maximum_rows]
     table = pd.DataFrame(filtered)
+    if table.empty:
+        st.info("No companies match the selected filters. Lower Minimum Data Quality or clear the profile/rating filter.")
+        return
     columns = {
         "rank": "Rank",
         "ticker": "Ticker",
@@ -179,7 +182,9 @@ def render_large_cap_ranking() -> None:
         "profile": "Profile",
         "overall_score": "Overall",
         "rating": "Rating",
+        "rating_confidence": "Confidence",
         "data_quality": "Data Quality",
+        "model_applicability": "Model Applicability",
         "growth_score": "Growth",
         "fundamentals_score": "Fundamentals",
         "value_score": "Value",
@@ -193,6 +198,7 @@ def render_large_cap_ranking() -> None:
             "Market Cap": st.column_config.NumberColumn(format="$%.0f"),
             "Overall": st.column_config.NumberColumn(format="%.1f"),
             "Data Quality": st.column_config.NumberColumn(format="%.1f points"),
+            "Model Applicability": st.column_config.NumberColumn(format="%.1f points"),
             "Growth": st.column_config.NumberColumn(format="%.1f"),
             "Fundamentals": st.column_config.NumberColumn(format="%.1f"),
             "Value": st.column_config.NumberColumn(format="%.1f"),
@@ -373,6 +379,12 @@ def render_summary(result: dict) -> None:
     cols[3].metric("Analysis Profile", result.get("profile", "Industrial"))
     cols[4].metric("Available Tabs", sum(1 for tab in result["tabs"].values() if tab["score"] is not None))
     cols[5].metric("Data Quality", format_data_quality(result))
+    st.caption(
+        f"Rating confidence: {result.get('rating_confidence', 'Unknown')} · "
+        f"Model applicability: {float(result.get('model_applicability', 100) or 0):.0f}/100"
+    )
+    if result.get("rating_caps"):
+        st.caption("Active rating caps: " + ", ".join(result["rating_caps"]))
     st.caption("Scores are model-based comparative indicators, not guarantees or investment advice.")
 
     rating_cols = st.columns(3)

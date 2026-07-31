@@ -260,7 +260,7 @@ class MetricsLogicTest(unittest.TestCase):
             "tab_weights": {"Growth": 1, "Fundamentals": 1, "Value": 1},
             "missing_policy": {"require_all_tabs_for_overall": False, "minimum_scored_tabs": 2},
         }
-        self.assertAlmostEqual(overall_score_with_missing_policy(tab_results, config), 70.0)
+        self.assertAlmostEqual(overall_score_with_missing_policy(tab_results, config), 65.0)
 
     def test_overall_score_can_require_all_tabs(self):
         tab_results = {

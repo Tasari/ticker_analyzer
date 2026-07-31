@@ -83,25 +83,25 @@ class ScoringV3Test(unittest.TestCase):
             "tab_weights": {"Growth": 0.3333, "Fundamentals": 0.3333, "Value": 0.3334},
             "missing_policy": {"require_all_tabs_for_overall": True, "minimum_scored_tabs": 3},
         }
-        self.assertAlmostEqual(overall_score_with_missing_policy(tabs, config), 63.3353, places=3)
+        self.assertAlmostEqual(overall_score_with_missing_policy(tabs, config), 69.669, places=3)
 
     def test_rating_gates_block_strong_buy(self):
         tabs = {"Growth": 95.0, "Fundamentals": 30.0, "Value": 95.0}
         self.assertNotEqual(calculate_overall_rating(88, 90, tabs, {}), "Strong Buy")
         self.assertEqual(
             calculate_overall_rating(88, 30, {key: 90.0 for key in tabs}, {}),
-            "Not Rated – Low Data Quality",
+            "Insufficient Data",
         )
 
-    def test_missing_tab_is_insufficient_data(self):
+    def test_missing_tab_can_still_receive_rating(self):
         self.assertEqual(
             calculate_overall_rating(80, 90, {"Growth": 80, "Fundamentals": 80, "Value": None}, {}),
-            "Insufficient Data",
+            "Strong Buy",
         )
 
     def test_rating_caps_never_upgrade_bearish_rating(self):
         tabs = {"Growth": 20.0, "Fundamentals": 20.0, "Value": 20.0}
-        self.assertEqual(calculate_overall_rating(20, 20, tabs, {}), "Not Rated – Low Data Quality")
+        self.assertEqual(calculate_overall_rating(20, 20, tabs, {}), "Insufficient Data")
 
     def test_rating_is_monotonic_in_overall_when_gates_are_equal(self):
         tabs = {"Growth": 80.0, "Fundamentals": 80.0, "Value": 80.0}
