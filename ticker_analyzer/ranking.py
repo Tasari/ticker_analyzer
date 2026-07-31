@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -13,7 +15,28 @@ import yfinance as yf
 
 from ticker_analyzer.analysis.engine import analyze_ticker
 
-DEFAULT_RANKING_PATH = Path("data/large_cap_ranking_v4.json")
+DEFAULT_RANKING_PATH = Path("data/large_cap_ranking_v5.json")
+SCORING_VERSION = 5
+PROVIDER_SCHEMA_VERSION = "providers-v2"
+METRIC_SCHEMA_VERSION = "metrics-v5"
+
+
+def config_digest(config: dict[str, Any]) -> str:
+    encoded = json.dumps(config, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def analysis_fingerprint(config: dict[str, Any], data_as_of: str) -> dict[str, Any]:
+    return {
+        "scoring_version": SCORING_VERSION,
+        "config_version": int(config.get("version", 5)),
+        "calibration_version": str(config.get("calibration_version", "v5-audit-2026Q3")),
+        "config_digest": config_digest(config),
+        "provider_schema_version": PROVIDER_SCHEMA_VERSION,
+        "metric_schema_version": METRIC_SCHEMA_VERSION,
+        "peer_artifact_version": str(config.get("peer_artifact_version", "none")),
+        "data_as_of": data_as_of,
+    }
 
 
 def normalize_ticker(ticker: Any) -> str:
@@ -90,7 +113,9 @@ def fetch_large_cap_universe_nasdaq(limit: int = 1000) -> list[dict[str, Any]]:
     return sorted(universe, key=lambda item: item["market_cap"], reverse=True)[:limit]
 
 
-def ranking_row(universe_item: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:
+def ranking_row(
+    universe_item: dict[str, Any], analysis: dict[str, Any], fingerprint: dict[str, Any] | None = None
+) -> dict[str, Any]:
     tabs = analysis.get("tabs", {})
     return {
         **universe_item,
@@ -98,17 +123,19 @@ def ranking_row(universe_item: dict[str, Any], analysis: dict[str, Any]) -> dict
         "profile": analysis.get("profile"),
         "overall_score": analysis.get("overall_score"),
         "rating": analysis.get("rating"),
+        "rating_code": analysis.get("rating_code"),
         "data_quality": analysis.get("data_quality", analysis.get("confidence")),
-        "confidence": analysis.get("data_quality", analysis.get("confidence")),
         "growth_score": tabs.get("Growth", {}).get("score"),
         "fundamentals_score": tabs.get("Fundamentals", {}).get("score"),
         "value_score": tabs.get("Value", {}).get("score"),
         "growth_coverage": tabs.get("Growth", {}).get("coverage", {}).get("percentage"),
         "fundamentals_coverage": tabs.get("Fundamentals", {}).get("coverage", {}).get("percentage"),
         "value_coverage": tabs.get("Value", {}).get("coverage", {}).get("percentage"),
-        "scoring_version": analysis.get("scoring_version", 4),
-        "config_version": analysis.get("config_version", 4),
-        "calibration_version": analysis.get("calibration_version", "v4-bootstrap-2026Q3"),
+        **(fingerprint or {
+            "scoring_version": analysis.get("scoring_version", SCORING_VERSION),
+            "config_version": analysis.get("config_version", 5),
+            "calibration_version": analysis.get("calibration_version", "v5-audit-2026Q3"),
+        }),
     }
 
 
@@ -140,23 +167,27 @@ def build_large_cap_ranking(
     retries: int = 2,
     retry_delay: float = 5.0,
     retry_insufficient: bool = False,
+    data_as_of: str | None = None,
 ) -> dict[str, Any]:
     universe_tickers = {item["ticker"] for item in universe}
-    expected_config_version = int(config.get("version", 4))
-    expected_calibration = str(config.get("calibration_version", "v4-bootstrap-2026Q3"))
+    as_of = data_as_of or datetime.now(UTC).date().isoformat()
+    fingerprint = analysis_fingerprint(config, as_of)
+    existing_metadata = (existing or {}).get("metadata", {})
+    compatible_checkpoint = all(existing_metadata.get(key) == value for key, value in fingerprint.items())
     previous_rows = {
         row["ticker"]: row
         for row in (existing or {}).get("companies", [])
-        if row.get("ticker") in universe_tickers
-        and int(row.get("scoring_version", 0)) == 4
-        and int(row.get("config_version", 0)) == expected_config_version
-        and str(row.get("calibration_version", "")) == expected_calibration
+        if compatible_checkpoint
+        and row.get("ticker") in universe_tickers
+        and all(row.get(key) == value for key, value in fingerprint.items())
         and (not retry_insufficient or row.get("overall_score") is not None)
     }
     error_by_ticker = {
         item["ticker"]: item
         for item in (existing or {}).get("errors", [])
-        if item.get("ticker") in universe_tickers and item.get("ticker") not in previous_rows
+        if compatible_checkpoint
+        and item.get("ticker") in universe_tickers
+        and item.get("ticker") not in previous_rows
     }
     pending = [item for item in universe if item["ticker"] not in previous_rows]
     rows = list(previous_rows.values())
@@ -165,7 +196,13 @@ def build_large_cap_ranking(
         last_error: Exception | None = None
         for attempt in range(retries + 1):
             try:
-                return item, analyzer(item["ticker"], ranges, config)
+                analysis_ranges = {
+                    "Growth": ranges,
+                    "Fundamentals": ranges,
+                    "Value": ranges,
+                    "_data_as_of": as_of,
+                }
+                return item, analyzer(item["ticker"], analysis_ranges, config)
             except Exception as exc:
                 last_error = exc
                 if attempt < retries:
@@ -178,13 +215,20 @@ def build_large_cap_ranking(
             item = futures[future]
             try:
                 source, analysis = future.result()
-                rows.append(ranking_row(source, analysis))
+                rows.append(ranking_row(source, analysis, fingerprint))
                 error_by_ticker.pop(item["ticker"], None)
             except Exception as exc:
                 error_by_ticker[item["ticker"]] = {"ticker": item["ticker"], "error": str(exc)}
             if checkpoint and completed % 10 == 0:
-                checkpoint(ranking_payload(universe, rows, list(error_by_ticker.values()), ranges, config, complete=False))
-    return ranking_payload(universe, rows, list(error_by_ticker.values()), ranges, config, complete=True)
+                checkpoint(
+                    ranking_payload(
+                        universe, rows, list(error_by_ticker.values()), ranges, config,
+                        complete=False, data_as_of=as_of,
+                    )
+                )
+    return ranking_payload(
+        universe, rows, list(error_by_ticker.values()), ranges, config, complete=True, data_as_of=as_of
+    )
 
 
 def ranking_payload(
@@ -195,9 +239,12 @@ def ranking_payload(
     config: dict[str, Any] | None = None,
     *,
     complete: bool,
+    data_as_of: str | None = None,
 ) -> dict[str, Any]:
     ranked = sort_ranking(rows)
     unique_errors = sorted({item["ticker"]: item for item in errors}.values(), key=lambda item: item["ticker"])
+    as_of = data_as_of or datetime.now(UTC).date().isoformat()
+    fingerprint = analysis_fingerprint(config or {}, as_of)
     return {
         "metadata": {
             "generated_at": datetime.now(UTC).isoformat(),
@@ -212,9 +259,8 @@ def ranking_payload(
             "insufficient_data": sum(row.get("overall_score") is None for row in rows),
             "failed": len(unique_errors),
             "ranges": ranges,
-            "scoring_version": 4,
-            "config_version": int((config or {}).get("version", 4)),
-            "calibration_version": str((config or {}).get("calibration_version", "v4-bootstrap-2026Q3")),
+            **fingerprint,
+            "code_commit": os.getenv("GIT_COMMIT", "unknown"),
             "complete": complete,
         },
         "companies": ranked,

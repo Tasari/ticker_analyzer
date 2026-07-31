@@ -115,8 +115,8 @@ class AnalysisEngineTest(unittest.TestCase):
         self.assertIsNotNone(result.overall_score)
         self.assertIn(result.coverage["confidence"], {"Medium", "High"})
         self.assertGreater(result.coverage["percentage"], 60)
-        self.assertEqual(result.scoring_version, 4)
-        self.assertEqual(result.config_version, 4)
+        self.assertEqual(result.scoring_version, 5)
+        self.assertEqual(result.config_version, 5)
         self.assertEqual(result.confidence, result.data_quality)
         self.assertIn("components", result.data_quality_breakdown)
         self.assertTrue(
@@ -143,14 +143,14 @@ class AnalysisEngineTest(unittest.TestCase):
         result = StockAnalysisEngine(provider=FakeProvider(data)).analyze("AFRM", "2Y", load_config())
         self.assertEqual(result.profile, "FinancialLender")
 
-    def test_financial_broker_can_be_complete_without_analyst_data(self):
+    def test_financial_broker_requires_configured_growth_coverage(self):
         data = market_data(industry="Software - Infrastructure")
         data.analyst_targets = {}
         data.revenue_estimate = pd.DataFrame()
         data.earnings_estimate = pd.DataFrame()
         result = StockAnalysisEngine(provider=FakeProvider(data)).analyze("FUTU", "2Y", load_config())
         self.assertEqual(result.profile, "FinancialBroker")
-        self.assertIsNotNone(result.tabs["Growth"]["score"])
+        self.assertIsNone(result.tabs["Growth"]["score"])
         self.assertIsNotNone(result.tabs["Value"]["score"])
 
     def test_broker_and_lender_have_distinct_capital_group_weights(self):
@@ -233,7 +233,7 @@ class AnalysisEngineTest(unittest.TestCase):
 
         normalized = normalize_config(config)
 
-        self.assertEqual(normalized["version"], 4)
+        self.assertEqual(normalized["version"], 5)
         self.assertEqual(normalized["metrics"]["Value"][0]["id"], "ps_vs_selected_median")
         self.assertEqual(
             normalized["profile_metrics"]["Financial"]["Value"][0]["id"],

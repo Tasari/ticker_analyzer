@@ -37,13 +37,13 @@ The suite contains formula-level tests and network-free integration tests for th
 - Separate metric coverage and Data Quality (0–95 points) with components, penalties, source caps, and a diagnostic breakdown.
 - Industrial, bank, broker, lender, insurance, asset-manager, REIT, and Generic Financial profiles with explicit overrides.
 - Basic charts for adjusted price history, financial trends, assets, and debt.
-- A precomputed Large Cap Ranking covering 1,000 equities ordered by scoring-v4 Overall Score.
+- A precomputed Large Cap Ranking covering 1,000 equities ordered by scoring-v5 Overall Score.
 
 ## Large Cap Ranking
 
-The ranking universe is the 1,000 largest equities returned by the Nasdaq stock screener, ordered by market capitalization. Each company is analyzed with the same scoring-v4 engine as the single-stock view. Missing data remains `Insufficient Data` and is not replaced with a neutral score.
+The ranking universe is the 1,000 largest equities returned by the Nasdaq stock screener, ordered by market capitalization. Each company is analyzed with the same scoring-v5 engine as the single-stock view. Missing data remains `Insufficient Data` and is not replaced with a neutral score.
 
-The snapshot is stored in `data/large_cap_ranking_v4.json`. Refresh or resume it with:
+The snapshot is stored in `data/large_cap_ranking_v5.json`. Refresh or resume it with:
 
 ```powershell
 python scripts/build_large_cap_ranking.py --limit 1000 --workers 5 --ranges 3Y --public-fallback
@@ -105,4 +105,6 @@ The app validates the config when loading or saving it. Invalid JSON or inconsis
 - `ticker_analyzer/scoring.py`: metric, tab, and overall scoring.
 - `ticker_analyzer/ui/`: Streamlit state, actions, and rendering helpers.
 
-Metric IDs referring to a historical median use `selected_median`, because the comparison period follows the Value range selected in the UI. Config v4 is active. v3 is migrated explicitly; v2 is rejected because its threshold semantics cannot be migrated safely. See `docs/SCORING_V4.md` for the model, data-source, and migration details.
+Metric IDs referring to a historical median use `selected_median`, because the comparison period follows the Value range selected in the UI. Config v5 is active. v3/v4 are migrated explicitly; v2 is rejected because its threshold semantics cannot be migrated safely. See `docs/SCORING_V5.md` for the model, data-source, and migration details.
+
+Production deployments are read-only by default. Set `APP_MODE=production`; only administrators should opt in to `ALLOW_CONFIG_WRITE=true` or `ALLOW_RANKING_REFRESH=true`. Local mode keeps both controls available for development.

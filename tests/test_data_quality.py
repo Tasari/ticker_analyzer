@@ -17,7 +17,7 @@ class DataQualityTest(unittest.TestCase):
 
     def test_generic_financial_cap(self):
         score, breakdown = quality_fixture(generic_financial=True, yfinance_only=False)
-        self.assertEqual(score, 70)
+        self.assertEqual(score, 60)
         self.assertIn("generic_financial", breakdown["caps"])
 
     def test_provider_errors_apply_explicit_penalty(self):
@@ -30,6 +30,25 @@ class DataQualityTest(unittest.TestCase):
         score, breakdown = quality_fixture(complete_tabs=2, yfinance_only=False)
         self.assertEqual(score, 55)
         self.assertIn("incomplete_tab", breakdown["caps"])
+
+    def test_yfinance_production_cap_is_lower_than_local(self):
+        local, _ = quality_fixture(yfinance_only=True, production_mode=False)
+        production, breakdown = quality_fixture(yfinance_only=True, production_mode=True)
+        self.assertEqual(local, 85)
+        self.assertEqual(production, 70)
+        self.assertIn("yfinance_only", breakdown["caps"])
+
+    def test_period_mismatch_prevents_directional_quality(self):
+        score, breakdown = quality_fixture(has_period_mismatch=True, yfinance_only=False)
+        self.assertLess(score, 60)
+        self.assertIn("critical_period_mismatch", breakdown["caps"])
+
+    def test_critical_source_mismatch_prevents_directional_quality(self):
+        score, breakdown = quality_fixture(
+            yfinance_only=False, reconciliation_score=70, has_critical_mismatch=True
+        )
+        self.assertLess(score, 60)
+        self.assertIn("critical_source_mismatch", breakdown["caps"])
 
     def test_maximum_quality_requires_uncapped_primary_quality_inputs(self):
         score, breakdown = quality_fixture(yfinance_only=False)

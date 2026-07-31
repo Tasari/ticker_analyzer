@@ -35,7 +35,14 @@ class YFinanceProvider:
             quarterly_balance=normalize_statement(safe_frame(lambda: ticker.quarterly_balance_sheet, label="quarterly balance sheet", diagnostics=diagnostics)),
             quarterly_cashflow=normalize_statement(safe_frame(lambda: ticker.quarterly_cashflow, label="quarterly cash flow", diagnostics=diagnostics)),
             growth_history=safe_frame(lambda: ticker.history(start=growth_start, auto_adjust=True), label="growth price history", diagnostics=diagnostics),
-            value_history=safe_frame(lambda: ticker.history(start=value_start, auto_adjust=True), label="value price history", diagnostics=diagnostics),
+            # Valuation multiples must use the price shareholders actually paid.
+            # Adjusted prices are useful for total-return/growth charts, but applying
+            # them to today's share count makes historical P/E and P/S split-sensitive.
+            value_history=safe_frame(
+                lambda: ticker.history(start=value_start, auto_adjust=False, actions=True),
+                label="value price history",
+                diagnostics=diagnostics,
+            ),
             analyst_targets=safe_dict(lambda: ticker.analyst_price_targets, label="analyst price targets", diagnostics=diagnostics),
             revenue_estimate=safe_frame(lambda: ticker.revenue_estimate, label="revenue estimates", diagnostics=diagnostics),
             earnings_estimate=safe_frame(lambda: ticker.earnings_estimate, label="earnings estimates", diagnostics=diagnostics),

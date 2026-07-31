@@ -193,7 +193,15 @@ def point_in_time_multiple(
 def annual_price_series(history: pd.DataFrame, years: int) -> pd.Series:
     if history.empty or "Close" not in history:
         return pd.Series(dtype=float)
-    return pd.to_numeric(history["Close"], errors="coerce").dropna().resample("YE").median().tail(years)
+    # Monthly point-in-time observations avoid the sampling bias of one annual
+    # median while still keeping the historical multiple series compact.
+    return (
+        pd.to_numeric(history["Close"], errors="coerce")
+        .dropna()
+        .resample("ME")
+        .median()
+        .tail(max(1, years) * 12)
+    )
 
 
 def latest_series_value(series: pd.Series) -> float | None:

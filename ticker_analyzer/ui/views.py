@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 
 import pandas as pd
 import plotly.express as px
@@ -124,14 +125,18 @@ def render_comparison_summary(results: dict[str, dict]) -> None:
 
 
 def render_large_cap_ranking() -> None:
-    st.subheader("Large Cap Ranking — Scoring v4")
+    st.subheader("Large Cap Ranking — Scoring v5")
+    refresh_allowed = mutation_allowed("ALLOW_RANKING_REFRESH")
     update_col, note_col = st.columns([1, 3])
     update_clicked = update_col.button(
         "Update Ranking",
         type="primary",
         help="Rebuild all 1,000 companies. This normally takes a few minutes.",
+        disabled=not refresh_allowed,
     )
     note_col.caption("The current snapshot stays visible until a complete replacement is ready.")
+    if not refresh_allowed:
+        note_col.caption("Ranking refresh is read-only in production unless explicitly enabled by an administrator.")
     if update_clicked:
         with st.spinner("Updating 1,000 companies. This can take several minutes; keep this page open..."):
             success, message, _metadata = refresh_large_cap_ranking()
@@ -497,15 +502,17 @@ def render_metrics_table(metrics: list) -> None:
 
 def render_config_editor(config: dict) -> None:
     with st.expander("Scoring Settings", expanded=False):
+        write_allowed = mutation_allowed("ALLOW_CONFIG_WRITE")
         st.write("Edit the JSON configuration, then save and analyze again.")
         edited = st.text_area(
             "metrics_config.json",
             value=json.dumps(config, indent=2),
             height=420,
             label_visibility="collapsed",
+            disabled=not write_allowed,
         )
         cols = st.columns(2)
-        if cols[0].button("Save settings", width="stretch"):
+        if cols[0].button("Save settings", width="stretch", disabled=not write_allowed):
             try:
                 parsed = json.loads(edited)
                 save_config(parsed)
@@ -515,3 +522,9 @@ def render_config_editor(config: dict) -> None:
                 st.error(f"Could not save settings: {exc}")
         if cols[1].button("Reload settings", width="stretch"):
             st.rerun()
+
+
+def mutation_allowed(setting: str) -> bool:
+    if os.getenv("APP_MODE", "local").strip().lower() != "production":
+        return True
+    return os.getenv(setting, "").strip().lower() in {"1", "true", "yes", "on"}
