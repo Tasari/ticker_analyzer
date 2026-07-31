@@ -9,6 +9,7 @@ from ticker_analyzer.metrics.formulas import (
     gross_margin_trend,
     ohlson_probability,
     operating_margin,
+    operating_margin_trend,
     share_count_cagr,
 )
 from ticker_analyzer.metrics.utils import (
@@ -107,6 +108,10 @@ def build_raw_metrics(
         "net_income_range_growth": metric_value(cagr_pct(latest_row_value(annual_income, ["Net Income", "Net Income Common Stockholders"]), net_income_range_base, growth_years), f"Latest annual net income CAGR over {growth_years} fiscal year(s); missing when the base or current value is not positive"),
         "cfo_range_growth": metric_value(cfo_range_growth, cfo_range_note),
         "operating_margin": metric_value(operating_margin(annual_income)),
+        "operating_margin_trend": metric_value(
+            operating_margin_trend(annual_income, growth_years),
+            f"Operating margin change over {growth_years} fiscal year(s)",
+        ),
         "gross_margin_trend": metric_value(gross_margin_trend(annual_income, growth_years), f"Gross margin change over {growth_years} fiscal year(s)"),
         "share_count_cagr": metric_value(share_count_cagr(annual_balance, growth_years), f"Ordinary share count CAGR over {growth_years} fiscal year(s); positive values indicate dilution"),
         "price_change": metric_value(

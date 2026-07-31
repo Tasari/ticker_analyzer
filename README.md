@@ -31,12 +31,18 @@ The suite contains formula-level tests and network-free integration tests for th
 - Available analysis ranges are `1Y`, `2Y`, and `3Y`. A 3Y maximum is more reliable across Growth, Fundamentals, and Value because longer CAGR windows often exceed the statement depth available from yfinance.
 - Rule-based scorecards with configurable metric weights, thresholds, tab weights, and rating labels.
 - Editable scoring configuration saved locally in `metrics_config.json`.
-- Missing data warnings, provider-failure diagnostics, and partial ratings when enough, but not all, tabs can be scored.
-- Weighted data coverage and High/Medium/Low confidence indicators for the overall result and every analysis tab.
+- Missing data warnings, provider-failure diagnostics, explicit coverage, and `Insufficient Data` when any tab is incomplete.
+- Separate weighted coverage and quality-based confidence (capped at 95) with a diagnostic breakdown.
 - Automatic Industrial and Financial analysis profiles.
 - Basic charts for adjusted price history, financial trends, assets, and debt.
 
 ## Scoring Notes
+
+- Scoring version 3 maps `warn` to 25 points, `good` to 75, and their midpoint to a neutral 50. Zero and 100 require values a full threshold span beyond the anchors.
+- Missing, NaN, and infinite values are unavailable rather than neutral; each tab has minimum weighted coverage and composition gates.
+- Tab metrics are grouped to reduce double counting: historical multiples in Value and solvency metrics in Fundamentals are aggregated as related signal families.
+- Overall Score is 80% of the configured weighted tab mean plus 20% of the weakest tab and requires all three tabs.
+- Strong Buy requires Overall ≥85, Confidence ≥75, and every tab ≥45. Buy also has confidence and Fundamentals gates.
 
 - Revenue and operating cash flow growth prefer TTM-vs-TTM CAGR for the selected range and clearly fall back to annual data when yfinance provides too few quarters.
 - Other Growth range metrics use CAGR where positive starting and ending values are available.
@@ -48,8 +54,8 @@ The suite contains formula-level tests and network-free integration tests for th
 - Value metrics compare statement-aligned current valuation multiples against approximate historical medians for the selected Value range, with reported yfinance multiples used only as fallbacks when a current multiple cannot be computed from available statements.
 - Multi-year Fundamentals and Value medians require at least two valid historical observations and report the actual observation count used.
 - Industrial Value includes Free Cash Flow Yield.
-- Industrial Growth includes gross-margin trend and share-count CAGR to surface improving unit economics, dilution, and buybacks.
-- Industrial Fundamentals include ROIC, FCF margin, accruals ratio, and net debt to EBITDA as quality and balance-sheet signals.
+- Industrial Growth includes operating- and gross-margin trends plus share-count CAGR; price momentum has only a small weight.
+- Industrial Fundamentals include operating margin, ROIC, FCF margin, accruals ratio, and net debt to EBITDA, split into quality and solvency groups.
 - The Ohlson distress estimate is informational and has zero default scoring weight until it can be properly calibrated.
 - Analyst price target has a low default weight, and the benchmark upside metric is visible but has zero default weight to avoid double counting.
 - Coverage is calculated from scored metric weights, so missing zero-weight informational metrics do not reduce confidence.
@@ -62,6 +68,7 @@ The suite contains formula-level tests and network-free integration tests for th
 - overall rating thresholds and labels,
 - tab rating thresholds and labels,
 - missing-data policy,
+- minimum tab coverage and metric groups,
 - profile-specific metric sets,
 - metric weights, thresholds, directions, units, descriptions, and optional benchmarks.
 
@@ -79,4 +86,4 @@ The app validates the config when loading or saving it. Invalid JSON or inconsis
 - `ticker_analyzer/scoring.py`: metric, tab, and overall scoring.
 - `ticker_analyzer/ui/`: Streamlit state, actions, and rendering helpers.
 
-Metric IDs referring to a historical median use `selected_median`, because the comparison period follows the Value range selected in the UI. Config version 2 automatically migrates the older fixed-range IDs when loading them.
+Metric IDs referring to a historical median use `selected_median`, because the comparison period follows the Value range selected in the UI. Config v3 is active; v2 remains readable as a legacy format and older fixed-range IDs are migrated when loading. See `docs/SCORING_V3.md` for the full model and calibration workflow.
