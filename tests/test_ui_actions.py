@@ -1,12 +1,44 @@
+import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from ticker_analyzer.ui.actions import analysis_worker_count, analyze_selected_tickers
+from ticker_analyzer.ranking import save_ranking
+from ticker_analyzer.ui.actions import analysis_worker_count, analyze_selected_tickers, refresh_large_cap_ranking
 
 
 class UiActionsTest(unittest.TestCase):
+    def test_refresh_ranking_replaces_snapshot_only_after_complete_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "ranking.json"
+            save_ranking({"metadata": {"complete": False}, "companies": [{"ticker": "OLD"}], "errors": []}, output)
+            refresh = output.with_suffix(".refresh.json")
+            payload = {
+                "metadata": {"complete": True, "scored": 1, "insufficient_data": 0},
+                "companies": [{"ticker": "NEW"}],
+                "errors": [],
+            }
+            save_ranking(payload, refresh)
+            with patch("ticker_analyzer.ui.actions.subprocess.run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
+                success, message, _ = refresh_large_cap_ranking(output, limit=1)
+
+            self.assertTrue(success)
+            self.assertIn("Ranking updated", message)
+            self.assertFalse(refresh.exists())
+            self.assertIn('"NEW"', output.read_text(encoding="utf-8"))
+
+    def test_refresh_ranking_rejects_concurrent_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "ranking.json"
+            output.with_suffix(".refresh.lock").write_text("123", encoding="utf-8")
+            success, message, metadata = refresh_large_cap_ranking(output, limit=1)
+            self.assertFalse(success)
+            self.assertIn("already running", message)
+            self.assertEqual(metadata, {})
+
     def test_analysis_worker_count_is_capped(self):
         self.assertEqual(analysis_worker_count([]), 1)
         self.assertEqual(analysis_worker_count(["ONE", "TWO"]), 2)

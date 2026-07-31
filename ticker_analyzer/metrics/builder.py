@@ -60,6 +60,8 @@ def build_raw_metrics(
     revenue_ttm = sum_recent(quarterly_income, ["Total Revenue", "Operating Revenue"], 4)
     if revenue_ttm is None:
         revenue_ttm = clean_number(info.get("totalRevenue"))
+    if revenue_ttm is None:
+        revenue_ttm = latest_row_value(annual_income, ["Total Revenue", "Operating Revenue"])
     revenue_prior_ttm = sum_window(quarterly_income, ["Total Revenue", "Operating Revenue"], 4, 8)
     growth_years = range_years["Growth"]
     fundamentals_years = range_years["Fundamentals"]

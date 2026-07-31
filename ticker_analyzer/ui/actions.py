@@ -1,19 +1,82 @@
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
 import yfinance as yf
 
 from ticker_analyzer import analyze_ticker
+from ticker_analyzer.ranking import DEFAULT_RANKING_PATH, load_ranking
 
 logger = logging.getLogger(__name__)
 MAX_ANALYSIS_WORKERS = 5
 AnalysisResult = dict[str, Any]
 AnalysisError = str
 TickerAnalysisOutcome = tuple[AnalysisResult | None, AnalysisError | None]
+
+
+def refresh_large_cap_ranking(
+    output_path: Path = DEFAULT_RANKING_PATH,
+    *,
+    limit: int = 1000,
+    workers: int = 5,
+    timeout: int = 1200,
+) -> tuple[bool, str, dict[str, Any]]:
+    project_root = Path(__file__).resolve().parents[2]
+    resolved_output = output_path if output_path.is_absolute() else project_root / output_path
+    refresh_path = resolved_output.with_suffix(".refresh.json")
+    lock_path = resolved_output.with_suffix(".refresh.lock")
+    resolved_output.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with lock_path.open("x", encoding="utf-8") as handle:
+            handle.write(str(os.getpid()))
+    except FileExistsError:
+        return False, "A ranking update is already running.", {}
+
+    command = [
+        sys.executable,
+        str(project_root / "scripts" / "build_large_cap_ranking.py"),
+        "--limit",
+        str(limit),
+        "--workers",
+        str(workers),
+        "--ranges",
+        "3Y",
+        "--output",
+        str(refresh_path),
+        "--public-fallback",
+        "--retry-insufficient",
+    ]
+    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            creationflags=creationflags,
+        )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "Unknown generator error").strip().splitlines()[-1]
+            return False, f"Ranking update failed: {detail}", {}
+        payload = load_ranking(refresh_path)
+        metadata = payload.get("metadata", {})
+        if not metadata.get("complete") or len(payload.get("companies", [])) != limit:
+            return False, "Ranking update stopped before all companies were processed; the checkpoint was preserved.", metadata
+        refresh_path.replace(resolved_output)
+        return True, f"Ranking updated: {metadata.get('scored', 0)} scored, {metadata.get('insufficient_data', 0)} insufficient data.", metadata
+    except subprocess.TimeoutExpired:
+        return False, "Ranking update timed out; the checkpoint was preserved and the next run will resume it.", {}
+    finally:
+        lock_path.unlink(missing_ok=True)
 
 
 def analyze_selected_tickers(tickers: list[str], ranges: dict[str, str], config: dict) -> tuple[dict, dict]:
