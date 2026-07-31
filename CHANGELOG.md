@@ -10,3 +10,4 @@
 - Calibrated Strong Buy/Buy thresholds and gates; generic financial fallback now caps at Buy.
 - Added percentile-score infrastructure, absolute distress guardrails, regression acceptance checks, and before/after reports.
 - Fixed the ranking UI's empty default view by showing all Data Quality levels initially.
+- Added a rolling-deployment compatibility layer for Streamlit config validation.

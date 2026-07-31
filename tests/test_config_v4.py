@@ -46,6 +46,28 @@ class ConfigV4Test(unittest.TestCase):
         self.assertEqual(normalized["missing_policy"]["required_tabs"], ["Fundamentals"])
         self.assertEqual(normalized["minimum_weight_coverage"]["Fundamentals"], 0.60)
 
+    def test_v51_config_remains_compatible_with_stale_v5_validator(self):
+        raw = json.loads(Path("metrics_config.json").read_text(encoding="utf-8"))
+        expected_legacy = {
+            "metric_weight_coverage", "tab_completeness", "filing_freshness",
+            "actual_observation_depth", "source_provenance", "cross_source_reconciliation",
+            "temporal_alignment", "estimate_quality", "profile_fit",
+        }
+        self.assertEqual(set(raw["data_quality"]["weights"]), expected_legacy)
+        self.assertAlmostEqual(sum(raw["data_quality"]["weights"].values()), 1)
+        self.assertEqual(set(raw["data_quality"]["component_weights"]), {
+            "effective_metric_coverage", "data_freshness", "source_quality",
+            "cross_source_reconciliation",
+        })
+
+    def test_early_v51_weight_schema_is_migrated_to_rolling_safe_schema(self):
+        config = json.loads(Path("metrics_config.json").read_text(encoding="utf-8"))
+        active_weights = config["data_quality"].pop("component_weights")
+        config["data_quality"]["weights"] = active_weights
+        normalized = normalize_config(config)
+        self.assertEqual(normalized["data_quality"]["component_weights"], active_weights)
+        self.assertIn("profile_fit", normalized["data_quality"]["weights"])
+
     def test_save_config_round_trips_atomically(self):
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "nested" / "config.json"

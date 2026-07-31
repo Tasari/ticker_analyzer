@@ -280,15 +280,32 @@ def validate_coverage_policy(policy: dict[str, Any], metrics_by_tab: dict[str, A
 def validate_data_quality(data_quality: dict[str, Any]) -> None:
     if not isinstance(data_quality, dict) or not isinstance(data_quality.get("weights"), dict):
         raise ConfigValidationError("data_quality.weights must be an object.")
-    weights = data_quality["weights"]
-    required = set(default_data_quality_config()["weights"])
-    if set(weights) != required:
-        raise ConfigValidationError(f"data_quality.weights must define exactly: {sorted(required)}")
-    parsed = [optional_number(weights[name]) for name in required]
+    defaults = default_data_quality_config()
+    component_weights = data_quality.get("component_weights")
+    if component_weights is None:
+        component_weights = data_quality["weights"]
+    if not isinstance(component_weights, dict):
+        raise ConfigValidationError("data_quality.component_weights must be an object.")
+    required = set(defaults["component_weights"])
+    if set(component_weights) != required:
+        raise ConfigValidationError(f"data_quality.component_weights must define exactly: {sorted(required)}")
+    parsed = [optional_number(component_weights[name]) for name in required]
     if any(value is None or value < 0 for value in parsed):
-        raise ConfigValidationError("data_quality weights must be non-negative numbers.")
+        raise ConfigValidationError("data_quality component weights must be non-negative numbers.")
     if abs(sum(value or 0 for value in parsed) - 1.0) > 0.001:
-        raise ConfigValidationError("data_quality weights must sum to 1.0.")
+        raise ConfigValidationError("data_quality component weights must sum to 1.0.")
+
+    # Streamlit can briefly keep the old module while pulling the new config.
+    # Retaining the v5 weight schema makes that rolling state load safely.
+    legacy_weights = data_quality["weights"]
+    legacy_required = set(defaults["weights"])
+    if set(legacy_weights) != legacy_required:
+        raise ConfigValidationError(f"data_quality.weights must define exactly: {sorted(legacy_required)}")
+    legacy_parsed = [optional_number(legacy_weights[name]) for name in legacy_required]
+    if any(value is None or value < 0 for value in legacy_parsed):
+        raise ConfigValidationError("data_quality legacy weights must be non-negative numbers.")
+    if abs(sum(value or 0 for value in legacy_parsed) - 1.0) > 0.001:
+        raise ConfigValidationError("data_quality legacy weights must sum to 1.0.")
 
 
 def validate_all_groups(config: dict[str, Any]) -> None:
@@ -429,7 +446,16 @@ def ensure_v4_defaults(migrated: dict[str, Any]) -> None:
 
 
 def ensure_v5_defaults(migrated: dict[str, Any]) -> None:
-    migrated.setdefault("data_quality", default_data_quality_config())
+    data_quality_defaults = default_data_quality_config()
+    data_quality = migrated.setdefault("data_quality", deepcopy(data_quality_defaults))
+    if isinstance(data_quality, dict):
+        current_weights = data_quality.get("weights")
+        if isinstance(current_weights, dict) and set(current_weights) == set(data_quality_defaults["component_weights"]):
+            data_quality.setdefault("component_weights", deepcopy(current_weights))
+            data_quality["weights"] = deepcopy(data_quality_defaults["weights"])
+        else:
+            data_quality.setdefault("component_weights", deepcopy(data_quality_defaults["component_weights"]))
+            data_quality.setdefault("weights", deepcopy(data_quality_defaults["weights"]))
     migrated.setdefault("profile_overrides", default_profile_overrides())
     migrated.setdefault(
         "rating_gates",
@@ -586,6 +612,17 @@ def default_data_quality_config() -> dict[str, Any]:
         "display_unit": "points",
         "maximum": 95,
         "weights": {
+            "metric_weight_coverage": 0.20,
+            "tab_completeness": 0.10,
+            "filing_freshness": 0.15,
+            "actual_observation_depth": 0.10,
+            "source_provenance": 0.15,
+            "cross_source_reconciliation": 0.10,
+            "temporal_alignment": 0.10,
+            "estimate_quality": 0.05,
+            "profile_fit": 0.05,
+        },
+        "component_weights": {
             "effective_metric_coverage": 0.50,
             "data_freshness": 0.25,
             "source_quality": 0.15,

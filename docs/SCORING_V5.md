@@ -15,6 +15,8 @@ Ratings use stable semantic codes; display labels cannot alter gating. Data Qual
 
 Data Quality is the renormalized weighted average of effective positive-weight metric coverage (50%), freshness (25%), source quality (15%), and reconciliation (10%). Reconciliation is `null` and removed from the denominator when only one source is present. Secondary-only, primary-only, and mixed source sets cap DQ at 75, 85, and 92 respectively. Profile fit never changes DQ.
 
+The active v5.1 values live in `data_quality.component_weights`. `data_quality.weights` retains the v5 schema solely so Streamlit rolling deployments cannot pair a stale validator with an incompatible config; v5.1 scoring does not consume those legacy weights.
+
 Model applicability is separate. Generic financial fallback has applicability at most 65, blocks Strong Buy, and caps the rating at Buy. Every cap and gate is exposed through `rating_caps`, `warnings`, and `rating_reason_codes`.
 
 The coverage floors are 55% Growth, 60% Fundamentals, and 50% Value. Full-confidence targets are 80%, 80%, and 75%. Positive-weight metrics must belong to exactly one positive-weight group; zero-weight metrics/groups do not affect coverage or DQ. Peer-percentile scoring uses documented p10/p25/p50/p75/p90/p97 anchors when a versioned peer artifact is supplied, while absolute distress guardrails remain active.
