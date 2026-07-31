@@ -45,7 +45,8 @@ def refresh_large_cap_ranking(
 
     command = [
         sys.executable,
-        str(project_root / "scripts" / "build_large_cap_ranking.py"),
+        "-m",
+        "scripts.build_large_cap_ranking",
         "--limit",
         str(limit),
         "--workers",
