@@ -23,10 +23,16 @@ from ticker_analyzer.engine import (
     statement_ratio_median,
     ttm_range_cagr,
 )
+from ticker_analyzer.metrics.formulas import series_coefficient_of_variation
 from ticker_analyzer.scoring import classify_tab_rating
 
 
 class MetricsLogicTest(unittest.TestCase):
+    def test_stability_rejects_negative_and_zero_crossing_series(self):
+        self.assertIsNone(series_coefficient_of_variation(pd.Series([-3.0, -2.0, -1.0])))
+        self.assertIsNone(series_coefficient_of_variation(pd.Series([-1.0, 1.0, 2.0])))
+        self.assertIsNotNone(series_coefficient_of_variation(pd.Series([1.0, 1.1, 1.2])))
+
     def test_cagr_pct_annualizes_multi_year_growth(self):
         self.assertAlmostEqual(cagr_pct(121, 100, 2), 10.0)
 
@@ -74,6 +80,13 @@ class MetricsLogicTest(unittest.TestCase):
     def test_default_analysis_range_is_two_years(self):
         ranges = AnalysisRanges.from_input({})
         self.assertEqual(ranges.as_dict(), {"Growth": "2Y", "Fundamentals": "2Y", "Value": "2Y"})
+
+    def test_analysis_ranges_carry_data_as_of_without_exposing_it_as_a_tab(self):
+        ranges = AnalysisRanges.from_input(
+            {"Growth": "3Y", "Fundamentals": "2Y", "Value": "1Y", "_data_as_of": "2026-07-31"}
+        )
+        self.assertEqual(ranges.data_as_of.date().isoformat(), "2026-07-31")
+        self.assertEqual(set(ranges.as_dict()), {"Growth", "Fundamentals", "Value"})
 
     def test_fcf_yield_uses_free_cash_flow(self):
         cashflow = pd.DataFrame({pd.Timestamp("2025-12-31"): [50]}, index=["Free Cash Flow"])
@@ -168,6 +181,18 @@ class MetricsLogicTest(unittest.TestCase):
         context = build_historical_ratio_context(history, income, balance, pd.DataFrame(), years=3)
 
         self.assertEqual(context.historical_ratios("pe"), [3.0])
+
+    def test_historical_multiple_is_split_invariant_with_raw_prices_and_period_shares(self):
+        dates = pd.to_datetime(["2026-01-31", "2026-02-28"])
+        history = pd.DataFrame({"Close": [100.0, 50.0]}, index=dates)
+        income = pd.DataFrame({dates[0]: [10.0]}, index=["Net Income"])
+        balance = pd.DataFrame(
+            {dates[0]: [1.0], dates[1]: [2.0]}, index=["Ordinary Shares Number"]
+        )
+        income.attrs["filed_dates"] = {dates[0]: dates[0]}
+        balance.attrs["filed_dates"] = {date: date for date in dates}
+        context = build_historical_ratio_context(history, income, balance, pd.DataFrame(), years=1)
+        self.assertEqual(context.historical_ratios("pe"), [10.0, 10.0])
 
     def test_tab_rating_uses_configured_tab_thresholds(self):
         config = {

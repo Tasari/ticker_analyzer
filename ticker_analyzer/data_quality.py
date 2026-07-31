@@ -54,16 +54,22 @@ def calculate_data_quality(
     has_period_mismatch: bool,
     yfinance_only: bool,
     generic_financial: bool,
+    production_mode: bool = False,
+    manual_override_without_evidence: bool = False,
     specialized_profile_without_regulatory_data: bool = False,
+    reconciliation_score: float = 100.0,
+    has_critical_mismatch: bool = False,
     config: dict[str, Any] | None = None,
 ) -> tuple[float, dict[str, Any]]:
     settings = (config or {}).get("data_quality", {})
     weights = {
-        "metric_weight_coverage": 0.30,
-        "tab_completeness": 0.15,
-        "filing_freshness": 0.20,
-        "actual_observation_depth": 0.15,
-        "source_provenance": 0.10,
+        "metric_weight_coverage": 0.20,
+        "tab_completeness": 0.10,
+        "filing_freshness": 0.15,
+        "actual_observation_depth": 0.10,
+        "source_provenance": 0.15,
+        "cross_source_reconciliation": 0.10,
+        "temporal_alignment": 0.10,
         "estimate_quality": 0.05,
         "profile_fit": 0.05,
         **settings.get("weights", {}),
@@ -75,6 +81,8 @@ def calculate_data_quality(
         "filing_freshness": filing_freshness,
         "actual_observation_depth": observation_depth,
         "source_provenance": provenance_score,
+        "cross_source_reconciliation": reconciliation_score,
+        "temporal_alignment": 100.0 if not has_period_mismatch else 20.0,
         "estimate_quality": estimate_quality,
         "profile_fit": profile_fit,
     }
@@ -94,15 +102,24 @@ def calculate_data_quality(
     if complete_tabs < total_tabs:
         maximum = min(maximum, 55.0)
         caps.append("incomplete_tab")
+    if has_period_mismatch:
+        maximum = min(maximum, 55.0)
+        caps.append("critical_period_mismatch")
+    if has_critical_mismatch:
+        maximum = min(maximum, 55.0)
+        caps.append("critical_source_mismatch")
     if yfinance_only:
-        maximum = min(maximum, 85.0)
+        maximum = min(maximum, 70.0 if production_mode else 85.0)
         caps.append("yfinance_only")
     if generic_financial:
-        maximum = min(maximum, 70.0)
+        maximum = min(maximum, 60.0)
         caps.append("generic_financial")
     if specialized_profile_without_regulatory_data:
-        maximum = min(maximum, 82.0)
+        maximum = min(maximum, 65.0)
         caps.append("specialized_profile_without_regulatory_data")
+    if manual_override_without_evidence:
+        maximum = min(maximum, 75.0)
+        caps.append("manual_override_without_evidence")
     # Caps express the maximum trust in the source mix. Explicit data problems
     # are then deducted so they remain visible instead of being hidden by a cap.
     score = max(0.0, min(score, maximum) - sum(penalties.values()))

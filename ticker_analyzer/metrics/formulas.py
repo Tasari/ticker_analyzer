@@ -80,7 +80,7 @@ def series_coefficient_of_variation(series: pd.Series, *, minimum_observations: 
     if len(values) < minimum_observations:
         return None
     mean_value = float(values.mean())
-    if abs(mean_value) < 1e-9:
+    if mean_value <= 0 or (values <= 0).any():
         return None
     return float(values.std(ddof=0) / abs(mean_value))
 

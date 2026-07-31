@@ -1,17 +1,19 @@
 {
-  "version": 4,
+  "version": 5,
   "scoring_model": "piecewise_anchor_25_75_v1",
-  "calibration_version": "v4-bootstrap-2026Q3",
+  "calibration_version": "v5-audit-2026Q3",
   "data_quality": {
     "display_name": "Data Quality",
     "display_unit": "points",
     "maximum": 95,
     "weights": {
-      "metric_weight_coverage": 0.30,
-      "tab_completeness": 0.15,
-      "filing_freshness": 0.20,
-      "actual_observation_depth": 0.15,
-      "source_provenance": 0.10,
+      "metric_weight_coverage": 0.20,
+      "tab_completeness": 0.10,
+      "filing_freshness": 0.15,
+      "actual_observation_depth": 0.10,
+      "source_provenance": 0.15,
+      "cross_source_reconciliation": 0.10,
+      "temporal_alignment": 0.10,
       "estimate_quality": 0.05,
       "profile_fit": 0.05
     }
@@ -44,14 +46,14 @@
   },
   "profile_rules": {
     "Industrial": {
-      "Growth": {"minimum_coverage": 0.65, "required_groups": {"historical": {"minimum_available_metrics": 1}, "forward_or_trend": {"minimum_available_metrics": 1}}},
-      "Fundamentals": {"minimum_coverage": 0.70, "required_groups": {"solvency": {"minimum_available_metrics": 1}, "quality": {"minimum_available_metrics": 2}}},
-      "Value": {"minimum_coverage": 0.60, "required_groups": {"historical_multiples": {"minimum_available_metrics": 2}, "absolute_cash_yield": {"minimum_available_metrics": 1}}}
+      "Growth": {"minimum_coverage": 0.70, "required_groups": {"historical": {"minimum_available_metrics": 1}, "forward_or_trend": {"minimum_available_metrics": 1}}},
+      "Fundamentals": {"minimum_coverage": 0.75, "required_groups": {"solvency": {"minimum_available_metrics": 1}, "quality": {"minimum_available_metrics": 2}}},
+      "Value": {"minimum_coverage": 0.70, "required_groups": {"historical_multiples": {"minimum_available_metrics": 2}, "absolute_cash_yield": {"minimum_available_metrics": 1}}}
     },
     "Financial": {
-      "Growth": {"minimum_coverage": 0.60, "required_groups": {"business_growth": {"minimum_available_metrics": 1}}},
-      "Fundamentals": {"minimum_coverage": 0.65, "required_groups": {"capital": {"minimum_available_metrics": 1}, "quality": {"minimum_available_metrics": 2}}},
-      "Value": {"minimum_coverage": 0.55, "required_groups": {"historical_or_peer": {"minimum_available_metrics": 1}}}
+      "Growth": {"minimum_coverage": 0.65, "required_groups": {"business_growth": {"minimum_available_metrics": 1}}},
+      "Fundamentals": {"minimum_coverage": 0.80, "required_groups": {"capital": {"minimum_available_metrics": 1}, "quality": {"minimum_available_metrics": 2}}},
+      "Value": {"minimum_coverage": 0.65, "required_groups": {"historical_or_peer": {"minimum_available_metrics": 1}}}
     }
   },
   "tab_weights": {
@@ -64,9 +66,9 @@
     "minimum_scored_tabs": 3
   },
   "minimum_weight_coverage": {
-    "Growth": 0.65,
-    "Fundamentals": 0.70,
-    "Value": 0.60
+    "Growth": 0.70,
+    "Fundamentals": 0.75,
+    "Value": 0.70
   },
   "tab_groups": {
     "Growth": {
@@ -76,16 +78,16 @@
       "sustainability": {"weight": 0.10, "metrics": ["revenue_growth_stability", "fcf_growth_stability"]}
     },
     "Fundamentals": {
-      "solvency": {"weight": 0.30, "metrics": ["debt_to_assets", "cfo_to_debt", "interest_coverage", "net_debt_to_ebitda"]},
+      "solvency": {"weight": 0.30, "metrics": ["debt_to_assets", "quick_ratio", "cfo_to_debt", "interest_coverage", "net_debt_to_ebitda"]},
       "quality": {"weight": 0.55, "metrics": ["gross_profit_to_assets", "roic", "fcf_margin", "accruals_ratio", "operating_margin"]},
       "stability": {"weight": 0.15, "metrics": ["fcf_margin_stability", "operating_margin_stability"]}
     },
     "Value": {
       "historical_multiples": {"weight": 0.35, "metrics": ["ps_vs_selected_median", "pe_vs_selected_median", "ev_ebitda_vs_selected_median", "price_to_cfo_vs_selected_median"]},
-      "absolute_cash_yield": {"weight": 0.30, "metrics": ["fcf_yield_ttm"]},
-      "peer_relative": {"weight": 0.25, "metrics": ["pe_vs_profile_median", "ev_ebitda_vs_profile_median", "fcf_yield_vs_profile_median"]},
+      "absolute_cash_yield": {"weight": 0.45, "metrics": ["fcf_yield_ttm"]},
+      "peer_relative": {"weight": 0.00, "metrics": ["pe_vs_profile_median", "ev_ebitda_vs_profile_median", "fcf_yield_vs_profile_median"]},
       "analyst_context": {"weight": 0.05, "metrics": ["price_target"]},
-      "forward_normalized": {"weight": 0.05, "metrics": ["valuation_growth_adjustment"]}
+      "forward_normalized": {"weight": 0.15, "metrics": ["valuation_growth_adjustment"]}
     }
   },
   "rating_thresholds": {
@@ -100,6 +102,11 @@
     "neutral": "Hold",
     "weak": "Sell",
     "very_weak": "Strong Sell"
+  },
+  "rating_gates": {
+    "minimum_data_quality_for_directional_rating": 60,
+    "very_strong": {"minimum_overall_score": 85, "minimum_data_quality": 80, "minimum_each_tab": 50, "minimum_fundamentals": 55, "minimum_value": 45},
+    "strong": {"minimum_overall_score": 72, "minimum_data_quality": 70, "minimum_each_tab": 40, "minimum_fundamentals": 50}
   },
   "tab_rating_thresholds": {
     "Growth": {

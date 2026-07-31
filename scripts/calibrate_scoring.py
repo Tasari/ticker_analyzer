@@ -85,7 +85,7 @@ def build_report(results: list[dict[str, Any]]) -> dict[str, Any]:
             )
     correlations = pd.DataFrame(correlation_rows).corr(min_periods=3).round(4).to_dict() if correlation_rows else {}
     return {
-        "model": {"scoring_version": 4, "calibration_version": "v4-bootstrap-2026Q3"},
+        "model": {"scoring_version": 5, "calibration_version": "v5-audit-2026Q3"},
         "distributions": {name: describe(values) for name, values in series.items()},
         "profile_distributions": {
             profile: {name: describe(values) for name, values in values_by_name.items()}
@@ -100,9 +100,9 @@ def build_report(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create a deterministic scoring-v4 calibration report from exported JSON results.")
+    parser = argparse.ArgumentParser(description="Create a deterministic scoring-v5 calibration report from exported JSON results.")
     parser.add_argument("input", type=Path, nargs="?", help="JSON file containing a list of analysis API results")
-    parser.add_argument("--output", type=Path, default=Path("calibration_report_v4.json"))
+    parser.add_argument("--output", type=Path, default=Path("calibration_report_v5.json"))
     parser.add_argument("--live", action="store_true", help="Fetch the built-in broad ticker sample using yfinance")
     args = parser.parse_args()
     if args.live:

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 CONFIG_PATH = Path("metrics_config.json")
-CONFIG_VERSION = 4
-SUPPORTED_CONFIG_VERSIONS = {3, 4}
+CONFIG_VERSION = 5
+SUPPORTED_CONFIG_VERSIONS = {3, 4, 5}
 SCORING_MODEL = "piecewise_anchor_25_75_v1"
-CALIBRATION_VERSION = "v4-bootstrap-2026Q3"
+CALIBRATION_VERSION = "v5-audit-2026Q3"
 
 LEGACY_METRIC_IDS = {
     "ps_vs_3y_median": "ps_vs_selected_median",
@@ -55,9 +57,18 @@ def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
 
 def save_config(config: dict[str, Any], path: Path = CONFIG_PATH) -> None:
     config = normalize_config(config)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(config, handle, indent=2)
-        handle.write("\n")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(config, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, path)
+    except Exception:
+        Path(temporary_name).unlink(missing_ok=True)
+        raise
 
 
 def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -73,6 +84,9 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ConfigValidationError(f"Unsupported configuration version: {version}")
     if version == 3:
         normalized = migrate_v3_to_v4(normalized)
+        version = 4
+    if version == 4:
+        normalized = migrate_v4_to_v5(normalized)
     normalized["version"] = CONFIG_VERSION
     normalized.setdefault("scoring_model", SCORING_MODEL)
     normalized.setdefault("calibration_version", CALIBRATION_VERSION)
@@ -81,12 +95,12 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("overall_rating_labels", {})
     normalized.setdefault("tab_rating_labels", {})
     normalized.setdefault("tab_rating_thresholds", {})
-    normalized.setdefault("missing_policy", {"require_all_tabs_for_overall": False, "minimum_scored_tabs": 2})
-    normalized.setdefault("minimum_weight_coverage", {"Growth": 0.0, "Fundamentals": 0.0, "Value": 0.0})
+    normalized.setdefault("missing_policy", {"require_all_tabs_for_overall": True, "minimum_scored_tabs": 3})
+    normalized.setdefault("minimum_weight_coverage", {"Growth": 0.70, "Fundamentals": 0.75, "Value": 0.70})
     normalized.setdefault("tab_groups", {})
     normalized.setdefault("profile_metrics", {})
     normalized.setdefault("peer_medians", {})
-    ensure_v4_defaults(normalized)
+    ensure_v5_defaults(normalized)
     migrate_metric_ids(normalized.get("metrics", {}))
     for profile_metrics in normalized["profile_metrics"].values():
         migrate_metric_ids(profile_metrics)
@@ -127,6 +141,7 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_profile_metrics(config.get("profile_metrics", {}))
     validate_all_groups(config)
     validate_profile_rules(config)
+    validate_data_quality(config.get("data_quality", {}))
     if config.get("scoring_model") != SCORING_MODEL:
         raise ConfigValidationError(f"Unsupported scoring_model: {config.get('scoring_model')}")
     for tab_name, thresholds in config.get("tab_rating_thresholds", {}).items():
@@ -219,6 +234,20 @@ def validate_minimum_coverage(coverage: dict[str, Any], metrics_by_tab: dict[str
             raise ConfigValidationError(f"minimum_weight_coverage.{tab_name} must be between 0 and 1.")
 
 
+def validate_data_quality(data_quality: dict[str, Any]) -> None:
+    if not isinstance(data_quality, dict) or not isinstance(data_quality.get("weights"), dict):
+        raise ConfigValidationError("data_quality.weights must be an object.")
+    weights = data_quality["weights"]
+    required = set(default_data_quality_config()["weights"])
+    if set(weights) != required:
+        raise ConfigValidationError(f"data_quality.weights must define exactly: {sorted(required)}")
+    parsed = [optional_number(weights[name]) for name in required]
+    if any(value is None or value < 0 for value in parsed):
+        raise ConfigValidationError("data_quality weights must be non-negative numbers.")
+    if abs(sum(value or 0 for value in parsed) - 1.0) > 0.001:
+        raise ConfigValidationError("data_quality weights must sum to 1.0.")
+
+
 def validate_all_groups(config: dict[str, Any]) -> None:
     validate_groups_for_tabs(config.get("tab_groups", {}), config.get("metrics", {}), "tab_groups")
     for profile, metrics_by_tab in config.get("profile_metrics", {}).items():
@@ -232,11 +261,17 @@ def validate_groups_for_tabs(groups_by_tab: dict[str, Any], metrics_by_tab: dict
     if not isinstance(groups_by_tab, dict):
         raise ConfigValidationError(f"{path} must be an object.")
     for tab_name, groups in groups_by_tab.items():
-        metric_ids = {metric.get("id") for metric in metrics_by_tab.get(tab_name, [])}
-        validate_groups(groups, metric_ids, f"{path}.{tab_name}")
+        metrics = metrics_by_tab.get(tab_name, [])
+        metric_ids = {metric.get("id") for metric in metrics}
+        positive_ids = {
+            metric.get("id") for metric in metrics if (optional_number(metric.get("weight")) or 0) > 0
+        }
+        validate_groups(groups, metric_ids, f"{path}.{tab_name}", positive_ids=positive_ids)
 
 
-def validate_groups(groups: dict[str, Any], metric_ids: set[str], path: str) -> None:
+def validate_groups(
+    groups: dict[str, Any], metric_ids: set[str], path: str, *, positive_ids: set[str] | None = None
+) -> None:
     if not isinstance(groups, dict) or not groups:
         raise ConfigValidationError(f"{path} must be a non-empty object.")
     total_weight = 0.0
@@ -260,6 +295,9 @@ def validate_groups(groups: dict[str, Any], metric_ids: set[str], path: str) -> 
     duplicates = {metric_id: names for metric_id, names in memberships.items() if len(names) > 1}
     if duplicates:
         raise ConfigValidationError(f"{path} contains duplicate group membership: {duplicates}")
+    missing = (positive_ids or set()) - set(memberships)
+    if missing:
+        raise ConfigValidationError(f"{path} omits positive-weight metrics: {sorted(missing)}")
 
 
 def validate_profile_rules(config: dict[str, Any]) -> None:
@@ -296,6 +334,36 @@ def migrate_v3_to_v4(config: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
+def migrate_v4_to_v5(config: dict[str, Any]) -> dict[str, Any]:
+    migrated = deepcopy(config)
+    migrated["version"] = 5
+    migrated["calibration_version"] = CALIBRATION_VERSION
+    migrated["missing_policy"] = {"require_all_tabs_for_overall": True, "minimum_scored_tabs": 3}
+    migrated["minimum_weight_coverage"] = {"Growth": 0.70, "Fundamentals": 0.75, "Value": 0.70}
+    migrated["data_quality"] = default_data_quality_config()
+    migrated.setdefault(
+        "rating_gates",
+        {
+            "minimum_data_quality_for_directional_rating": 60,
+            "very_strong": {
+                "minimum_overall_score": 85,
+                "minimum_data_quality": 80,
+                "minimum_each_tab": 50,
+                "minimum_fundamentals": 55,
+                "minimum_value": 45,
+            },
+            "strong": {
+                "minimum_overall_score": 72,
+                "minimum_data_quality": 70,
+                "minimum_each_tab": 40,
+                "minimum_fundamentals": 50,
+            },
+        },
+    )
+    ensure_v5_defaults(migrated)
+    return migrated
+
+
 def reconcile_v3_groups(groups_by_tab: dict[str, Any], metrics_by_tab: dict[str, Any]) -> None:
     """Remove v3 cross-profile group references that were never valid for the active metric set."""
     for tab_name, groups in groups_by_tab.items():
@@ -310,13 +378,40 @@ def reconcile_v3_groups(groups_by_tab: dict[str, Any], metrics_by_tab: dict[str,
 
 
 def ensure_v4_defaults(migrated: dict[str, Any]) -> None:
+    """Compatibility alias used by the v3 migration."""
+    ensure_v5_defaults(migrated)
+
+
+def ensure_v5_defaults(migrated: dict[str, Any]) -> None:
     migrated.setdefault("data_quality", default_data_quality_config())
     migrated.setdefault("profile_overrides", default_profile_overrides())
+    migrated.setdefault(
+        "rating_gates",
+        {
+            "minimum_data_quality_for_directional_rating": 60,
+            "very_strong": {
+                "minimum_overall_score": 85,
+                "minimum_data_quality": 80,
+                "minimum_each_tab": 50,
+                "minimum_fundamentals": 55,
+                "minimum_value": 45,
+            },
+            "strong": {
+                "minimum_overall_score": 72,
+                "minimum_data_quality": 70,
+                "minimum_each_tab": 40,
+                "minimum_fundamentals": 50,
+            },
+        },
+    )
     migrated.setdefault("profile_metrics", {})
     financial_metrics = migrated.get("profile_metrics", {}).get("Financial")
     if financial_metrics:
         for profile in specialized_financial_profiles():
             migrated["profile_metrics"].setdefault(profile, deepcopy(financial_metrics))
+    migrated.setdefault("profile_models", {})
+    for profile in specialized_financial_profiles():
+        migrated["profile_models"].setdefault(profile, "generic_financial_fallback")
     migrated.setdefault("profile_tab_groups", {})
     for profile in ["Financial", *specialized_financial_profiles()]:
         migrated["profile_tab_groups"].setdefault(profile, financial_groups(profile))
@@ -369,21 +464,21 @@ def financial_groups(profile: str) -> dict[str, Any]:
 def default_profile_rules() -> dict[str, Any]:
     industrial = {
         "Growth": {
-            "minimum_coverage": 0.65,
+            "minimum_coverage": 0.70,
             "required_groups": {
                 "historical": {"minimum_available_metrics": 1},
                 "forward_or_trend": {"minimum_available_metrics": 1},
             },
         },
         "Fundamentals": {
-            "minimum_coverage": 0.70,
+            "minimum_coverage": 0.75,
             "required_groups": {
                 "solvency": {"minimum_available_metrics": 1},
                 "quality": {"minimum_available_metrics": 2},
             },
         },
         "Value": {
-            "minimum_coverage": 0.60,
+            "minimum_coverage": 0.70,
             "required_groups": {
                 "historical_multiples": {"minimum_available_metrics": 2},
                 "absolute_cash_yield": {"minimum_available_metrics": 1},
@@ -392,22 +487,24 @@ def default_profile_rules() -> dict[str, Any]:
     }
     financial = {
         "Growth": {
-            "minimum_coverage": 0.60,
+            "minimum_coverage": 0.65,
             "required_groups": {"business_growth": {"minimum_available_metrics": 1}},
         },
         "Fundamentals": {
-            "minimum_coverage": 0.65,
+            "minimum_coverage": 0.80,
             "required_groups": {
                 "capital": {"minimum_available_metrics": 1},
                 "quality": {"minimum_available_metrics": 2},
             },
         },
         "Value": {
-            "minimum_coverage": 0.55,
+            "minimum_coverage": 0.65,
             "required_groups": {"historical_or_peer": {"minimum_available_metrics": 1}},
         },
     }
     specialized = {profile: deepcopy(financial) for profile in specialized_financial_profiles()}
+    specialized["FinancialBroker"]["Fundamentals"]["minimum_coverage"] = 0.75
+    specialized["FinancialLender"]["Value"]["minimum_coverage"] = 0.60
     specialized["FinancialBroker"]["Growth"]["required_groups"]["business_growth"][
         "minimum_available_metrics"
     ] = 2
@@ -433,11 +530,13 @@ def default_data_quality_config() -> dict[str, Any]:
         "display_unit": "points",
         "maximum": 95,
         "weights": {
-            "metric_weight_coverage": 0.30,
-            "tab_completeness": 0.15,
-            "filing_freshness": 0.20,
-            "actual_observation_depth": 0.15,
-            "source_provenance": 0.10,
+            "metric_weight_coverage": 0.20,
+            "tab_completeness": 0.10,
+            "filing_freshness": 0.15,
+            "actual_observation_depth": 0.10,
+            "source_provenance": 0.15,
+            "cross_source_reconciliation": 0.10,
+            "temporal_alignment": 0.10,
             "estimate_quality": 0.05,
             "profile_fit": 0.05,
         },
