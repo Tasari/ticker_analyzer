@@ -124,7 +124,7 @@ def render_comparison_summary(results: dict[str, dict]) -> None:
 
 
 def render_large_cap_ranking() -> None:
-    st.subheader("Large Cap Ranking — Scoring v3")
+    st.subheader("Large Cap Ranking — Scoring v4")
     update_col, note_col = st.columns([1, 3])
     update_clicked = update_col.button(
         "Update Ranking",
@@ -156,14 +156,14 @@ def render_large_cap_ranking() -> None:
     filter_cols = st.columns(4)
     profile = filter_cols[0].selectbox("Profile", ["All", *profiles])
     rating = filter_cols[1].selectbox("Rating", ["All", *ratings])
-    minimum_confidence = filter_cols[2].slider("Minimum confidence", 0, 95, 60)
+    minimum_quality = filter_cols[2].slider("Minimum Data Quality", 0, 95, 60)
     maximum_rows = filter_cols[3].selectbox("Rows", [50, 100, 250, 500, 1000], index=1)
     filtered = [
         row
         for row in companies
         if (profile == "All" or row.get("profile") == profile)
         and (rating == "All" or row.get("rating") == rating)
-        and float(row.get("confidence") or 0) >= minimum_confidence
+        and float(row.get("data_quality", row.get("confidence")) or 0) >= minimum_quality
     ][:maximum_rows]
     table = pd.DataFrame(filtered)
     columns = {
@@ -174,7 +174,7 @@ def render_large_cap_ranking() -> None:
         "profile": "Profile",
         "overall_score": "Overall",
         "rating": "Rating",
-        "confidence": "Confidence",
+        "data_quality": "Data Quality",
         "growth_score": "Growth",
         "fundamentals_score": "Fundamentals",
         "value_score": "Value",
@@ -187,7 +187,7 @@ def render_large_cap_ranking() -> None:
         column_config={
             "Market Cap": st.column_config.NumberColumn(format="$%.0f"),
             "Overall": st.column_config.NumberColumn(format="%.1f"),
-            "Confidence": st.column_config.NumberColumn(format="%.1f%%"),
+            "Data Quality": st.column_config.NumberColumn(format="%.1f points"),
             "Growth": st.column_config.NumberColumn(format="%.1f"),
             "Fundamentals": st.column_config.NumberColumn(format="%.1f"),
             "Value": st.column_config.NumberColumn(format="%.1f"),
@@ -255,8 +255,8 @@ def render_company_cards(results: list[dict]) -> None:
             columns[6].metric("Value", result["tabs"]["Value"].get("rating", "Not Rated"))
             coverage = result.get("coverage", {})
             st.caption(
-                f"Data confidence: {confidence_label(result.get('confidence', 0))} "
-                f"({result.get('confidence', 0):.0f}%; coverage {coverage.get('percentage', 0):.0f}%)"
+                f"Data Quality: {quality_label(data_quality_value(result))} "
+                f"({data_quality_value(result):.0f}/100; coverage {coverage.get('percentage', 0):.0f}%)"
             )
 
 
@@ -272,7 +272,7 @@ def render_comparison_table(results: list[dict]) -> None:
                 "Price": format_company_price(result),
                 "Overall Score": format_score(result.get("overall_score")),
                 "Overall Rating": result.get("rating", "Not Rated"),
-                "Confidence": format_confidence(result),
+                "Data Quality": format_data_quality(result),
                 "Growth": format_tab_summary(result, "Growth"),
                 "Fundamentals": format_tab_summary(result, "Fundamentals"),
                 "Value": format_tab_summary(result, "Value"),
@@ -336,7 +336,7 @@ def format_coverage(coverage: dict) -> str:
     return f"{coverage.get('confidence', 'Unknown')} ({percentage:.0f}%)"
 
 
-def confidence_label(value: float) -> str:
+def quality_label(value: float) -> str:
     if value >= 80:
         return "High"
     if value >= 60:
@@ -344,9 +344,13 @@ def confidence_label(value: float) -> str:
     return "Low"
 
 
-def format_confidence(result: dict) -> str:
-    value = float(result.get("confidence", 0))
-    return f"{confidence_label(value)} ({value:.0f}%)"
+def data_quality_value(result: dict) -> float:
+    return float(result.get("data_quality", result.get("confidence", 0)) or 0)
+
+
+def format_data_quality(result: dict) -> str:
+    value = data_quality_value(result)
+    return f"{quality_label(value)} ({value:.0f}/100)"
 
 
 def render_summary(result: dict) -> None:
@@ -363,7 +367,7 @@ def render_summary(result: dict) -> None:
     cols[2].metric("Current Price", price_label)
     cols[3].metric("Analysis Profile", result.get("profile", "Industrial"))
     cols[4].metric("Available Tabs", sum(1 for tab in result["tabs"].values() if tab["score"] is not None))
-    cols[5].metric("Data Confidence", format_confidence(result))
+    cols[5].metric("Data Quality", format_data_quality(result))
     st.caption("Scores are model-based comparative indicators, not guarantees or investment advice.")
 
     rating_cols = st.columns(3)
@@ -375,7 +379,7 @@ def render_summary(result: dict) -> None:
         label = f"{tab_name} Rating" if not tab_range else f"{tab_name} Rating ({tab_range})"
         coverage = format_coverage(tab_result.get("coverage", {}))
         rating_cols[index].metric(label, tab_result.get("rating", "Not Rated"), score_text)
-        rating_cols[index].caption(f"Data confidence: {coverage}")
+        rating_cols[index].caption(f"Metric coverage: {coverage}")
 
     if result.get("missing"):
         with st.expander("Missing data warnings", expanded=False):
@@ -401,7 +405,7 @@ def render_tab(name: str, tab_result: dict, charts: dict) -> None:
     score_col, rating_col, coverage_col = st.columns(3)
     score_col.metric(f"{name} Score", score_text)
     rating_col.metric(f"{name} Rating", tab_result.get("rating", "Not Rated"))
-    coverage_col.metric("Data Confidence", format_coverage(tab_result.get("coverage", {})))
+    coverage_col.metric("Metric Coverage", format_coverage(tab_result.get("coverage", {})))
     metrics = tab_result.get("metrics", [])
     render_metrics_table(metrics)
 

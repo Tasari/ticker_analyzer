@@ -6,8 +6,10 @@ from pathlib import Path
 from typing import Any
 
 CONFIG_PATH = Path("metrics_config.json")
-CONFIG_VERSION = 3
-SUPPORTED_CONFIG_VERSIONS = {2, 3}
+CONFIG_VERSION = 4
+SUPPORTED_CONFIG_VERSIONS = {3, 4}
+SCORING_MODEL = "piecewise_anchor_25_75_v1"
+CALIBRATION_VERSION = "v4-bootstrap-2026Q3"
 
 LEGACY_METRIC_IDS = {
     "ps_vs_3y_median": "ps_vs_selected_median",
@@ -63,9 +65,17 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ConfigValidationError("Configuration must be a JSON object.")
     normalized = deepcopy(config)
     version = int(optional_number(normalized.get("version", CONFIG_VERSION)) or CONFIG_VERSION)
+    if version == 2:
+        raise ConfigValidationError(
+            "Config v2 uses pre-anchor scoring semantics. Run scripts/migrate_config.py before loading."
+        )
     if version not in SUPPORTED_CONFIG_VERSIONS:
         raise ConfigValidationError(f"Unsupported configuration version: {version}")
-    normalized["version"] = version
+    if version == 3:
+        normalized = migrate_v3_to_v4(normalized)
+    normalized["version"] = CONFIG_VERSION
+    normalized.setdefault("scoring_model", SCORING_MODEL)
+    normalized.setdefault("calibration_version", CALIBRATION_VERSION)
     normalized.setdefault("tab_weights", {})
     normalized.setdefault("rating_thresholds", {})
     normalized.setdefault("overall_rating_labels", {})
@@ -75,6 +85,8 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("minimum_weight_coverage", {"Growth": 0.0, "Fundamentals": 0.0, "Value": 0.0})
     normalized.setdefault("tab_groups", {})
     normalized.setdefault("profile_metrics", {})
+    normalized.setdefault("peer_medians", {})
+    ensure_v4_defaults(normalized)
     migrate_metric_ids(normalized.get("metrics", {}))
     for profile_metrics in normalized["profile_metrics"].values():
         migrate_metric_ids(profile_metrics)
@@ -113,6 +125,10 @@ def validate_config(config: dict[str, Any]) -> None:
         for index, metric in enumerate(metrics, start=1):
             validate_metric(metric, f"metrics.{tab_name}[{index}]")
     validate_profile_metrics(config.get("profile_metrics", {}))
+    validate_all_groups(config)
+    validate_profile_rules(config)
+    if config.get("scoring_model") != SCORING_MODEL:
+        raise ConfigValidationError(f"Unsupported scoring_model: {config.get('scoring_model')}")
     for tab_name, thresholds in config.get("tab_rating_thresholds", {}).items():
         validate_thresholds(thresholds, f"tab_rating_thresholds.{tab_name}")
 
@@ -201,6 +217,231 @@ def validate_minimum_coverage(coverage: dict[str, Any], metrics_by_tab: dict[str
         value = optional_number(coverage.get(tab_name))
         if value is None or not 0 <= value <= 1:
             raise ConfigValidationError(f"minimum_weight_coverage.{tab_name} must be between 0 and 1.")
+
+
+def validate_all_groups(config: dict[str, Any]) -> None:
+    validate_groups_for_tabs(config.get("tab_groups", {}), config.get("metrics", {}), "tab_groups")
+    for profile, metrics_by_tab in config.get("profile_metrics", {}).items():
+        groups = config.get("profile_tab_groups", {}).get(profile)
+        if groups is None:
+            continue
+        validate_groups_for_tabs(groups, metrics_by_tab, f"profile_tab_groups.{profile}")
+
+
+def validate_groups_for_tabs(groups_by_tab: dict[str, Any], metrics_by_tab: dict[str, Any], path: str) -> None:
+    if not isinstance(groups_by_tab, dict):
+        raise ConfigValidationError(f"{path} must be an object.")
+    for tab_name, groups in groups_by_tab.items():
+        metric_ids = {metric.get("id") for metric in metrics_by_tab.get(tab_name, [])}
+        validate_groups(groups, metric_ids, f"{path}.{tab_name}")
+
+
+def validate_groups(groups: dict[str, Any], metric_ids: set[str], path: str) -> None:
+    if not isinstance(groups, dict) or not groups:
+        raise ConfigValidationError(f"{path} must be a non-empty object.")
+    total_weight = 0.0
+    memberships: dict[str, list[str]] = {}
+    for group_name, definition in groups.items():
+        if not isinstance(definition, dict):
+            raise ConfigValidationError(f"{path}.{group_name} must be an object.")
+        weight = optional_number(definition.get("weight"))
+        if weight is None or weight < 0:
+            raise ConfigValidationError(f"{path}.{group_name}.weight is invalid.")
+        total_weight += weight
+        members = definition.get("metrics", [])
+        if not isinstance(members, list) or not members:
+            raise ConfigValidationError(f"{path}.{group_name}.metrics must be a non-empty list.")
+        for metric_id in members:
+            if metric_id not in metric_ids:
+                raise ConfigValidationError(f"{path}.{group_name} references unknown metric: {metric_id}")
+            memberships.setdefault(metric_id, []).append(group_name)
+    if abs(total_weight - 1.0) > 0.001:
+        raise ConfigValidationError(f"{path} group weights must sum to 1.0.")
+    duplicates = {metric_id: names for metric_id, names in memberships.items() if len(names) > 1}
+    if duplicates:
+        raise ConfigValidationError(f"{path} contains duplicate group membership: {duplicates}")
+
+
+def validate_profile_rules(config: dict[str, Any]) -> None:
+    rules = config.get("profile_rules", {})
+    if not isinstance(rules, dict):
+        raise ConfigValidationError("profile_rules must be an object.")
+    for profile, tabs in rules.items():
+        if not isinstance(tabs, dict):
+            raise ConfigValidationError(f"profile_rules.{profile} must be an object.")
+        groups_by_tab = config.get("profile_tab_groups", {}).get(profile, config.get("tab_groups", {}))
+        for tab_name, rule in tabs.items():
+            coverage = optional_number(rule.get("minimum_coverage"))
+            if coverage is None or not 0 <= coverage <= 1:
+                raise ConfigValidationError(f"profile_rules.{profile}.{tab_name}.minimum_coverage must be 0..1.")
+            for group_name, requirement in rule.get("required_groups", {}).items():
+                if group_name not in groups_by_tab.get(tab_name, {}):
+                    raise ConfigValidationError(
+                        f"profile_rules.{profile}.{tab_name} references unknown group: {group_name}"
+                    )
+                minimum = optional_number(requirement.get("minimum_available_metrics", 1))
+                if minimum is None or minimum < 0:
+                    raise ConfigValidationError(
+                        f"profile_rules.{profile}.{tab_name}.{group_name} minimum is invalid."
+                    )
+
+
+def migrate_v3_to_v4(config: dict[str, Any]) -> dict[str, Any]:
+    migrated = deepcopy(config)
+    migrated["version"] = 4
+    migrated["scoring_model"] = SCORING_MODEL
+    migrated["calibration_version"] = CALIBRATION_VERSION
+    reconcile_v3_groups(migrated.get("tab_groups", {}), migrated.get("metrics", {}))
+    ensure_v4_defaults(migrated)
+    return migrated
+
+
+def reconcile_v3_groups(groups_by_tab: dict[str, Any], metrics_by_tab: dict[str, Any]) -> None:
+    """Remove v3 cross-profile group references that were never valid for the active metric set."""
+    for tab_name, groups in groups_by_tab.items():
+        known = {
+            LEGACY_METRIC_IDS.get(metric.get("id"), metric.get("id"))
+            for metric in metrics_by_tab.get(tab_name, [])
+            if isinstance(metric, dict)
+        }
+        for definition in groups.values():
+            members = [LEGACY_METRIC_IDS.get(item, item) for item in definition.get("metrics", [])]
+            definition["metrics"] = [item for item in members if item in known]
+
+
+def ensure_v4_defaults(migrated: dict[str, Any]) -> None:
+    migrated.setdefault("data_quality", default_data_quality_config())
+    migrated.setdefault("profile_overrides", default_profile_overrides())
+    migrated.setdefault("profile_metrics", {})
+    financial_metrics = migrated.get("profile_metrics", {}).get("Financial")
+    if financial_metrics:
+        for profile in specialized_financial_profiles():
+            migrated["profile_metrics"].setdefault(profile, deepcopy(financial_metrics))
+    migrated.setdefault("profile_tab_groups", {})
+    for profile in ["Financial", *specialized_financial_profiles()]:
+        migrated["profile_tab_groups"].setdefault(profile, financial_groups(profile))
+    migrated.setdefault("profile_rules", {})
+    for profile, rules in default_profile_rules().items():
+        migrated["profile_rules"].setdefault(profile, rules)
+
+
+def specialized_financial_profiles() -> list[str]:
+    return [
+        "FinancialBank",
+        "FinancialBroker",
+        "FinancialLender",
+        "FinancialInsurance",
+        "FinancialAssetManager",
+        "REIT",
+    ]
+
+
+def financial_groups(profile: str) -> dict[str, Any]:
+    capital_weight = 0.45 if profile in {"FinancialBank", "FinancialLender"} else 0.35
+    return {
+        "Growth": {
+            "business_growth": {
+                "weight": 0.85,
+                "metrics": ["revenue_ttm_range_growth", "net_income_range_growth", "share_count_cagr"],
+            },
+            "market_context": {
+                "weight": 0.15,
+                "metrics": ["price_change", "revenue_estimate_growth", "eps_estimate_avg_growth"],
+            },
+        },
+        "Fundamentals": {
+            "capital": {"weight": capital_weight, "metrics": ["equity_to_assets"]},
+            "quality": {
+                "weight": 1 - capital_weight,
+                "metrics": ["return_on_assets", "return_on_equity", "net_margin"],
+            },
+        },
+        "Value": {
+            "historical_or_peer": {
+                "weight": 0.90,
+                "metrics": ["pe_vs_selected_median", "pb_vs_selected_median"],
+            },
+            "analyst_context": {"weight": 0.10, "metrics": ["price_target"]},
+        },
+    }
+
+
+def default_profile_rules() -> dict[str, Any]:
+    industrial = {
+        "Growth": {
+            "minimum_coverage": 0.65,
+            "required_groups": {
+                "historical": {"minimum_available_metrics": 1},
+                "forward_or_trend": {"minimum_available_metrics": 1},
+            },
+        },
+        "Fundamentals": {
+            "minimum_coverage": 0.70,
+            "required_groups": {
+                "solvency": {"minimum_available_metrics": 1},
+                "quality": {"minimum_available_metrics": 2},
+            },
+        },
+        "Value": {
+            "minimum_coverage": 0.60,
+            "required_groups": {
+                "historical_multiples": {"minimum_available_metrics": 2},
+                "absolute_cash_yield": {"minimum_available_metrics": 1},
+            },
+        },
+    }
+    financial = {
+        "Growth": {
+            "minimum_coverage": 0.60,
+            "required_groups": {"business_growth": {"minimum_available_metrics": 1}},
+        },
+        "Fundamentals": {
+            "minimum_coverage": 0.65,
+            "required_groups": {
+                "capital": {"minimum_available_metrics": 1},
+                "quality": {"minimum_available_metrics": 2},
+            },
+        },
+        "Value": {
+            "minimum_coverage": 0.55,
+            "required_groups": {"historical_or_peer": {"minimum_available_metrics": 1}},
+        },
+    }
+    specialized = {profile: deepcopy(financial) for profile in specialized_financial_profiles()}
+    specialized["FinancialBroker"]["Growth"]["required_groups"]["business_growth"][
+        "minimum_available_metrics"
+    ] = 2
+    return {"Industrial": industrial, "Financial": financial, **specialized}
+
+
+def default_profile_overrides() -> dict[str, str]:
+    return {
+        "FUTU": "FinancialBroker",
+        "AFRM": "FinancialLender",
+        "JPM": "FinancialBank",
+        "BAC": "FinancialBank",
+        "XTB.WA": "FinancialBroker",
+        "PKO.WA": "FinancialBank",
+        "PEO.WA": "FinancialBank",
+        "PZU.WA": "FinancialInsurance",
+    }
+
+
+def default_data_quality_config() -> dict[str, Any]:
+    return {
+        "display_name": "Data Quality",
+        "display_unit": "points",
+        "maximum": 95,
+        "weights": {
+            "metric_weight_coverage": 0.30,
+            "tab_completeness": 0.15,
+            "filing_freshness": 0.20,
+            "actual_observation_depth": 0.15,
+            "source_provenance": 0.10,
+            "estimate_quality": 0.05,
+            "profile_fit": 0.05,
+        },
+    }
 
 
 def optional_number(value: Any) -> float | None:

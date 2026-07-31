@@ -5,6 +5,14 @@ from typing import Any
 
 from ticker_analyzer.domain import MetricResult
 
+RATING_RANK = {
+    "Strong Sell": 0,
+    "Sell": 1,
+    "Hold": 2,
+    "Buy": 3,
+    "Strong Buy": 4,
+}
+
 
 def format_metric_value(value: float | None, unit: str) -> str:
     if value is None:
@@ -42,6 +50,7 @@ class ScoringEngine:
                 status="Missing",
                 note=raw.get("note", "data unavailable"),
                 description=metric_description(metric_config),
+                provenance=raw.get("provenance"),
             )
         score = score_value(value, metric_config)
         return MetricResult(
@@ -54,6 +63,7 @@ class ScoringEngine:
             status=status_from_score(score, tab_name, config),
             note=raw.get("note", ""),
             description=metric_description(metric_config),
+            provenance=raw.get("provenance"),
         )
 
     def weighted_score(self, metrics: list[MetricResult]) -> float | None:
@@ -207,20 +217,28 @@ def calculate_overall_rating(
 ) -> str:
     if overall is None or any(tabs.get(name) is None for name in ("Growth", "Fundamentals", "Value")):
         return "Insufficient Data"
-    growth = float(tabs["Growth"] or 0)
-    fundamentals = float(tabs["Fundamentals"] or 0)
-    value = float(tabs["Value"] or 0)
+    growth = float(tabs["Growth"])
+    fundamentals = float(tabs["Fundamentals"])
+    value = float(tabs["Value"])
     minimum_tab = min(growth, fundamentals, value)
-    if overall >= 85 and confidence >= 75 and minimum_tab >= 45:
-        return "Strong Buy"
-    if overall >= 70 and confidence >= 60 and fundamentals >= 40 and minimum_tab >= 30:
-        return "Buy"
-    # Low-confidence, weak-fundamental and extreme-valuation cases cannot be Buy ratings.
-    if overall >= 45 or confidence < 40 or fundamentals < 30 or value < 20:
-        return "Hold"
-    if overall >= 30:
-        return "Sell"
-    return "Strong Sell"
+    base_rating = classify_rating(overall, config)
+    if base_rating == "Strong Buy" and not (confidence >= 75 and minimum_tab >= 45):
+        base_rating = "Buy"
+    if base_rating == "Buy" and not (confidence >= 60 and fundamentals >= 40 and minimum_tab >= 30):
+        base_rating = "Hold"
+    if confidence < 40:
+        base_rating = cap_rating(base_rating, "Hold")
+    if fundamentals < 30:
+        base_rating = cap_rating(base_rating, "Hold")
+    if value < 20:
+        base_rating = cap_rating(base_rating, "Hold")
+    return base_rating
+
+
+def cap_rating(base_rating: str, maximum_rating: str) -> str:
+    if RATING_RANK[base_rating] <= RATING_RANK[maximum_rating]:
+        return base_rating
+    return maximum_rating
 
 
 def classify_five_point_score(
@@ -228,10 +246,10 @@ def classify_five_point_score(
     thresholds: dict[str, Any],
     labels: dict[str, str],
 ) -> str:
-    very_strong = clean_number(thresholds.get("very_strong")) or 80
-    strong = clean_number(thresholds.get("strong")) or 60
-    neutral = clean_number(thresholds.get("neutral")) or 40
-    weak = clean_number(thresholds.get("weak")) or 20
+    very_strong = number_or_default(thresholds.get("very_strong"), 85)
+    strong = number_or_default(thresholds.get("strong"), 70)
+    neutral = number_or_default(thresholds.get("neutral"), 45)
+    weak = number_or_default(thresholds.get("weak"), 30)
     if score >= very_strong:
         return labels["very_strong"]
     if score >= strong:
@@ -241,6 +259,11 @@ def classify_five_point_score(
     if score >= weak:
         return labels["weak"]
     return labels["very_weak"]
+
+
+def number_or_default(value: Any, default: float) -> float:
+    parsed = clean_number(value)
+    return default if parsed is None else parsed
 
 
 def classify_tab_rating(tab_name: str, score: float | None, config: dict[str, Any]) -> str:

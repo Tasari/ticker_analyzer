@@ -1,9 +1,54 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 import pandas as pd
+
+FallbackLevel = Literal[
+    "none",
+    "same_source",
+    "annual_fallback",
+    "info_fallback",
+    "secondary_source",
+    "estimated",
+]
+
+
+@dataclass(frozen=True)
+class DataProvenance:
+    provider: str
+    fetched_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    source_url: str | None = None
+    period_end: datetime | None = None
+    filed_at: datetime | None = None
+    form: str | None = None
+    accession_number: str | None = None
+    observation_count: int = 1
+    fallback_level: FallbackLevel = "none"
+    is_primary_source: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        result = asdict(self)
+        for key in ("fetched_at", "period_end", "filed_at"):
+            value = result.get(key)
+            result[key] = value.isoformat() if value is not None else None
+        return result
+
+
+@dataclass
+class RawMetric:
+    value: float | None
+    note: str = ""
+    provenance: DataProvenance | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "value": self.value,
+            "note": self.note,
+            "provenance": self.provenance.as_dict() if self.provenance else None,
+        }
 
 
 @dataclass(frozen=True)
@@ -68,6 +113,7 @@ class MetricResult:
     status: str
     note: str = ""
     description: str = ""
+    provenance: dict[str, Any] | None = None
 
 
 @dataclass
@@ -95,8 +141,11 @@ class StockAnalysis:
     coverage: dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.0
     confidence_breakdown: dict[str, Any] = field(default_factory=dict)
-    scoring_version: int = 3
-    config_version: int = 3
+    data_quality: float = 0.0
+    data_quality_breakdown: dict[str, Any] = field(default_factory=dict)
+    scoring_version: int = 4
+    config_version: int = 4
+    calibration_version: str = "v4-bootstrap-2026Q3"
     diagnostics: list[dict[str, str]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -116,8 +165,11 @@ class StockAnalysis:
             "coverage": self.coverage,
             "confidence": self.confidence,
             "confidence_breakdown": self.confidence_breakdown,
+            "data_quality": self.data_quality,
+            "data_quality_breakdown": self.data_quality_breakdown,
             "scoring_version": self.scoring_version,
             "config_version": self.config_version,
+            "calibration_version": self.calibration_version,
             "diagnostics": self.diagnostics,
         }
 
@@ -140,6 +192,8 @@ class MarketData:
     eps_trend: pd.DataFrame
     growth_estimates: pd.DataFrame
     diagnostics: list[dict[str, str]] = field(default_factory=list)
+    provenance: dict[str, DataProvenance] = field(default_factory=dict)
+    official_ids: dict[str, Any] = field(default_factory=dict)
 
 
 def _optional_float(value: Any) -> float | None:

@@ -4,7 +4,7 @@ import math
 import unittest
 
 from ticker_analyzer.analysis.engine import overall_score_with_missing_policy
-from ticker_analyzer.scoring import calculate_overall_rating, score_higher, score_lower
+from ticker_analyzer.scoring import RATING_RANK, calculate_overall_rating, score_higher, score_lower
 
 
 class ScoringV3Test(unittest.TestCase):
@@ -47,6 +47,16 @@ class ScoringV3Test(unittest.TestCase):
             calculate_overall_rating(80, 90, {"Growth": 80, "Fundamentals": 80, "Value": None}, {}),
             "Insufficient Data",
         )
+
+    def test_rating_caps_never_upgrade_bearish_rating(self):
+        tabs = {"Growth": 20.0, "Fundamentals": 20.0, "Value": 20.0}
+        self.assertEqual(calculate_overall_rating(20, 20, tabs, {}), "Strong Sell")
+
+    def test_rating_is_monotonic_in_overall_when_gates_are_equal(self):
+        tabs = {"Growth": 80.0, "Fundamentals": 80.0, "Value": 80.0}
+        ratings = [calculate_overall_rating(overall, 90, tabs, {}) for overall in range(101)]
+        ranks = [RATING_RANK[rating] for rating in ratings]
+        self.assertTrue(all(left <= right for left, right in zip(ranks, ranks[1:], strict=False)))
 
 
 if __name__ == "__main__":

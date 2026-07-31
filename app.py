@@ -17,7 +17,7 @@ st.set_page_config(page_title="Stock Analyzer", page_icon="chart_with_upwards_tr
 
 def main() -> None:
     st.title("Stock Analyzer")
-    st.caption("Rule-based stock analysis using available yfinance data. This is not financial advice.")
+    st.caption("Rule-based stock analysis with source provenance and point-in-time safeguards. This is not financial advice.")
 
     config = load_config()
     initialize_state()

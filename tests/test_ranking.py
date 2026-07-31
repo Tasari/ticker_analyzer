@@ -22,8 +22,10 @@ def analysis(ticker: str, score: float | None, confidence: float = 80) -> dict:
         "overall_score": score,
         "rating": "Buy" if score is not None else "Insufficient Data",
         "confidence": confidence,
-        "scoring_version": 3,
-        "config_version": 3,
+        "data_quality": confidence,
+        "scoring_version": 4,
+        "config_version": 4,
+        "calibration_version": "v4-bootstrap-2026Q3",
         "tabs": {
             name: {"score": score, "coverage": {"percentage": 90}}
             for name in ("Growth", "Fundamentals", "Value")
@@ -58,7 +60,8 @@ class RankingTest(unittest.TestCase):
                 raise ValueError("provider failed")
             return analysis(ticker, 70)
 
-        result = build_large_cap_ranking(universe, {}, existing=existing, analyzer=analyzer, workers=2, retries=0)
+        config = {"version": 4, "calibration_version": "v4-bootstrap-2026Q3"}
+        result = build_large_cap_ranking(universe, config, existing=existing, analyzer=analyzer, workers=2, retries=0)
         self.assertEqual(set(calls), {"B", "C"})
         self.assertEqual(result["metadata"]["analyzed"], 2)
         self.assertEqual(result["metadata"]["failed"], 1)
