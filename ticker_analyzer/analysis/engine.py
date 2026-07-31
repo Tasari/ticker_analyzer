@@ -13,7 +13,7 @@ from ticker_analyzer.metrics.builder import (
 )
 from ticker_analyzer.metrics.formulas import is_financial_company
 from ticker_analyzer.metrics.utils import clean_number
-from ticker_analyzer.scoring import ScoringEngine
+from ticker_analyzer.scoring import ScoringEngine, calculate_overall_rating
 
 
 def analyze_ticker(ticker_symbol: str, ranges: str | dict[str, str], config: dict[str, Any]) -> dict[str, Any]:
@@ -76,14 +76,20 @@ class StockAnalysisEngine:
         scoring_config = config_for_profile(config, profile)
         tab_results, missing = self._score_tabs(raw_metrics, scoring_config)
         coverage = analysis_coverage(tab_results, scoring_config)
+        confidence, confidence_breakdown = calculate_confidence(
+            tab_results, scoring_config, profile, selected_ranges, data
+        )
         overall_score = overall_score_with_missing_policy(tab_results, scoring_config)
         partial_note = partial_overall_note(tab_results, overall_score)
         if partial_note:
             missing.insert(0, partial_note)
         missing.extend(diagnostic_warnings(data.diagnostics))
-        rating = self.scoring.classify_rating(overall_score, config)
-        if partial_note and rating != "Not Rated":
-            rating = f"Partial {rating}"
+        rating = calculate_overall_rating(
+            overall_score,
+            confidence,
+            {name: result.get("score") for name, result in tab_results.items()},
+            config,
+        )
 
         return StockAnalysis(
             ticker=ticker_symbol,
@@ -99,6 +105,10 @@ class StockAnalysisEngine:
             ranges=selected_ranges.as_dict(),
             charts=build_charts_data(data.annual_income, data.annual_cashflow, data.annual_balance, data.growth_history),
             coverage=coverage,
+            confidence=confidence,
+            confidence_breakdown=confidence_breakdown,
+            scoring_version=3,
+            config_version=int(config.get("version", 3)),
             diagnostics=data.diagnostics,
         )
 
@@ -111,13 +121,18 @@ class StockAnalysisEngine:
                 self.scoring.score_metric(metric_config, configured_raw_metrics, tab_name, config)
                 for metric_config in metric_configs
             ]
-            tab_score = self.scoring.weighted_score(metric_results)
             coverage = metric_coverage(metric_results)
+            tab_score, group_breakdown = grouped_tab_score(tab_name, metric_results, config, coverage)
+            if profile_cap_applies(config, tab_name):
+                tab_score = min(tab_score, 85.0) if tab_score is not None else None
+                group_breakdown.setdefault("caps", []).append("generic_financial_fundamentals")
             tab_results[tab_name] = {
                 "score": tab_score,
                 "rating": self.scoring.classify_tab_rating(tab_name, tab_score, config),
                 "metrics": metric_results,
                 "coverage": coverage,
+                "group_breakdown": group_breakdown,
+                "complete": tab_score is not None,
             }
             missing.extend(
                 f"{tab_name}: {metric.name} ({metric.note or 'data unavailable'})"
@@ -168,7 +183,14 @@ def overall_score_with_missing_policy(tab_results: dict[str, Any], config: dict[
     minimum_scored_tabs = int(clean_number(policy.get("minimum_scored_tabs")) or 1)
     if len(scored_tabs) < minimum_scored_tabs:
         return None
-    return weighted_tab_score_from_results(tab_results, tab_weights)
+    weighted_mean = weighted_tab_score_from_results(tab_results, tab_weights)
+    if weighted_mean is None:
+        return None
+    available_scores = [float(result["score"]) for result in tab_results.values() if result.get("score") is not None]
+    if len(available_scores) < len(tab_results):
+        return weighted_mean
+    weakest = min(available_scores)
+    return 0.80 * weighted_mean + 0.20 * weakest
 
 
 def weighted_tab_score_from_results(tab_results: dict[str, Any], tab_weights: dict[str, Any]) -> float | None:
@@ -199,6 +221,113 @@ def metric_coverage(metrics: list[Any]) -> dict[str, Any]:
         "total_weight": total_weight,
         "percentage": percentage,
         "confidence": confidence_label(percentage),
+    }
+
+
+def grouped_tab_score(
+    tab_name: str,
+    metrics: list[Any],
+    config: dict[str, Any],
+    coverage: dict[str, Any],
+) -> tuple[float | None, dict[str, Any]]:
+    minimum = float(config.get("minimum_weight_coverage", {}).get(tab_name, 0)) * 100
+    by_id = {metric.id: metric for metric in metrics}
+    available_ids = {metric.id for metric in metrics if metric.score is not None and metric.weight > 0}
+    groups = config.get("tab_groups", {}).get(tab_name, {})
+    breakdown: dict[str, Any] = {"minimum_coverage": minimum, "groups": {}, "caps": []}
+    if coverage["percentage"] + 1e-9 < minimum:
+        breakdown["reason"] = "minimum_weight_coverage"
+        return None, breakdown
+
+    # Composition gates prevent a correlated family from standing in for a whole tab.
+    if tab_name == "Growth":
+        historical = {"revenue_ttm_range_growth", "net_income_range_growth", "cfo_range_growth"}
+        forward_trend = {"operating_margin_trend", "gross_margin_trend", "revenue_estimate_growth", "eps_estimate_avg_growth"}
+        if not available_ids & historical or not available_ids & forward_trend:
+            breakdown["reason"] = "growth_composition"
+            return None, breakdown
+    elif tab_name == "Fundamentals" and config.get("active_profile") != "Financial":
+        solvency = {"debt_to_assets", "quick_ratio", "cfo_to_debt", "interest_coverage", "net_debt_to_ebitda"}
+        quality = {"roic", "fcf_margin", "accruals_ratio", "operating_margin"}
+        if not available_ids & solvency or len(available_ids & quality) < 2:
+            breakdown["reason"] = "fundamentals_composition"
+            return None, breakdown
+    elif tab_name == "Value":
+        historical = {"ps_vs_selected_median", "pe_vs_selected_median", "pb_vs_selected_median", "ev_ebitda_vs_selected_median", "price_to_cfo_vs_selected_median"}
+        independent = {"fcf_yield", "price_target"}
+        if not available_ids & historical or not available_ids & independent:
+            breakdown["reason"] = "value_composition"
+            return None, breakdown
+
+    if not groups:
+        return ScoringEngine().weighted_score(metrics), breakdown
+    configured_ids = set(by_id)
+    if not any(configured_ids & set(definition.get("metrics", [])) for definition in groups.values()):
+        return ScoringEngine().weighted_score(metrics), breakdown
+    scored_groups: list[tuple[float, float]] = []
+    for group_name, definition in groups.items():
+        members = [by_id[item] for item in definition.get("metrics", []) if item in by_id]
+        group_score = ScoringEngine().weighted_score(members)
+        group_weight = float(definition.get("weight", 0))
+        breakdown["groups"][group_name] = {"score": group_score, "weight": group_weight}
+        if group_score is not None and group_weight > 0:
+            scored_groups.append((group_score, group_weight))
+    total_group_weight = sum(weight for _, weight in scored_groups)
+    if total_group_weight <= 0:
+        return None, breakdown
+    score = sum(score * weight for score, weight in scored_groups) / total_group_weight
+    if tab_name == "Fundamentals" and config.get("active_profile") != "Financial":
+        solvency_score = breakdown["groups"].get("solvency", {}).get("score")
+        quality_score = breakdown["groups"].get("quality", {}).get("score")
+        if solvency_score is not None and quality_score is not None:
+            score = 0.40 * min(float(solvency_score), 90.0) + 0.60 * float(quality_score)
+            if float(solvency_score) > 90:
+                breakdown["caps"].append("solvency_correlation_cap")
+    return score, breakdown
+
+
+def profile_cap_applies(config: dict[str, Any], tab_name: str) -> bool:
+    return config.get("active_profile") == "Financial" and tab_name == "Fundamentals"
+
+
+def calculate_confidence(
+    tab_results: dict[str, Any],
+    config: dict[str, Any],
+    profile: str,
+    ranges: AnalysisRanges,
+    data: MarketData,
+) -> tuple[float, dict[str, Any]]:
+    weight_coverage = analysis_coverage(tab_results, config)["percentage"]
+    dates = []
+    for frame in (data.annual_income, data.annual_balance, data.annual_cashflow):
+        if not frame.empty:
+            dates.extend(pd.to_datetime(frame.columns, errors="coerce").dropna().tolist())
+    age_days = max(0, (pd.Timestamp.now(tz=None).normalize() - max(dates)).days) if dates else 9999
+    freshness = 100 if age_days <= 90 else 85 if age_days <= 180 else 65 if age_days <= 270 else 40 if age_days <= 365 else 10
+    years = min(years_from_range(value) for value in ranges.as_dict().values())
+    history = 100 if years >= 5 else 80 if years >= 3 else 60 if years >= 2 else 35
+    analyst_counts: list[float] = []
+    for frame in (data.revenue_estimate, data.earnings_estimate):
+        if not frame.empty and "numberOfAnalysts" in frame.columns:
+            analyst_counts.extend(pd.to_numeric(frame["numberOfAnalysts"], errors="coerce").dropna().tolist())
+    analysts = max(analyst_counts, default=0)
+    analyst_score = 100 if analysts >= 20 else 85 if analysts >= 10 else 65 if analysts >= 5 else 40 if analysts >= 3 else 20 if analysts >= 1 else 0
+    profile_fit = 60 if profile == "Financial" else 80
+    confidence = 0.50 * weight_coverage + 0.20 * freshness + 0.15 * history + 0.10 * analyst_score + 0.05 * profile_fit
+    caps: list[str] = []
+    if profile == "Financial":
+        confidence = min(confidence, 80.0)
+        caps.append("generic_financial_profile")
+    confidence = max(0.0, min(confidence, 95.0))
+    return confidence, {
+        "weight_coverage": weight_coverage,
+        "freshness": freshness,
+        "freshness_age_days": age_days,
+        "history_length": history,
+        "analyst_coverage": analyst_score,
+        "analyst_count": analysts,
+        "profile_fit": profile_fit,
+        "caps": caps,
     }
 
 
@@ -247,8 +376,8 @@ def company_profile(info: dict[str, Any]) -> str:
 
 def config_for_profile(config: dict[str, Any], profile: str) -> dict[str, Any]:
     profile_metrics = config.get("profile_metrics", {}).get(profile)
-    if not profile_metrics:
-        return config
     selected = dict(config)
-    selected["metrics"] = profile_metrics
+    selected["active_profile"] = profile
+    if profile_metrics:
+        selected["metrics"] = profile_metrics
     return selected

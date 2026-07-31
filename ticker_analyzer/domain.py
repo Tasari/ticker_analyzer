@@ -93,6 +93,10 @@ class StockAnalysis:
     ranges: dict[str, str]
     charts: dict[str, pd.DataFrame]
     coverage: dict[str, Any] = field(default_factory=dict)
+    confidence: float = 0.0
+    confidence_breakdown: dict[str, Any] = field(default_factory=dict)
+    scoring_version: int = 3
+    config_version: int = 3
     diagnostics: list[dict[str, str]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -110,6 +114,10 @@ class StockAnalysis:
             "ranges": self.ranges,
             "charts": self.charts,
             "coverage": self.coverage,
+            "confidence": self.confidence,
+            "confidence_breakdown": self.confidence_breakdown,
+            "scoring_version": self.scoring_version,
+            "config_version": self.config_version,
             "diagnostics": self.diagnostics,
         }
 

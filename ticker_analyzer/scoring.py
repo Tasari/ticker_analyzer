@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from ticker_analyzer.domain import MetricResult
@@ -108,23 +109,53 @@ def format_threshold(value: Any, unit: str) -> str:
     return f"{number:g}"
 
 
+def score_higher(value: float, warn: float, good: float) -> float:
+    if not all(math.isfinite(item) for item in (value, warn, good)):
+        raise ValueError("value, warn and good must be finite")
+    if good <= warn:
+        raise ValueError("good must be greater than warn for direction=higher")
+    span = good - warn
+    floor_value, ceiling_value = warn - span, good + span
+    if value <= floor_value:
+        return 0.0
+    if value < warn:
+        return 25.0 * (value - floor_value) / span
+    if value < good:
+        return 25.0 + 50.0 * (value - warn) / span
+    if value < ceiling_value:
+        return 75.0 + 25.0 * (value - good) / span
+    return 100.0
+
+
+def score_lower(value: float, warn: float, good: float) -> float:
+    if not all(math.isfinite(item) for item in (value, warn, good)):
+        raise ValueError("value, warn and good must be finite")
+    if good >= warn:
+        raise ValueError("good must be lower than warn for direction=lower")
+    span = warn - good
+    floor_value, ceiling_value = good - span, warn + span
+    if value >= ceiling_value:
+        return 0.0
+    if value > warn:
+        return 25.0 * (ceiling_value - value) / span
+    if value > good:
+        return 25.0 + 50.0 * (warn - value) / span
+    if value > floor_value:
+        return 75.0 + 25.0 * (good - value) / span
+    return 100.0
+
+
 def score_value(value: float, metric_config: dict[str, Any]) -> float:
     good = clean_number(metric_config.get("good"))
     warn = clean_number(metric_config.get("warn"))
     direction = metric_config.get("direction", "higher")
-    if good is None or warn is None or good == warn:
-        return 50
+    if good is None or warn is None:
+        raise ValueError("metric thresholds must be finite")
     if direction == "lower":
-        if value <= good:
-            return 100
-        if value >= warn:
-            return 0
-        return (warn - value) / (warn - good) * 100
-    if value >= good:
-        return 100
-    if value <= warn:
-        return 0
-    return (value - warn) / (good - warn) * 100
+        return score_lower(value, warn, good)
+    if direction == "higher":
+        return score_higher(value, warn, good)
+    raise ValueError(f"unsupported metric direction: {direction}")
 
 
 def status_from_score(score: float, tab_name: str, config: dict[str, Any]) -> str:
@@ -166,6 +197,30 @@ def classify_rating(score: float | None, config: dict[str, Any]) -> str:
     }
     labels = {**default_labels, **config.get("overall_rating_labels", {})}
     return classify_five_point_score(score, config.get("rating_thresholds", {}), labels)
+
+
+def calculate_overall_rating(
+    overall: float | None,
+    confidence: float,
+    tabs: dict[str, float | None],
+    config: dict[str, Any],
+) -> str:
+    if overall is None or any(tabs.get(name) is None for name in ("Growth", "Fundamentals", "Value")):
+        return "Insufficient Data"
+    growth = float(tabs["Growth"] or 0)
+    fundamentals = float(tabs["Fundamentals"] or 0)
+    value = float(tabs["Value"] or 0)
+    minimum_tab = min(growth, fundamentals, value)
+    if overall >= 85 and confidence >= 75 and minimum_tab >= 45:
+        return "Strong Buy"
+    if overall >= 70 and confidence >= 60 and fundamentals >= 40 and minimum_tab >= 30:
+        return "Buy"
+    # Low-confidence, weak-fundamental and extreme-valuation cases cannot be Buy ratings.
+    if overall >= 45 or confidence < 40 or fundamentals < 30 or value < 20:
+        return "Hold"
+    if overall >= 30:
+        return "Sell"
+    return "Strong Sell"
 
 
 def classify_five_point_score(
