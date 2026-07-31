@@ -7,9 +7,12 @@ import pandas as pd
 from ticker_analyzer.metrics.formulas import (
     build_fundamentals_metrics,
     gross_margin_trend,
+    gross_profit_to_assets,
+    growth_stability,
     ohlson_probability,
     operating_margin,
     operating_margin_trend,
+    ratio_stability,
     share_count_cagr,
 )
 from ticker_analyzer.metrics.utils import (
@@ -87,6 +90,16 @@ def build_raw_metrics(
 
     revenue_estimate_growth = estimate_growth(info, "revenue", revenue_estimate, growth_estimates)
     eps_estimate_growth = estimate_growth(info, "eps", earnings_estimate, growth_estimates)
+    market_cap = clean_number(info.get("marketCap"))
+    fcf_ttm = sum_recent(quarterly_cashflow, ["Free Cash Flow"], 4)
+    if fcf_ttm is None:
+        ttm_cfo = sum_recent(quarterly_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"], 4)
+        ttm_capex = sum_recent(quarterly_cashflow, ["Capital Expenditure", "Capital Expenditures"], 4)
+        if ttm_cfo is not None and ttm_capex is not None:
+            fcf_ttm = ttm_cfo + ttm_capex if ttm_capex < 0 else ttm_cfo - ttm_capex
+    fcf_yield_ttm = fcf_ttm / market_cap * 100 if fcf_ttm is not None and market_cap not in (None, 0) else None
+    if fcf_yield_ttm is None:
+        fcf_yield_ttm = fcf_yield(info, annual_cashflow)
     price_target_upside = target_upside(info, analyst_targets)
     value_context = build_historical_ratio_context(
         value_history,
@@ -115,6 +128,14 @@ def build_raw_metrics(
             f"Operating margin change over {growth_years} fiscal year(s)",
         ),
         "gross_margin_trend": metric_value(gross_margin_trend(annual_income, growth_years), f"Gross margin change over {growth_years} fiscal year(s)"),
+        "revenue_growth_stability": metric_value(
+            growth_stability(annual_income, ["Total Revenue", "Operating Revenue"], growth_years),
+            "Coefficient of variation of annual revenue growth; lower is more stable",
+        ),
+        "fcf_growth_stability": metric_value(
+            growth_stability(annual_cashflow, ["Free Cash Flow"], growth_years),
+            "Coefficient of variation of annual free-cash-flow growth; lower is more stable",
+        ),
         "share_count_cagr": metric_value(share_count_cagr(annual_balance, growth_years), f"Ordinary share count CAGR over {growth_years} fiscal year(s); positive values indicate dilution"),
         "price_change": metric_value(
             momentum,
@@ -138,6 +159,30 @@ def build_raw_metrics(
         "return_on_assets": fundamentals["return_on_assets"],
         "return_on_equity": fundamentals["return_on_equity"],
         "net_margin": fundamentals["net_margin"],
+        "gross_profit_to_assets": metric_value(
+            gross_profit_to_assets(annual_income, annual_balance, fundamentals_years),
+            f"Median gross profit divided by assets over {fundamentals_years} fiscal year(s)",
+        ),
+        "fcf_margin_stability": metric_value(
+            ratio_stability(
+                annual_cashflow,
+                ["Free Cash Flow"],
+                annual_income,
+                ["Total Revenue", "Operating Revenue"],
+                fundamentals_years,
+            ),
+            "Coefficient of variation of annual free-cash-flow margin; lower is more stable",
+        ),
+        "operating_margin_stability": metric_value(
+            ratio_stability(
+                annual_income,
+                ["Operating Income"],
+                annual_income,
+                ["Total Revenue", "Operating Revenue"],
+                fundamentals_years,
+            ),
+            "Coefficient of variation of annual operating margin; lower is more stable",
+        ),
         "ps_vs_selected_median": statement_aligned_ratio_vs_history_metric(
             info,
             "ps",
@@ -170,6 +215,19 @@ def build_raw_metrics(
             fallback_current_ratio=current_price_to_cfo(info, annual_cashflow),
         ),
         "fcf_yield": metric_value(fcf_yield(info, annual_cashflow), "Latest annual free cash flow divided by current market capitalization"),
+        "fcf_yield_ttm": metric_value(
+            fcf_yield_ttm,
+            "Trailing twelve-month free cash flow divided by market capitalization; annual fallback when quarterly data is unavailable",
+        ),
+        "pe_vs_profile_median": metric_value(None, "Requires a matching versioned peer-calibration artifact"),
+        "ev_ebitda_vs_profile_median": metric_value(None, "Requires a matching versioned peer-calibration artifact"),
+        "fcf_yield_vs_profile_median": metric_value(None, "Requires a matching versioned peer-calibration artifact"),
+        "valuation_growth_adjustment": metric_value(
+            clean_number(info.get("trailingPE")) / eps_estimate_growth
+            if clean_number(info.get("trailingPE")) is not None and eps_estimate_growth is not None and eps_estimate_growth > 0
+            else None,
+            "Trailing P/E divided by positive forward EPS growth",
+        ),
         "price_target": metric_value(price_target_upside),
         "upside_vs_configured_benchmark": metric_value(None, "Uses configured benchmark because historical analyst upside is unavailable"),
     }
@@ -190,6 +248,7 @@ def apply_configured_metric_fallbacks(
             price_target_upside - benchmark,
             f"Current price target upside minus configured benchmark ({benchmark:.2f}%)",
         )
+        updated["upside_vs_configured_benchmark"]["provenance"] = updated.get("price_target", {}).get("provenance")
     return updated
 
 

@@ -75,6 +75,47 @@ def gross_margin_trend(income: pd.DataFrame, years: int) -> float | None:
     return (current_profit / current_revenue - base_profit / base_revenue) * 100
 
 
+def series_coefficient_of_variation(series: pd.Series, *, minimum_observations: int = 3) -> float | None:
+    values = pd.to_numeric(series, errors="coerce").dropna()
+    if len(values) < minimum_observations:
+        return None
+    mean_value = float(values.mean())
+    if mean_value <= 0 or (values <= 0).any():
+        return None
+    return float(values.std(ddof=0) / abs(mean_value))
+
+
+def growth_stability(frame: pd.DataFrame, row_names: list[str], years: int) -> float | None:
+    values = row_values(frame, row_names).tail(max(3, years + 1))
+    growth = values.pct_change(fill_method=None).replace([math.inf, -math.inf], math.nan)
+    return series_coefficient_of_variation(growth)
+
+
+def ratio_stability(
+    numerator_frame: pd.DataFrame,
+    numerator_names: list[str],
+    denominator_frame: pd.DataFrame,
+    denominator_names: list[str],
+    years: int,
+) -> float | None:
+    numerator = row_values(numerator_frame, numerator_names).tail(max(3, years + 1))
+    denominator = row_values(denominator_frame, denominator_names).tail(max(3, years + 1))
+    aligned = pd.concat([numerator.rename("numerator"), denominator.rename("denominator")], axis=1).dropna()
+    aligned = aligned[aligned["denominator"] != 0]
+    return series_coefficient_of_variation(aligned["numerator"] / aligned["denominator"])
+
+
+def gross_profit_to_assets(income: pd.DataFrame, balance: pd.DataFrame, years: int) -> float | None:
+    return statement_ratio_median(
+        income,
+        ["Gross Profit"],
+        balance,
+        ["Total Assets"],
+        years,
+        multiplier=100,
+    )
+
+
 def share_count_cagr(balance: pd.DataFrame, years: int) -> float | None:
     shares = row_values(balance, ["Ordinary Shares Number", "Share Issued", "Common Stock Shares Outstanding"])
     if len(shares) < years + 1:

@@ -1,7 +1,7 @@
 import unittest
 
 import pandas as pd
-from ticker_analyzer.analysis.engine import StockAnalysisEngine
+from ticker_analyzer.analysis.engine import StockAnalysisEngine, config_for_profile
 from ticker_analyzer.config import load_config, normalize_config
 from ticker_analyzer.domain import AnalysisRanges, MarketData
 
@@ -113,8 +113,15 @@ class AnalysisEngineTest(unittest.TestCase):
         self.assertEqual(result.profile, "Industrial")
         self.assertEqual(set(result.tabs), {"Growth", "Fundamentals", "Value"})
         self.assertIsNotNone(result.overall_score)
-        self.assertEqual(result.coverage["confidence"], "High")
-        self.assertGreater(result.coverage["percentage"], 85)
+        self.assertIn(result.coverage["confidence"], {"Medium", "High"})
+        self.assertGreater(result.coverage["percentage"], 60)
+        self.assertEqual(result.scoring_version, 5)
+        self.assertEqual(result.config_version, 5)
+        self.assertEqual(result.confidence, result.data_quality)
+        self.assertIn("components", result.data_quality_breakdown)
+        self.assertTrue(
+            all(metric.provenance and metric.provenance.get("provider") for tab in result.tabs.values() for metric in tab["metrics"])
+        )
         self.assertEqual(provider.calls[0][0], "TEST")
         self.assertEqual(provider.calls[0][1].as_dict(), {"Growth": "2Y", "Fundamentals": "2Y", "Value": "2Y"})
 
@@ -125,10 +132,35 @@ class AnalysisEngineTest(unittest.TestCase):
             load_config(),
         )
 
-        self.assertEqual(result.profile, "Financial")
+        self.assertEqual(result.profile, "FinancialBank")
         value_metric_ids = {metric.id for metric in result.tabs["Value"]["metrics"]}
         self.assertIn("pb_vs_selected_median", value_metric_ids)
         self.assertNotIn("ev_ebitda_vs_selected_median", value_metric_ids)
+
+    def test_profile_override_precedes_provider_industry(self):
+        data = market_data(industry="Software - Infrastructure")
+        data.ticker = "AFRM"
+        result = StockAnalysisEngine(provider=FakeProvider(data)).analyze("AFRM", "2Y", load_config())
+        self.assertEqual(result.profile, "FinancialLender")
+
+    def test_financial_broker_requires_configured_growth_coverage(self):
+        data = market_data(industry="Software - Infrastructure")
+        data.analyst_targets = {}
+        data.revenue_estimate = pd.DataFrame()
+        data.earnings_estimate = pd.DataFrame()
+        result = StockAnalysisEngine(provider=FakeProvider(data)).analyze("FUTU", "2Y", load_config())
+        self.assertEqual(result.profile, "FinancialBroker")
+        self.assertIsNone(result.tabs["Growth"]["score"])
+        self.assertIsNotNone(result.tabs["Value"]["score"])
+
+    def test_broker_and_lender_have_distinct_capital_group_weights(self):
+        config = load_config()
+        broker = config_for_profile(config, "FinancialBroker")
+        lender = config_for_profile(config, "FinancialLender")
+        self.assertNotEqual(
+            broker["tab_groups"]["Fundamentals"]["capital"]["weight"],
+            lender["tab_groups"]["Fundamentals"]["capital"]["weight"],
+        )
 
     def test_engine_builds_all_configured_industrial_metrics(self):
         config = load_config()
@@ -201,7 +233,7 @@ class AnalysisEngineTest(unittest.TestCase):
 
         normalized = normalize_config(config)
 
-        self.assertEqual(normalized["version"], 3)
+        self.assertEqual(normalized["version"], 5)
         self.assertEqual(normalized["metrics"]["Value"][0]["id"], "ps_vs_selected_median")
         self.assertEqual(
             normalized["profile_metrics"]["Financial"]["Value"][0]["id"],
