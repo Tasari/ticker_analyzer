@@ -22,10 +22,16 @@ class UiActionsTest(unittest.TestCase):
                 "errors": [],
             }
             save_ranking(payload, refresh)
-            with patch("ticker_analyzer.ui.actions.subprocess.run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
+            with patch(
+                "ticker_analyzer.ui.actions.subprocess.run",
+                return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
+            ) as run:
                 success, message, _ = refresh_large_cap_ranking(output, limit=1)
 
             self.assertTrue(success)
+            command = run.call_args.args[0]
+            self.assertEqual(command[1:3], ["-m", "scripts.build_large_cap_ranking"])
+            self.assertEqual(run.call_args.kwargs["cwd"], Path(__file__).resolve().parents[1])
             self.assertIn("Ranking updated", message)
             self.assertFalse(refresh.exists())
             self.assertIn('"NEW"', output.read_text(encoding="utf-8"))
