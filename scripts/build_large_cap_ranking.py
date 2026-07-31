@@ -19,7 +19,7 @@ from ticker_analyzer.ranking_provider import PublicYahooRankingProvider
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build a resumable scoring-v3 ranking of large US equities.")
+    parser = argparse.ArgumentParser(description="Build a resumable scoring-v4 ranking of large US equities.")
     parser.add_argument("--limit", type=int, default=1000)
     parser.add_argument("--workers", type=int, default=5)
     parser.add_argument("--ranges", default="3Y")

@@ -13,7 +13,7 @@ import yfinance as yf
 
 from ticker_analyzer.analysis.engine import analyze_ticker
 
-DEFAULT_RANKING_PATH = Path("data/large_cap_ranking_v3.json")
+DEFAULT_RANKING_PATH = Path("data/large_cap_ranking_v4.json")
 
 
 def normalize_ticker(ticker: Any) -> str:
@@ -98,15 +98,17 @@ def ranking_row(universe_item: dict[str, Any], analysis: dict[str, Any]) -> dict
         "profile": analysis.get("profile"),
         "overall_score": analysis.get("overall_score"),
         "rating": analysis.get("rating"),
-        "confidence": analysis.get("confidence"),
+        "data_quality": analysis.get("data_quality", analysis.get("confidence")),
+        "confidence": analysis.get("data_quality", analysis.get("confidence")),
         "growth_score": tabs.get("Growth", {}).get("score"),
         "fundamentals_score": tabs.get("Fundamentals", {}).get("score"),
         "value_score": tabs.get("Value", {}).get("score"),
         "growth_coverage": tabs.get("Growth", {}).get("coverage", {}).get("percentage"),
         "fundamentals_coverage": tabs.get("Fundamentals", {}).get("coverage", {}).get("percentage"),
         "value_coverage": tabs.get("Value", {}).get("coverage", {}).get("percentage"),
-        "scoring_version": analysis.get("scoring_version", 3),
-        "config_version": analysis.get("config_version", 3),
+        "scoring_version": analysis.get("scoring_version", 4),
+        "config_version": analysis.get("config_version", 4),
+        "calibration_version": analysis.get("calibration_version", "v4-bootstrap-2026Q3"),
     }
 
 
@@ -116,7 +118,7 @@ def sort_ranking(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         key=lambda row: (
             row.get("overall_score") is not None,
             float(row.get("overall_score") or -1),
-            float(row.get("confidence") or -1),
+            float(row.get("data_quality", row.get("confidence")) or -1),
             float(row.get("market_cap") or -1),
         ),
         reverse=True,
@@ -140,10 +142,16 @@ def build_large_cap_ranking(
     retry_insufficient: bool = False,
 ) -> dict[str, Any]:
     universe_tickers = {item["ticker"] for item in universe}
+    expected_config_version = int(config.get("version", 4))
+    expected_calibration = str(config.get("calibration_version", "v4-bootstrap-2026Q3"))
     previous_rows = {
         row["ticker"]: row
         for row in (existing or {}).get("companies", [])
-        if row.get("ticker") in universe_tickers and (not retry_insufficient or row.get("overall_score") is not None)
+        if row.get("ticker") in universe_tickers
+        and int(row.get("scoring_version", 0)) == 4
+        and int(row.get("config_version", 0)) == expected_config_version
+        and str(row.get("calibration_version", "")) == expected_calibration
+        and (not retry_insufficient or row.get("overall_score") is not None)
     }
     error_by_ticker = {
         item["ticker"]: item
@@ -175,8 +183,8 @@ def build_large_cap_ranking(
             except Exception as exc:
                 error_by_ticker[item["ticker"]] = {"ticker": item["ticker"], "error": str(exc)}
             if checkpoint and completed % 10 == 0:
-                checkpoint(ranking_payload(universe, rows, list(error_by_ticker.values()), ranges, complete=False))
-    return ranking_payload(universe, rows, list(error_by_ticker.values()), ranges, complete=True)
+                checkpoint(ranking_payload(universe, rows, list(error_by_ticker.values()), ranges, config, complete=False))
+    return ranking_payload(universe, rows, list(error_by_ticker.values()), ranges, config, complete=True)
 
 
 def ranking_payload(
@@ -184,6 +192,7 @@ def ranking_payload(
     rows: list[dict[str, Any]],
     errors: list[dict[str, str]],
     ranges: str,
+    config: dict[str, Any] | None = None,
     *,
     complete: bool,
 ) -> dict[str, Any]:
@@ -203,7 +212,9 @@ def ranking_payload(
             "insufficient_data": sum(row.get("overall_score") is None for row in rows),
             "failed": len(unique_errors),
             "ranges": ranges,
-            "scoring_version": 3,
+            "scoring_version": 4,
+            "config_version": int((config or {}).get("version", 4)),
+            "calibration_version": str((config or {}).get("calibration_version", "v4-bootstrap-2026Q3")),
             "complete": complete,
         },
         "companies": ranked,

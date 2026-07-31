@@ -1,5 +1,59 @@
 {
-  "version": 3,
+  "version": 4,
+  "scoring_model": "piecewise_anchor_25_75_v1",
+  "calibration_version": "v4-bootstrap-2026Q3",
+  "data_quality": {
+    "display_name": "Data Quality",
+    "display_unit": "points",
+    "maximum": 95,
+    "weights": {
+      "metric_weight_coverage": 0.30,
+      "tab_completeness": 0.15,
+      "filing_freshness": 0.20,
+      "actual_observation_depth": 0.15,
+      "source_provenance": 0.10,
+      "estimate_quality": 0.05,
+      "profile_fit": 0.05
+    }
+  },
+  "profile_overrides": {
+    "FUTU": "FinancialBroker",
+    "AFRM": "FinancialLender",
+    "JPM": "FinancialBank",
+    "BAC": "FinancialBank",
+    "XTB.WA": "FinancialBroker",
+    "PKO.WA": "FinancialBank",
+    "PEO.WA": "FinancialBank",
+    "PZU.WA": "FinancialInsurance"
+  },
+  "profile_tab_groups": {
+    "Financial": {
+      "Growth": {
+        "business_growth": {"weight": 0.85, "metrics": ["revenue_ttm_range_growth", "net_income_range_growth", "share_count_cagr"]},
+        "market_context": {"weight": 0.15, "metrics": ["price_change", "revenue_estimate_growth", "eps_estimate_avg_growth"]}
+      },
+      "Fundamentals": {
+        "capital": {"weight": 0.35, "metrics": ["equity_to_assets"]},
+        "quality": {"weight": 0.65, "metrics": ["return_on_assets", "return_on_equity", "net_margin"]}
+      },
+      "Value": {
+        "historical_or_peer": {"weight": 0.90, "metrics": ["pe_vs_selected_median", "pb_vs_selected_median"]},
+        "analyst_context": {"weight": 0.10, "metrics": ["price_target"]}
+      }
+    }
+  },
+  "profile_rules": {
+    "Industrial": {
+      "Growth": {"minimum_coverage": 0.65, "required_groups": {"historical": {"minimum_available_metrics": 1}, "forward_or_trend": {"minimum_available_metrics": 1}}},
+      "Fundamentals": {"minimum_coverage": 0.70, "required_groups": {"solvency": {"minimum_available_metrics": 1}, "quality": {"minimum_available_metrics": 2}}},
+      "Value": {"minimum_coverage": 0.60, "required_groups": {"historical_multiples": {"minimum_available_metrics": 2}, "absolute_cash_yield": {"minimum_available_metrics": 1}}}
+    },
+    "Financial": {
+      "Growth": {"minimum_coverage": 0.60, "required_groups": {"business_growth": {"minimum_available_metrics": 1}}},
+      "Fundamentals": {"minimum_coverage": 0.65, "required_groups": {"capital": {"minimum_available_metrics": 1}, "quality": {"minimum_available_metrics": 2}}},
+      "Value": {"minimum_coverage": 0.55, "required_groups": {"historical_or_peer": {"minimum_available_metrics": 1}}}
+    }
+  },
   "tab_weights": {
     "Growth": 0.3333,
     "Fundamentals": 0.3333,
@@ -16,18 +70,22 @@
   },
   "tab_groups": {
     "Growth": {
-      "historical": {"weight": 0.55, "metrics": ["revenue_ttm_range_growth", "net_income_range_growth", "cfo_range_growth", "share_count_cagr"]},
-      "forward_or_trend": {"weight": 0.40, "metrics": ["operating_margin_trend", "gross_margin_trend", "revenue_estimate_growth", "eps_estimate_avg_growth"]},
-      "market_signal": {"weight": 0.05, "metrics": ["price_change"]}
+      "historical": {"weight": 0.50, "metrics": ["revenue_ttm_range_growth", "net_income_range_growth", "cfo_range_growth", "share_count_cagr"]},
+      "forward_or_trend": {"weight": 0.35, "metrics": ["operating_margin_trend", "gross_margin_trend", "revenue_estimate_growth", "eps_estimate_avg_growth"]},
+      "market_signal": {"weight": 0.05, "metrics": ["price_change"]},
+      "sustainability": {"weight": 0.10, "metrics": ["revenue_growth_stability", "fcf_growth_stability"]}
     },
     "Fundamentals": {
-      "solvency": {"weight": 0.40, "metrics": ["debt_to_assets", "quick_ratio", "cfo_to_debt", "interest_coverage", "net_debt_to_ebitda"]},
-      "quality": {"weight": 0.60, "metrics": ["roic", "fcf_margin", "accruals_ratio", "operating_margin"]}
+      "solvency": {"weight": 0.30, "metrics": ["debt_to_assets", "cfo_to_debt", "interest_coverage", "net_debt_to_ebitda"]},
+      "quality": {"weight": 0.55, "metrics": ["gross_profit_to_assets", "roic", "fcf_margin", "accruals_ratio", "operating_margin"]},
+      "stability": {"weight": 0.15, "metrics": ["fcf_margin_stability", "operating_margin_stability"]}
     },
     "Value": {
-      "historical_multiples": {"weight": 0.60, "metrics": ["ps_vs_selected_median", "pe_vs_selected_median", "pb_vs_selected_median", "ev_ebitda_vs_selected_median", "price_to_cfo_vs_selected_median"]},
-      "absolute_cash_yield": {"weight": 0.30, "metrics": ["fcf_yield"]},
-      "analyst_context": {"weight": 0.10, "metrics": ["price_target"]}
+      "historical_multiples": {"weight": 0.35, "metrics": ["ps_vs_selected_median", "pe_vs_selected_median", "ev_ebitda_vs_selected_median", "price_to_cfo_vs_selected_median"]},
+      "absolute_cash_yield": {"weight": 0.30, "metrics": ["fcf_yield_ttm"]},
+      "peer_relative": {"weight": 0.25, "metrics": ["pe_vs_profile_median", "ev_ebitda_vs_profile_median", "fcf_yield_vs_profile_median"]},
+      "analyst_context": {"weight": 0.05, "metrics": ["price_target"]},
+      "forward_normalized": {"weight": 0.05, "metrics": ["valuation_growth_adjustment"]}
     }
   },
   "rating_thresholds": {
@@ -231,39 +289,39 @@
       {
         "id": "revenue_ttm_range_growth",
         "name": "Revenue TTM CAGR vs Selected Range",
-        "weight": 1.2,
+        "weight": 1.15,
         "direction": "higher",
         "warn": 0,
-        "good": 9,
+        "good": 10,
         "unit": "%",
         "description": "Revenue TTM CAGR measures annualized TTM-vs-TTM revenue growth over the selected Growth range when enough quarterly data is available. It falls back to current TTM versus an annual historical value when yfinance provides too few quarters."
       },
       {
         "id": "net_income_range_growth",
         "name": "Net Income CAGR vs Selected Range",
-        "weight": 1.15,
+        "weight": 0.85,
         "direction": "higher",
         "warn": 0,
-        "good": 8,
+        "good": 10,
         "unit": "%",
         "description": "Net Income CAGR compares the latest annual net income with net income from the selected Growth range ago and annualizes the result. It measures whether the company is turning revenue into growing bottom-line profit. The metric is missing when the starting or current net income is not positive, because percentage growth through zero is not economically stable."
       },
       {
         "id": "cfo_range_growth",
         "name": "Cash From Operations CAGR vs Selected Range",
-        "weight": 1.25,
+        "weight": 1.1,
         "direction": "higher",
         "warn": 0,
-        "good": 8,
+        "good": 10,
         "unit": "%",
         "description": "Cash From Operations CAGR measures annualized TTM-vs-TTM operating cash flow growth when enough quarterly cash-flow data is available. It falls back to annual cash flow when needed and is missing when endpoints are not positive."
       },
       {
         "id": "operating_margin_trend",
         "name": "Operating Margin Trend",
-        "weight": 0.8,
+        "weight": 0.75,
         "direction": "higher",
-        "warn": -3,
+        "warn": -2,
         "good": 3,
         "unit": "pp",
         "description": "Operating Margin Trend is the latest operating margin minus the margin at the start of the selected Growth range. Positive values indicate improving operating profitability."
@@ -271,9 +329,9 @@
       {
         "id": "gross_margin_trend",
         "name": "Gross Margin Trend",
-        "weight": 0.75,
+        "weight": 0.55,
         "direction": "higher",
-        "warn": -3,
+        "warn": -2,
         "good": 3,
         "unit": "pp",
         "description": "Gross Margin Trend measures the change in gross margin over the selected Growth range. Expanding gross margin can indicate stronger pricing power or improving unit economics."
@@ -293,39 +351,59 @@
         "name": "Adjusted Price Momentum 12-1",
         "weight": 0.2,
         "direction": "higher",
-        "warn": 0,
-        "good": 15,
+        "warn": -5,
+        "good": 20,
         "unit": "%",
         "description": "Adjusted Price Momentum 12-1 measures adjusted price performance from roughly 13 months ago to 2 months ago, skipping the most recent month. It is a market momentum signal rather than a fundamental business metric. Positive momentum helps the Growth score, but it has a lower weight so it does not dominate business fundamentals."
       },
       {
         "id": "revenue_estimate_growth",
         "name": "Revenue Estimates Growth",
-        "weight": 0.75,
+        "weight": 0.55,
         "direction": "higher",
         "warn": 0,
-        "good": 10,
+        "good": 12,
         "unit": "%",
         "description": "Revenue Estimates Growth uses available analyst revenue growth estimate data from yfinance. It is a forward-looking signal for expected sales expansion. Higher expected growth improves the Growth score, but the metric is weighted lower because estimates can change quickly."
       },
       {
         "id": "eps_estimate_avg_growth",
         "name": "EPS Estimate Growth",
-        "weight": 0.9,
+        "weight": 0.55,
         "direction": "higher",
         "warn": 0,
-        "good": 12,
+        "good": 15,
         "unit": "%",
         "description": "EPS Estimate Growth uses available analyst earnings growth data from yfinance. It is a forward-looking earnings signal. Higher expected EPS growth improves the Growth score, but the metric is weighted moderately because estimates can change quickly."
+      },
+      {
+        "id": "revenue_growth_stability",
+        "name": "Revenue Growth Stability",
+        "weight": 0.6,
+        "direction": "lower",
+        "warn": 0.8,
+        "good": 0.25,
+        "unit": "x",
+        "description": "Coefficient of variation of annual revenue growth. Lower values indicate more repeatable growth."
+      },
+      {
+        "id": "fcf_growth_stability",
+        "name": "FCF Growth Stability",
+        "weight": 0.6,
+        "direction": "lower",
+        "warn": 0.8,
+        "good": 0.25,
+        "unit": "x",
+        "description": "Coefficient of variation of annual free-cash-flow growth. Lower values indicate more stable cash generation."
       }
     ],
     "Fundamentals": [
       {
         "id": "debt_to_assets",
         "name": "Debt to Assets Range Median",
-        "weight": 0.6,
+        "weight": 0.45,
         "direction": "lower",
-        "warn": 30,
+        "warn": 35,
         "good": 15,
         "unit": "%",
         "description": "Debt to Assets is total debt divided by total assets, shown as the median over the selected Fundamentals range. Lower leverage generally means a safer balance sheet."
@@ -333,9 +411,9 @@
       {
         "id": "quick_ratio",
         "name": "Quick Ratio Range Median",
-        "weight": 0.4,
+        "weight": 0.2,
         "direction": "higher",
-        "warn": 1,
+        "warn": 0.8,
         "good": 1.5,
         "unit": "x",
         "description": "Quick Ratio compares liquid assets with current liabilities and is shown as the median over the selected Fundamentals range when statement history is available. Values below 1 can suggest weak immediate liquidity."
@@ -343,20 +421,20 @@
       {
         "id": "cfo_to_debt",
         "name": "CFO to Debt Range Median",
-        "weight": 0.75,
+        "weight": 0.5,
         "direction": "higher",
-        "warn": 0.1,
-        "good": 0.25,
+        "warn": 0.08,
+        "good": 0.3,
         "unit": "x",
         "description": "CFO to Debt is operating cash flow divided by total debt, shown as the median over the selected Fundamentals range. Debt-free years with positive cash flow receive a capped strong value."
       },
       {
         "id": "interest_coverage",
         "name": "Interest Coverage Range Median",
-        "weight": 0.55,
+        "weight": 0.45,
         "direction": "higher",
         "warn": 1.5,
-        "good": 5,
+        "good": 6,
         "unit": "x",
         "description": "Interest Coverage is operating income divided by interest expense, shown as the median over the selected Fundamentals range. Higher coverage is safer."
       },
@@ -373,52 +451,82 @@
       {
         "id": "roic",
         "name": "ROIC Range Median",
-        "weight": 1.3,
+        "weight": 1.0,
         "direction": "higher",
-        "warn": 5,
-        "good": 12,
+        "warn": 4,
+        "good": 15,
         "unit": "%",
         "description": "ROIC estimates after-tax operating profit divided by invested capital and shows the median over the selected Fundamentals range. Higher ROIC suggests stronger capital allocation and business quality."
       },
       {
         "id": "fcf_margin",
         "name": "FCF Margin Range Median",
-        "weight": 1.2,
+        "weight": 0.85,
         "direction": "higher",
         "warn": 0,
-        "good": 10,
+        "good": 12,
         "unit": "%",
         "description": "FCF Margin is free cash flow divided by revenue and shows the median over the selected Fundamentals range. Higher values indicate that revenue converts efficiently into discretionary cash."
       },
       {
         "id": "accruals_ratio",
         "name": "Accruals Ratio Range Median",
-        "weight": 0.85,
+        "weight": 0.65,
         "direction": "lower",
-        "warn": 10,
-        "good": 0,
+        "warn": 8,
+        "good": -2,
         "unit": "%",
         "description": "Accruals Ratio is net income minus operating cash flow, divided by total assets. Lower values suggest earnings are better supported by cash flow."
       },
       {
         "id": "net_debt_to_ebitda",
         "name": "Net Debt to EBITDA Range Median",
-        "weight": 0.75,
+        "weight": 0.55,
         "direction": "lower",
         "warn": 4,
-        "good": 2,
+        "good": 1.5,
         "unit": "x",
         "description": "Net Debt to EBITDA compares debt net of cash with EBITDA and shows the median over the selected Fundamentals range. Lower leverage generally improves financial resilience."
       },
       {
         "id": "operating_margin",
         "name": "Operating Margin Annual",
-        "weight": 0.9,
+        "weight": 0.35,
         "direction": "higher",
         "warn": 5,
         "good": 20,
         "unit": "%",
         "description": "Operating Margin is operating income divided by revenue for the latest annual period. It is a business-quality and profitability measure."
+      },
+      {
+        "id": "gross_profit_to_assets",
+        "name": "Gross Profit to Assets",
+        "weight": 1.0,
+        "direction": "higher",
+        "warn": 10,
+        "good": 30,
+        "unit": "%",
+        "description": "Gross profit divided by total assets, measured across the selected range."
+      },
+      {
+        "id": "fcf_margin_stability",
+        "name": "FCF Margin Stability",
+        "weight": 0.75,
+        "direction": "lower",
+        "warn": 0.8,
+        "good": 0.25,
+        "unit": "x",
+        "description": "Coefficient of variation of free-cash-flow margin. Lower values indicate more stable cash conversion."
+      },
+      {
+        "id": "operating_margin_stability",
+        "name": "Operating Margin Stability",
+        "weight": 0.5,
+        "direction": "lower",
+        "warn": 0.5,
+        "good": 0.15,
+        "unit": "x",
+        "description": "Coefficient of variation of operating margin. Lower values indicate more stable profitability."
       }
     ],
     "Value": [
@@ -463,19 +571,59 @@
         "description": "Price to CFO Per Share vs Selected Range Median compares current price to operating cash flow with its approximate median over the selected Value range. It checks whether the stock is cheap or expensive relative to cash generated by operations."
       },
       {
-        "id": "fcf_yield",
-        "name": "Free Cash Flow Yield",
-        "weight": 1.3,
+        "id": "fcf_yield_ttm",
+        "name": "Free Cash Flow Yield TTM",
+        "weight": 1.0,
         "direction": "higher",
-        "warn": 1,
+        "warn": 2,
         "good": 8,
         "unit": "%",
-        "description": "Free Cash Flow Yield is the latest annual free cash flow divided by current market capitalization. Higher values suggest the company generates more free cash flow relative to its market price."
+        "description": "Free Cash Flow Yield uses trailing twelve-month cash flow when available, with an annual fallback, divided by market capitalization."
+      },
+      {
+        "id": "pe_vs_profile_median",
+        "name": "P/E vs Profile Median",
+        "weight": 0.4,
+        "direction": "lower",
+        "warn": 30,
+        "good": -30,
+        "unit": "%",
+        "description": "Relative P/E versus a versioned profile calibration universe. Missing until a matching peer artifact is supplied."
+      },
+      {
+        "id": "ev_ebitda_vs_profile_median",
+        "name": "EV/EBITDA vs Profile Median",
+        "weight": 0.4,
+        "direction": "lower",
+        "warn": 30,
+        "good": -30,
+        "unit": "%",
+        "description": "Relative EV/EBITDA versus a versioned profile calibration universe. Missing until a matching peer artifact is supplied."
+      },
+      {
+        "id": "fcf_yield_vs_profile_median",
+        "name": "FCF Yield vs Profile Median",
+        "weight": 0.4,
+        "direction": "higher",
+        "warn": -30,
+        "good": 30,
+        "unit": "%",
+        "description": "Relative FCF yield versus a versioned profile calibration universe. Missing until a matching peer artifact is supplied."
+      },
+      {
+        "id": "valuation_growth_adjustment",
+        "name": "Valuation Growth Adjustment",
+        "weight": 0.25,
+        "direction": "lower",
+        "warn": 2,
+        "good": 1,
+        "unit": "x",
+        "description": "Trailing P/E divided by positive forward EPS growth; a small normalized forward valuation context."
       },
       {
         "id": "price_target",
         "name": "Analyst Price Target",
-        "weight": 0.15,
+        "weight": 0.1,
         "direction": "higher",
         "warn": -10,
         "good": 30,

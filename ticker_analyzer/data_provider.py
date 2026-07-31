@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import pandas as pd
 import yfinance as yf
 
-from ticker_analyzer.domain import AnalysisRanges, MarketData
+from ticker_analyzer.domain import AnalysisRanges, DataProvenance, MarketData
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,8 @@ class YFinanceProvider:
         growth_start = history_start_date(ranges.growth)
         value_start = history_start_date(ranges.value)
         diagnostics: list[dict[str, str]] = []
-        return MarketData(
+        fetched_at = datetime.now(UTC)
+        result = MarketData(
             ticker=ticker_symbol,
             info=safe_dict(lambda: ticker.info, label="company info", diagnostics=diagnostics),
             annual_income=normalize_statement(safe_frame(lambda: ticker.financials, label="annual income statement", diagnostics=diagnostics)),
@@ -41,6 +43,8 @@ class YFinanceProvider:
             growth_estimates=safe_frame(lambda: ticker.growth_estimates, label="growth estimates", diagnostics=diagnostics),
             diagnostics=diagnostics,
         )
+        result.provenance = build_yfinance_provenance(result, fetched_at)
+        return result
 
 
 def safe_frame(
@@ -116,3 +120,61 @@ def range_years(range_label: str) -> int:
         except ValueError:
             return 2
     return 2
+
+
+def build_yfinance_provenance(data: MarketData, fetched_at: datetime) -> dict[str, DataProvenance]:
+    return {
+        "financials": DataProvenance(
+            provider="yfinance",
+            fetched_at=fetched_at,
+            period_end=latest_statement_period(data),
+            observation_count=max(
+                len(data.annual_income.columns),
+                len(data.annual_balance.columns),
+                len(data.annual_cashflow.columns),
+            ),
+            fallback_level="secondary_source",
+            is_primary_source=False,
+        ),
+        "prices": DataProvenance(
+            provider="yfinance",
+            fetched_at=fetched_at,
+            period_end=_latest_index(data.value_history),
+            observation_count=len(data.value_history),
+            fallback_level="secondary_source",
+            is_primary_source=False,
+        ),
+        "estimates": DataProvenance(
+            provider="yfinance",
+            fetched_at=fetched_at,
+            observation_count=max(len(data.revenue_estimate), len(data.earnings_estimate)),
+            fallback_level="estimated",
+            is_primary_source=False,
+        ),
+    }
+
+
+def latest_statement_period(data: MarketData) -> datetime | None:
+    dates = []
+    for frame in (
+        data.quarterly_income,
+        data.quarterly_balance,
+        data.quarterly_cashflow,
+        data.annual_income,
+        data.annual_balance,
+        data.annual_cashflow,
+    ):
+        if not frame.empty:
+            dates.extend(pd.to_datetime(frame.columns, errors="coerce").dropna().tolist())
+    if not dates:
+        return None
+    return pd.Timestamp(max(dates)).to_pydatetime().replace(tzinfo=UTC)
+
+
+def _latest_index(frame: pd.DataFrame) -> datetime | None:
+    if frame.empty:
+        return None
+    dates = pd.to_datetime(frame.index, errors="coerce").dropna()
+    if dates.empty:
+        return None
+    return pd.Timestamp(dates.max()).to_pydatetime().replace(tzinfo=UTC)
