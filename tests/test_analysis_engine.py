@@ -201,7 +201,7 @@ class AnalysisEngineTest(unittest.TestCase):
 
         normalized = normalize_config(config)
 
-        self.assertEqual(normalized["version"], 2)
+        self.assertEqual(normalized["version"], 3)
         self.assertEqual(normalized["metrics"]["Value"][0]["id"], "ps_vs_selected_median")
         self.assertEqual(
             normalized["profile_metrics"]["Financial"]["Value"][0]["id"],
