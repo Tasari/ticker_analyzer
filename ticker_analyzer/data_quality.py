@@ -63,7 +63,7 @@ def calculate_data_quality(
         "data_freshness": 0.25,
         "source_quality": 0.15,
         "cross_source_reconciliation": 0.10,
-        **settings.get("weights", {}),
+        **settings.get("component_weights", settings.get("weights", {})),
     }
     components: dict[str, float | None] = {
         "effective_metric_coverage": _bounded(metric_weight_coverage),
