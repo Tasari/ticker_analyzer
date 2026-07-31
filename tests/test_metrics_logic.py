@@ -23,10 +23,16 @@ from ticker_analyzer.engine import (
     statement_ratio_median,
     ttm_range_cagr,
 )
+from ticker_analyzer.metrics.formulas import series_coefficient_of_variation
 from ticker_analyzer.scoring import classify_tab_rating
 
 
 class MetricsLogicTest(unittest.TestCase):
+    def test_stability_rejects_negative_and_zero_crossing_series(self):
+        self.assertIsNone(series_coefficient_of_variation(pd.Series([-3.0, -2.0, -1.0])))
+        self.assertIsNone(series_coefficient_of_variation(pd.Series([-1.0, 1.0, 2.0])))
+        self.assertIsNotNone(series_coefficient_of_variation(pd.Series([1.0, 1.1, 1.2])))
+
     def test_cagr_pct_annualizes_multi_year_growth(self):
         self.assertAlmostEqual(cagr_pct(121, 100, 2), 10.0)
 
@@ -74,6 +80,13 @@ class MetricsLogicTest(unittest.TestCase):
     def test_default_analysis_range_is_two_years(self):
         ranges = AnalysisRanges.from_input({})
         self.assertEqual(ranges.as_dict(), {"Growth": "2Y", "Fundamentals": "2Y", "Value": "2Y"})
+
+    def test_analysis_ranges_carry_data_as_of_without_exposing_it_as_a_tab(self):
+        ranges = AnalysisRanges.from_input(
+            {"Growth": "3Y", "Fundamentals": "2Y", "Value": "1Y", "_data_as_of": "2026-07-31"}
+        )
+        self.assertEqual(ranges.data_as_of.date().isoformat(), "2026-07-31")
+        self.assertEqual(set(ranges.as_dict()), {"Growth", "Fundamentals", "Value"})
 
     def test_fcf_yield_uses_free_cash_flow(self):
         cashflow = pd.DataFrame({pd.Timestamp("2025-12-31"): [50]}, index=["Free Cash Flow"])
@@ -133,7 +146,9 @@ class MetricsLogicTest(unittest.TestCase):
             fallback_current_ratio=99,
         )
 
-        self.assertAlmostEqual(result["value"], 50.0)
+        # 2024/2025 prices may only use statements known after a 90-day filing
+        # lag, so the comparison does not leak same-period year-end facts.
+        self.assertAlmostEqual(result["value"], -14.285714285714285)
         self.assertIn("statement-aligned current multiple", result["note"])
 
     def test_ev_ebitda_history_uses_debt_and_cash(self):
@@ -156,7 +171,7 @@ class MetricsLogicTest(unittest.TestCase):
             context,
         )
 
-        self.assertAlmostEqual(result["value"], 60.0)
+        self.assertAlmostEqual(result["value"], 2.5641025641025665)
 
     def test_historical_pe_skips_negative_earnings_observations(self):
         dates = pd.date_range("2023-12-31", periods=3, freq="YE")
@@ -165,7 +180,19 @@ class MetricsLogicTest(unittest.TestCase):
         balance = pd.DataFrame({date: [10] for date in dates}, index=["Ordinary Shares Number"])
         context = build_historical_ratio_context(history, income, balance, pd.DataFrame(), years=3)
 
-        self.assertEqual(context.historical_ratios("pe"), [2.0, 2.0])
+        self.assertEqual(context.historical_ratios("pe"), [3.0])
+
+    def test_historical_multiple_is_split_invariant_with_raw_prices_and_period_shares(self):
+        dates = pd.to_datetime(["2026-01-31", "2026-02-28"])
+        history = pd.DataFrame({"Close": [100.0, 50.0]}, index=dates)
+        income = pd.DataFrame({dates[0]: [10.0]}, index=["Net Income"])
+        balance = pd.DataFrame(
+            {dates[0]: [1.0], dates[1]: [2.0]}, index=["Ordinary Shares Number"]
+        )
+        income.attrs["filed_dates"] = {dates[0]: dates[0]}
+        balance.attrs["filed_dates"] = {date: date for date in dates}
+        context = build_historical_ratio_context(history, income, balance, pd.DataFrame(), years=1)
+        self.assertEqual(context.historical_ratios("pe"), [10.0, 10.0])
 
     def test_tab_rating_uses_configured_tab_thresholds(self):
         config = {
@@ -248,9 +275,12 @@ class MetricsLogicTest(unittest.TestCase):
         self.assertIsNone(overall_score_with_missing_policy(tab_results, config))
 
     def test_company_profile_detects_financial_industries(self):
-        self.assertEqual(company_profile({"quoteType": "EQUITY", "industry": "Banks - Diversified"}), "Financial")
-        self.assertEqual(company_profile({"quoteType": "EQUITY", "industry": "Credit Services"}), "Financial")
+        self.assertEqual(company_profile({"quoteType": "EQUITY", "industry": "Banks - Diversified"}), "FinancialBank")
+        self.assertEqual(company_profile({"quoteType": "EQUITY", "industry": "Credit Services"}), "FinancialLender")
         self.assertEqual(company_profile({"quoteType": "EQUITY", "industry": "Consumer Electronics"}), "Industrial")
+        self.assertEqual(company_profile({}, official_ids={"fdic_cert": "3510"}), "FinancialBank")
+        self.assertEqual(company_profile({}, official_ids={"sic": "6211"}), "FinancialBroker")
+        self.assertEqual(company_profile({}, official_ids={"sic": "6311"}), "FinancialInsurance")
 
     def test_config_for_profile_uses_financial_metric_override(self):
         config = {

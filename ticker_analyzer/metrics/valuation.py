@@ -36,20 +36,20 @@ class HistoricalRatioContext:
 
     def __post_init__(self) -> None:
         self.annual_prices = annual_price_series(self.history, self.years)
-        self.shares = row_values(
+        self.shares = make_point_in_time(row_values(
             self.balance,
             ["Ordinary Shares Number", "Share Issued", "Common Stock Shares Outstanding"],
-        )
-        self.revenue = row_values(self.income, ["Total Revenue", "Operating Revenue"])
-        self.net_income = row_values(self.income, ["Net Income", "Net Income Common Stockholders"])
-        self.ebitda = row_values(self.income, ["EBITDA", "Normalized EBITDA"])
-        self.cfo = row_values(self.cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"])
-        self.equity = row_values(self.balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"])
-        self.debt = row_values(self.balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"])
-        self.cash = row_values(
+        ), filing_dates=self.balance.attrs.get("filed_dates"))
+        self.revenue = make_point_in_time(row_values(self.income, ["Total Revenue", "Operating Revenue"]), filing_dates=self.income.attrs.get("filed_dates"))
+        self.net_income = make_point_in_time(row_values(self.income, ["Net Income", "Net Income Common Stockholders"]), filing_dates=self.income.attrs.get("filed_dates"))
+        self.ebitda = make_point_in_time(row_values(self.income, ["EBITDA", "Normalized EBITDA"]), filing_dates=self.income.attrs.get("filed_dates"))
+        self.cfo = make_point_in_time(row_values(self.cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"]), filing_dates=self.cashflow.attrs.get("filed_dates"))
+        self.equity = make_point_in_time(row_values(self.balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"]), filing_dates=self.balance.attrs.get("filed_dates"))
+        self.debt = make_point_in_time(row_values(self.balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"]), filing_dates=self.balance.attrs.get("filed_dates"))
+        self.cash = make_point_in_time(row_values(
             self.balance,
             ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"],
-        )
+        ), filing_dates=self.balance.attrs.get("filed_dates"))
 
     @property
     def latest_shares(self) -> float | None:
@@ -125,10 +125,83 @@ def build_historical_ratio_context(
     return HistoricalRatioContext(history, income, balance, cashflow, years)
 
 
+def make_point_in_time(
+    series: pd.Series,
+    *,
+    filing_dates: dict[Any, Any] | None = None,
+    default_filing_lag_days: int = 90,
+) -> pd.Series:
+    """Move period-end facts to the earliest conservative availability date.
+
+    Explicit filing dates should be used by primary-source providers. yfinance
+    statements expose period ends only, so a 90-day lag prevents future annual
+    facts from leaking into historical valuation observations.
+    """
+    if series.empty:
+        return series
+    shifted = series.copy()
+    dates = pd.to_datetime(shifted.index, errors="coerce")
+    valid = ~dates.isna()
+    shifted = shifted.loc[valid]
+    availability = []
+    for period in dates[valid]:
+        explicit = (filing_dates or {}).get(pd.Timestamp(period))
+        filed = pd.to_datetime(explicit, errors="coerce")
+        availability.append(
+            pd.Timestamp(filed) if not pd.isna(filed) else pd.Timestamp(period) + pd.Timedelta(days=default_filing_lag_days)
+        )
+    shifted.index = pd.DatetimeIndex(availability)
+    return shifted.sort_index()
+
+
+def known_facts_at(
+    facts: pd.DataFrame,
+    as_of: Any,
+    *,
+    filed_at_column: str = "filed_at",
+    period_end_column: str = "period_end",
+) -> pd.DataFrame:
+    """Return only facts that had actually been filed by ``as_of``."""
+    if facts.empty or filed_at_column not in facts:
+        return facts.iloc[0:0].copy()
+    cutoff = pd.Timestamp(as_of)
+    filing_dates = pd.to_datetime(facts[filed_at_column], errors="coerce")
+    result = facts.loc[filing_dates.notna() & (filing_dates <= cutoff)].copy()
+    if period_end_column in result:
+        result = result.sort_values([period_end_column, filed_at_column])
+        result = result.drop_duplicates(period_end_column, keep="last")
+    return result
+
+
+def point_in_time_multiple(
+    *,
+    market_cap: float,
+    facts: pd.DataFrame,
+    price_date: Any,
+    field: str,
+) -> float | None:
+    available = known_facts_at(facts, price_date)
+    if available.empty or field not in available:
+        return None
+    denominator = clean_number(available.iloc[-1][field])
+    if denominator in (None, 0):
+        return None
+    multiple = clean_number(market_cap / denominator)
+    return multiple if multiple is not None and multiple > 0 else None
+
+
 def annual_price_series(history: pd.DataFrame, years: int) -> pd.Series:
     if history.empty or "Close" not in history:
         return pd.Series(dtype=float)
-    return pd.to_numeric(history["Close"], errors="coerce").dropna().resample("YE").median().tail(years)
+    # Monthly point-in-time observations avoid the sampling bias of one annual
+    # median while still keeping the historical multiple series compact.
+    return (
+        pd.to_numeric(history["Close"], errors="coerce")
+        .dropna()
+        .resample("ME")
+        .median()
+        .tail(max(1, years) * 12)
+    )
 
 
 def latest_series_value(series: pd.Series) -> float | None:

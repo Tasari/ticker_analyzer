@@ -28,6 +28,10 @@ def refresh_large_cap_ranking(
     workers: int = 5,
     timeout: int = 1200,
 ) -> tuple[bool, str, dict[str, Any]]:
+    if os.getenv("APP_MODE", "local").strip().lower() == "production" and os.getenv(
+        "ALLOW_RANKING_REFRESH", ""
+    ).strip().lower() not in {"1", "true", "yes", "on"}:
+        return False, "Ranking refresh is disabled in production.", {}
     project_root = Path(__file__).resolve().parents[2]
     resolved_output = output_path if output_path.is_absolute() else project_root / output_path
     refresh_path = resolved_output.with_suffix(".refresh.json")

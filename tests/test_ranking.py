@@ -3,9 +3,13 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from ticker_analyzer.ranking import (
+    analysis_fingerprint,
     build_large_cap_ranking,
+    fetch_large_cap_universe,
+    fetch_large_cap_universe_nasdaq,
     load_ranking,
     normalize_ticker,
     ranking_row,
@@ -22,8 +26,10 @@ def analysis(ticker: str, score: float | None, confidence: float = 80) -> dict:
         "overall_score": score,
         "rating": "Buy" if score is not None else "Insufficient Data",
         "confidence": confidence,
-        "scoring_version": 3,
-        "config_version": 3,
+        "data_quality": confidence,
+        "scoring_version": 5,
+        "config_version": 5,
+        "calibration_version": "v5-audit-2026Q3",
         "tabs": {
             name: {"score": score, "coverage": {"percentage": 90}}
             for name in ("Growth", "Fundamentals", "Value")
@@ -32,6 +38,33 @@ def analysis(ticker: str, score: float | None, confidence: float = 80) -> dict:
 
 
 class RankingTest(unittest.TestCase):
+    @patch("ticker_analyzer.ranking.yf.screen")
+    @patch("ticker_analyzer.ranking.yf.EquityQuery")
+    def test_yahoo_universe_deduplicates_and_normalizes(self, query, screen):
+        query.return_value = object()
+        screen.return_value = {
+            "quotes": [
+                {"symbol": "brk/b", "longName": "Berkshire", "marketCap": 10, "exchange": "NYQ"},
+                {"symbol": "BRK-B", "marketCap": 10},
+                {"symbol": "MSFT", "shortName": "Microsoft", "marketCap": 9},
+            ]
+        }
+        result = fetch_large_cap_universe(limit=3)
+        self.assertEqual([item["ticker"] for item in result], ["BRK-B", "MSFT"])
+        self.assertEqual(result[0]["company_name"], "Berkshire")
+
+    @patch("ticker_analyzer.ranking.requests.get")
+    def test_nasdaq_universe_filters_bad_caps_and_sorts(self, get):
+        get.return_value.raise_for_status.return_value = None
+        get.return_value.json.return_value = {
+            "data": {"rows": [
+                {"symbol": "B", "name": "B", "marketCap": "2"},
+                {"symbol": "A", "name": "A", "marketCap": "10"},
+                {"symbol": "BAD", "marketCap": "n/a"},
+            ]}
+        }
+        self.assertEqual([item["ticker"] for item in fetch_large_cap_universe_nasdaq(2)], ["A", "B"])
+
     def test_normalize_ticker_converts_nasdaq_share_class_separator(self):
         self.assertEqual(normalize_ticker("brk/b"), "BRK-B")
 
@@ -49,7 +82,13 @@ class RankingTest(unittest.TestCase):
 
     def test_build_resumes_existing_rows_and_records_errors(self):
         universe = [{"ticker": ticker} for ticker in ("A", "B", "C")]
-        existing = {"companies": [ranking_row(universe[0], analysis("A", 60))], "errors": []}
+        config = {"version": 5, "calibration_version": "v5-audit-2026Q3"}
+        fingerprint = analysis_fingerprint(config, "2026-07-31")
+        existing = {
+            "metadata": fingerprint,
+            "companies": [ranking_row(universe[0], analysis("A", 60), fingerprint)],
+            "errors": [],
+        }
         calls = []
 
         def analyzer(ticker, ranges, config):
@@ -58,10 +97,35 @@ class RankingTest(unittest.TestCase):
                 raise ValueError("provider failed")
             return analysis(ticker, 70)
 
-        result = build_large_cap_ranking(universe, {}, existing=existing, analyzer=analyzer, workers=2, retries=0)
+        result = build_large_cap_ranking(
+            universe, config, existing=existing, analyzer=analyzer, workers=2, retries=0,
+            data_as_of="2026-07-31",
+        )
         self.assertEqual(set(calls), {"B", "C"})
         self.assertEqual(result["metadata"]["analyzed"], 2)
         self.assertEqual(result["metadata"]["failed"], 1)
+
+    def test_changed_config_digest_invalidates_checkpoint(self):
+        universe = [{"ticker": "A"}]
+        old = {"version": 5, "calibration_version": "v5-audit-2026Q3", "threshold": 1}
+        fingerprint = analysis_fingerprint(old, "2026-07-31")
+        existing = {
+            "metadata": fingerprint,
+            "companies": [ranking_row(universe[0], analysis("A", 60), fingerprint)],
+            "errors": [],
+        }
+        calls = []
+
+        def analyzer(ticker, _ranges, _config):
+            calls.append(ticker)
+            return analysis(ticker, 70)
+
+        new = {**old, "threshold": 2}
+        build_large_cap_ranking(
+            universe, new, existing=existing, analyzer=analyzer, retries=0,
+            data_as_of="2026-07-31",
+        )
+        self.assertEqual(calls, ["A"])
 
     def test_save_and_load_are_atomic_from_callers_perspective(self):
         with tempfile.TemporaryDirectory() as directory:

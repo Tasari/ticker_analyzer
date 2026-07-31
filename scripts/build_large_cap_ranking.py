@@ -19,10 +19,11 @@ from ticker_analyzer.ranking_provider import PublicYahooRankingProvider
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build a resumable scoring-v3 ranking of large US equities.")
+    parser = argparse.ArgumentParser(description="Build a resumable scoring-v5 ranking of large US equities.")
     parser.add_argument("--limit", type=int, default=1000)
     parser.add_argument("--workers", type=int, default=5)
     parser.add_argument("--ranges", default="3Y")
+    parser.add_argument("--data-as-of", help="UTC snapshot date (YYYY-MM-DD); defaults to today.")
     parser.add_argument("--output", type=Path, default=DEFAULT_RANKING_PATH)
     parser.add_argument("--restart", action="store_true", help="Ignore a previous checkpoint.")
     parser.add_argument("--public-fallback", action="store_true", help="Use public Yahoo timeseries endpoints instead of crumb-based yfinance.")
@@ -61,6 +62,7 @@ def main() -> None:
         checkpoint=checkpoint,
         retries=1,
         retry_insufficient=args.retry_insufficient,
+        data_as_of=args.data_as_of,
         **build_kwargs,
     )
     save_ranking(result, args.output)
