@@ -33,8 +33,8 @@ The suite contains formula-level tests and network-free integration tests for th
 - Available analysis ranges are `1Y`, `2Y`, and `3Y`. A 3Y maximum is more reliable across Growth, Fundamentals, and Value because longer CAGR windows often exceed the statement depth available from yfinance.
 - Rule-based scorecards with configurable metric weights, thresholds, tab weights, and rating labels.
 - Editable scoring configuration saved locally in `metrics_config.json`.
-- Missing data warnings, provider-failure diagnostics, explicit coverage, and `Insufficient Data` when any tab is incomplete.
-- Separate metric coverage and Data Quality (0–95 points) with components, penalties, source caps, and a diagnostic breakdown.
+- Missing data warnings, provider-failure diagnostics, explicit coverage, and partial ratings when Fundamentals plus one other tab are available.
+- Separate metric coverage, Data Quality (0–95 points), model applicability, rating confidence, active caps, and reason codes.
 - Industrial, bank, broker, lender, insurance, asset-manager, REIT, and Generic Financial profiles with explicit overrides.
 - Basic charts for adjusted price history, financial trends, assets, and debt.
 - A precomputed Large Cap Ranking covering 1,000 equities ordered by scoring-v5 Overall Score.
@@ -56,8 +56,8 @@ The job checkpoints every ten completed companies. A checkpoint is resumed only 
 - Scoring version 4 maps `warn` to 25 points, `good` to 75, and their midpoint to a neutral 50. Zero and 100 require values a full threshold span beyond the anchors.
 - Missing, NaN, and infinite values are unavailable rather than neutral; each profile declares minimum coverage and required metric groups in config.
 - Tab metrics are grouped to reduce double counting: historical multiples in Value and solvency metrics in Fundamentals are aggregated as related signal families.
-- Overall Score is 80% of the configured weighted tab mean plus 20% of the weakest tab and requires all three tabs.
-- Strong Buy requires Overall ≥85, Data Quality ≥75, and every tab ≥45. Buy also has Data Quality and Fundamentals gates. Gates only downgrade ratings and never raise a bearish base rating.
+- Overall Score uses the weighted mean of available tabs, requires Fundamentals plus one other tab, subtracts five points for one missing tab, and applies at most a four-point weakest-tab penalty.
+- Data Quality below 40 blocks a rating; 40–54 caps it at Hold, 55–64 caps it at Buy, and 65+ allows the full rating range. Strong Buy starts at 80 and Buy at 67, subject to the documented Fundamentals and weakest-tab gates.
 
 - Revenue and operating cash flow growth prefer TTM-vs-TTM CAGR for the selected range and clearly fall back to annual data when yfinance provides too few quarters.
 - Other Growth range metrics use CAGR where positive starting and ending values are available.
@@ -73,7 +73,7 @@ The job checkpoints every ten completed companies. A checkpoint is resumed only 
 - Industrial Fundamentals include operating margin, ROIC, FCF margin, accruals ratio, and net debt to EBITDA, split into quality and solvency groups.
 - The Ohlson distress estimate is informational and has zero default scoring weight until it can be properly calibrated.
 - Analyst price target has a low default weight, and the benchmark upside metric is visible but has zero default weight to avoid double counting.
-- Coverage is calculated from scored metric weights. Data Quality separately measures coverage, tab completeness, filing freshness, actual observations, provenance, estimate quality, and profile fit.
+- Coverage counts only positive-weight metrics/groups. Data Quality combines effective coverage, freshness, source quality, and optional reconciliation; model applicability is reported separately.
 
 ## Configuration
 
@@ -86,7 +86,7 @@ The job checkpoints every ten completed companies. A checkpoint is resumed only 
 - minimum tab coverage and metric groups,
 - profile-specific metric sets,
 - profile group requirements and ticker overrides,
-- Data Quality weights and versioned peer medians,
+- Data Quality weights, model-applicability settings, rating caps, guardrails, and versioned peer medians,
 - metric weights, thresholds, directions, units, descriptions, and optional benchmarks.
 
 The app validates the config when loading or saving it. Invalid JSON or inconsistent settings are rejected with an error.

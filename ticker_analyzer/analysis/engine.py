@@ -6,7 +6,7 @@ from typing import Any
 import pandas as pd
 
 from ticker_analyzer.data_provider import MarketDataProvider, YFinanceProvider
-from ticker_analyzer.data_quality import calculate_data_quality, freshness_score, observation_depth_score
+from ticker_analyzer.data_quality import calculate_data_quality, freshness_score
 from ticker_analyzer.domain import AnalysisRanges, DataProvenance, MarketData, StockAnalysis
 from ticker_analyzer.metrics.builder import (
     apply_configured_metric_fallbacks,
@@ -18,7 +18,7 @@ from ticker_analyzer.metrics.utils import clean_number
 from ticker_analyzer.providers import CompositeProvider, SecClient, SecCompanyFactsProvider
 from ticker_analyzer.scoring import (
     ScoringEngine,
-    calculate_overall_rating_code,
+    calculate_rating_decision,
     rating_label,
 )
 
@@ -88,6 +88,9 @@ class StockAnalysisEngine:
         data_quality, data_quality_breakdown = analysis_data_quality(
             tab_results, scoring_config, profile, data
         )
+        model_applicability, applicability_warnings = analysis_model_applicability(
+            scoring_config, profile, data
+        )
         overall_score = overall_score_with_missing_policy(tab_results, scoring_config)
         partial_note = partial_overall_note(tab_results, overall_score)
         if partial_note:
@@ -95,19 +98,30 @@ class StockAnalysisEngine:
         if scoring_config.get("active_metric_model") == "generic_financial_fallback":
             missing.insert(
                 0,
-                "Profile: specialized regulatory metrics unavailable; generic financial fallback is capped at Hold.",
+                "Profile: specialized regulatory metrics unavailable; generic financial fallback is capped at Buy.",
             )
         missing.extend(diagnostic_warnings(data.diagnostics))
-        rating_code = calculate_overall_rating_code(
+        warnings = list(applicability_warnings)
+        if partial_note:
+            warnings.append(partial_note)
+            warnings.extend(
+                f"{name} assessment incomplete"
+                for name, result in tab_results.items()
+                if result.get("score") is None
+            )
+        if data_quality_breakdown.get("components", {}).get("cross_source_reconciliation") is None:
+            warnings.append("Cross-source reconciliation unavailable")
+        warnings.extend(diagnostic_warnings(data.diagnostics))
+        decision = calculate_rating_decision(
             overall_score,
             data_quality,
             {name: result.get("score") for name, result in tab_results.items()},
-            config,
+            scoring_config,
+            model_applicability=model_applicability,
+            profile_rating_cap=scoring_config.get("active_rating_cap"),
         )
-        maximum_rating = scoring_config.get("active_rating_cap")
-        if maximum_rating == "neutral" and rating_code in {"very_strong", "strong"}:
-            rating_code = "neutral"
-        rating = rating_label(rating_code, config)
+        rating_code = decision["rating_code"]
+        rating = rating_label(rating_code, scoring_config)
 
         return StockAnalysis(
             ticker=ticker_symbol,
@@ -129,9 +143,15 @@ class StockAnalysisEngine:
             confidence_breakdown=data_quality_breakdown,
             data_quality=data_quality,
             data_quality_breakdown=data_quality_breakdown,
+            model_applicability=model_applicability,
+            rating_confidence=decision["rating_confidence"],
+            rating_status=("insufficient_data" if rating_code == "insufficient_data" else "rated"),
+            rating_caps=decision["rating_caps"],
+            rating_reason_codes=decision["rating_reason_codes"],
+            warnings=warnings,
             scoring_version=5,
             config_version=int(config.get("version", 5)),
-            calibration_version=str(config.get("calibration_version", "v5-audit-2026Q3")),
+            calibration_version=str(config.get("calibration_version", "v5.1-calibration-2026Q3")),
             diagnostics=data.diagnostics,
         )
 
@@ -144,7 +164,22 @@ class StockAnalysisEngine:
                 self.scoring.score_metric(metric_config, configured_raw_metrics, tab_name, config)
                 for metric_config in metric_configs
             ]
-            coverage = metric_coverage(metric_results)
+            coverage = metric_coverage(metric_results, tab_name, config)
+            full_confidence = float(
+                config.get("coverage_policy", {})
+                .get("minimum_for_full_confidence", {})
+                .get(tab_name, 0.80)
+            ) * 100
+            minimum_confidence = float(
+                config.get("coverage_policy", {})
+                .get("minimum_to_score", {})
+                .get(tab_name, config.get("minimum_weight_coverage", {}).get(tab_name, 0))
+            ) * 100
+            coverage["confidence"] = (
+                "High" if coverage["percentage"] >= full_confidence
+                else "Medium" if coverage["percentage"] >= minimum_confidence
+                else "Low"
+            )
             tab_score, group_breakdown = grouped_tab_score(tab_name, metric_results, config, coverage)
             if profile_cap_applies(config, tab_name):
                 tab_score = min(tab_score, 85.0) if tab_score is not None else None
@@ -210,6 +245,9 @@ def overall_score_with_missing_policy(tab_results: dict[str, Any], config: dict[
     scored_tabs = [result for result in tab_results.values() if result.get("score") is not None]
     if policy.get("require_all_tabs_for_overall", False) and len(scored_tabs) < len(tab_results):
         return None
+    required_tabs = policy.get("required_tabs", [])
+    if any(tab_results.get(name, {}).get("score") is None for name in required_tabs):
+        return None
     minimum_scored_tabs = int(clean_number(policy.get("minimum_scored_tabs")) or 1)
     if len(scored_tabs) < minimum_scored_tabs:
         return None
@@ -217,10 +255,12 @@ def overall_score_with_missing_policy(tab_results: dict[str, Any], config: dict[
     if weighted_mean is None:
         return None
     available_scores = [float(result["score"]) for result in tab_results.values() if result.get("score") is not None]
-    if len(available_scores) < len(tab_results):
-        return weighted_mean
+    missing_count = len(tab_results) - len(available_scores)
+    missing_penalties = policy.get("missing_tab_penalty", {"0": 0, "1": 5, "2": 15})
+    missing_penalty = float(missing_penalties.get(str(missing_count), missing_penalties.get(missing_count, 0)))
     weakest = min(available_scores)
-    return 0.80 * weighted_mean + 0.20 * weakest
+    weakest_penalty = 4.0 if weakest < 30 else 2.0 if weakest < 40 else 0.0
+    return max(0.0, weighted_mean - missing_penalty - weakest_penalty)
 
 
 def weighted_tab_score_from_results(tab_results: dict[str, Any], tab_weights: dict[str, Any]) -> float | None:
@@ -238,9 +278,25 @@ def partial_overall_note(tab_results: dict[str, Any], overall_score: float | Non
     return f"Overall: Partial rating based on {scored} of {total} scored tabs."
 
 
-def metric_coverage(metrics: list[Any]) -> dict[str, Any]:
-    scored = [metric for metric in metrics if metric.weight > 0 and metric.score is not None]
-    eligible = [metric for metric in metrics if metric.weight > 0]
+def metric_coverage(
+    metrics: list[Any], tab_name: str | None = None, config: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    positive_group_metric_ids: set[str] | None = None
+    if tab_name and config:
+        groups = config.get("tab_groups", {}).get(tab_name, {})
+        if groups:
+            positive_group_metric_ids = {
+                metric_id
+                for definition in groups.values()
+                if float(definition.get("weight", 0)) > 0
+                for metric_id in definition.get("metrics", [])
+            }
+    eligible = [
+        metric for metric in metrics
+        if metric.weight > 0
+        and (positive_group_metric_ids is None or metric.id in positive_group_metric_ids)
+    ]
+    scored = [metric for metric in eligible if metric.score is not None]
     scored_weight = sum(metric.weight for metric in scored)
     total_weight = sum(metric.weight for metric in eligible)
     percentage = scored_weight / total_weight * 100 if total_weight > 0 else 0.0
@@ -317,8 +373,11 @@ def analysis_data_quality(
 ) -> tuple[float, dict[str, Any]]:
     weight_coverage = analysis_coverage(tab_results, config)["percentage"]
     financial_provenance = data.provenance.get("financials")
-    filed_at = financial_provenance.filed_at if financial_provenance else None
-    freshness = freshness_score(pd.Timestamp(filed_at) if filed_at else None)
+    freshness_date = (
+        financial_provenance.filed_at or financial_provenance.period_end
+        if financial_provenance else None
+    )
+    freshness = freshness_score(pd.Timestamp(freshness_date) if freshness_date else None)
     quarterly_observations = max(
         (len(frame.columns) for frame in (data.quarterly_income, data.quarterly_balance, data.quarterly_cashflow)),
         default=0,
@@ -328,28 +387,19 @@ def analysis_data_quality(
         default=0,
     )
     actual_observations = quarterly_observations or annual_observations * 4
-    analyst_counts: list[float] = []
-    for frame in (data.revenue_estimate, data.earnings_estimate):
-        if not frame.empty and "numberOfAnalysts" in frame.columns:
-            analyst_counts.extend(pd.to_numeric(frame["numberOfAnalysts"], errors="coerce").dropna().tolist())
-    analysts = max(analyst_counts, default=0)
-    analyst_score = 100 if analysts >= 20 else 85 if analysts >= 10 else 65 if analysts >= 5 else 40 if analysts >= 3 else 20 if analysts >= 1 else 0
     provenance_items = list(data.provenance.values())
     provenance_score = (
-        sum(100 if item.is_primary_source else 35 if item.fallback_level == "estimated" else 60 for item in provenance_items)
+        sum(100 if item.is_primary_source else 35 if item.fallback_level == "estimated" else 75 for item in provenance_items)
         / len(provenance_items)
         if provenance_items else 0
     )
-    secondary_fraction = (
-        sum(not item.is_primary_source and item.fallback_level != "estimated" for item in provenance_items)
-        / len(provenance_items)
-        if provenance_items else 1
+    has_primary = any(item.is_primary_source for item in provenance_items)
+    has_secondary = any(not item.is_primary_source for item in provenance_items)
+    source_mix = (
+        "primary_and_secondary" if has_primary and has_secondary
+        else "primary_only" if has_primary
+        else "secondary_only"
     )
-    estimated_fraction = (
-        sum(item.fallback_level == "estimated" for item in provenance_items) / len(provenance_items)
-        if provenance_items else 0
-    )
-    providers = {item.provider.lower() for item in provenance_items}
     reconciliation_items = [
         item
         for frame in (
@@ -370,50 +420,45 @@ def analysis_data_quality(
             - sum(min(value, 1.0) for value in relative_differences) / len(relative_differences) * 100,
         )
         if relative_differences
-        else 100.0
-    )
-    specialized = profile not in {"Industrial", "Financial"}
-    relevant_regulator = {
-        "FinancialBank": "fdic",
-        "FinancialBroker": "finra",
-    }.get(profile)
-    has_regulatory = bool(
-        relevant_regulator
-        and any(item.is_primary_source and item.provider.lower() == relevant_regulator for item in provenance_items)
+        else None
     )
     score, breakdown = calculate_data_quality(
         metric_weight_coverage=weight_coverage,
-        complete_tabs=sum(bool(result.get("complete")) for result in tab_results.values()),
-        total_tabs=len(tab_results),
         filing_freshness=freshness,
-        observation_depth=observation_depth_score(actual_observations),
         provenance_score=provenance_score,
-        estimate_quality=analyst_score,
-        profile_fit=55 if profile == "Financial" else 90 if specialized else 80,
-        provider_errors=len(data.diagnostics),
-        secondary_fraction=secondary_fraction,
-        estimated_fraction=estimated_fraction,
+        source_mix=source_mix,
         has_period_mismatch=has_statement_period_mismatch(data),
-        yfinance_only=providers == {"yfinance"} or not providers,
-        production_mode=os.getenv("APP_MODE", "local").lower() == "production",
-        generic_financial=profile == "Financial" or config.get("active_metric_model") == "generic_financial_fallback",
-        manual_override_without_evidence=(
-            data.ticker.upper() in config.get("profile_overrides", {})
-            and not any(data.official_ids.get(key) for key in ("fdic_cert", "finra_crd", "naic_code"))
-        ),
-        specialized_profile_without_regulatory_data=specialized and not has_regulatory,
         reconciliation_score=reconciliation_score,
         has_critical_mismatch=any(value > 0.20 for value in relative_differences),
         config=config,
     )
     breakdown.update(
         {
-            "analyst_count": analysts,
             "actual_observations": actual_observations,
             "reconciled_observations": len(relative_differences),
         }
     )
     return score, breakdown
+
+
+def analysis_model_applicability(
+    config: dict[str, Any], profile: str, data: MarketData
+) -> tuple[float, list[str]]:
+    """Score how well the active analytical model fits the company, not its data."""
+    settings = config.get("model_applicability", {})
+    score = float(settings.get("native", 90))
+    warnings: list[str] = []
+    if config.get("active_metric_model") == "generic_financial_fallback":
+        score = min(score, float(settings.get("generic_financial_maximum", 65)))
+        warnings.append("Rating limited to Buy by generic financial model")
+    override_without_evidence = (
+        data.ticker.upper() in config.get("profile_overrides", {})
+        and not any(data.official_ids.get(key) for key in ("fdic_cert", "finra_crd", "naic_code"))
+    )
+    if override_without_evidence:
+        score = min(score, float(settings.get("manual_override_without_evidence", 60)))
+        warnings.append("Profile override lacks a matching regulatory identifier")
+    return max(0.0, min(score, 100.0)), warnings
 
 
 # Compatibility for callers which imported the v3 helper.
@@ -506,7 +551,7 @@ def config_for_profile(config: dict[str, Any], profile: str) -> dict[str, Any]:
     selected["active_profile"] = profile
     selected["active_metric_model"] = config.get("profile_models", {}).get(profile, "native")
     if selected["active_metric_model"] == "generic_financial_fallback":
-        selected["active_rating_cap"] = "neutral"
+        selected["active_rating_cap"] = "strong"
     if profile_metrics:
         selected["metrics"] = profile_metrics
     selected["tab_groups"] = config.get("profile_tab_groups", {}).get(

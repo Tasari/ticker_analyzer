@@ -151,6 +151,12 @@ class StockAnalysis:
     confidence_breakdown: dict[str, Any] = field(default_factory=dict)
     data_quality: float = 0.0
     data_quality_breakdown: dict[str, Any] = field(default_factory=dict)
+    model_applicability: float = 100.0
+    rating_confidence: str = "None"
+    rating_status: str = "insufficient_data"
+    rating_caps: list[str] = field(default_factory=list)
+    rating_reason_codes: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     scoring_version: int = 5
     config_version: int = 5
     calibration_version: str = "v5-audit-2026Q3"
@@ -172,8 +178,16 @@ class StockAnalysis:
             "ranges": self.ranges,
             "charts": self.charts,
             "coverage": self.coverage,
+            "confidence": self.confidence,
+            "confidence_breakdown": self.confidence_breakdown,
             "data_quality": self.data_quality,
             "data_quality_breakdown": self.data_quality_breakdown,
+            "model_applicability": self.model_applicability,
+            "rating_confidence": self.rating_confidence,
+            "rating_status": self.rating_status,
+            "rating_caps": self.rating_caps,
+            "rating_reason_codes": self.rating_reason_codes,
+            "warnings": self.warnings,
             "scoring_version": self.scoring_version,
             "config_version": self.config_version,
             "calibration_version": self.calibration_version,

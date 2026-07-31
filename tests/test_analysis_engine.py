@@ -143,14 +143,14 @@ class AnalysisEngineTest(unittest.TestCase):
         result = StockAnalysisEngine(provider=FakeProvider(data)).analyze("AFRM", "2Y", load_config())
         self.assertEqual(result.profile, "FinancialLender")
 
-    def test_financial_broker_requires_configured_growth_coverage(self):
+    def test_financial_broker_uses_relaxed_v51_growth_coverage(self):
         data = market_data(industry="Software - Infrastructure")
         data.analyst_targets = {}
         data.revenue_estimate = pd.DataFrame()
         data.earnings_estimate = pd.DataFrame()
         result = StockAnalysisEngine(provider=FakeProvider(data)).analyze("FUTU", "2Y", load_config())
         self.assertEqual(result.profile, "FinancialBroker")
-        self.assertIsNone(result.tabs["Growth"]["score"])
+        self.assertIsNotNone(result.tabs["Growth"]["score"])
         self.assertIsNotNone(result.tabs["Value"]["score"])
 
     def test_broker_and_lender_have_distinct_capital_group_weights(self):

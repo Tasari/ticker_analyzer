@@ -37,13 +37,14 @@ class ConfigV4Test(unittest.TestCase):
         with self.assertRaisesRegex(ConfigValidationError, "duplicate group membership"):
             normalize_config(config)
 
-    def test_v5_missing_policies_receive_strict_defaults(self):
+    def test_v5_missing_policies_receive_v51_defaults(self):
         config = json.loads(Path("metrics_config.json").read_text(encoding="utf-8"))
         config.pop("missing_policy")
         config.pop("minimum_weight_coverage")
         normalized = normalize_config(config)
-        self.assertTrue(normalized["missing_policy"]["require_all_tabs_for_overall"])
-        self.assertEqual(normalized["minimum_weight_coverage"]["Fundamentals"], 0.75)
+        self.assertFalse(normalized["missing_policy"]["require_all_tabs_for_overall"])
+        self.assertEqual(normalized["missing_policy"]["required_tabs"], ["Fundamentals"])
+        self.assertEqual(normalized["minimum_weight_coverage"]["Fundamentals"], 0.60)
 
     def test_save_config_round_trips_atomically(self):
         with tempfile.TemporaryDirectory() as temporary:

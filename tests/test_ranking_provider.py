@@ -77,6 +77,9 @@ class RankingProviderTest(unittest.TestCase):
         self.assertEqual(result.info["currentPrice"], 10.0)
         self.assertEqual(result.annual_income.iloc[0, 0], 100.0)
         self.assertEqual(list(result.growth_history["Close"]), [8.5, 9.5])
+        self.assertEqual(list(result.value_history["Close"]), [9.0, 10.0])
+        self.assertEqual(result.provenance["financials"].provider, "Yahoo Finance public")
+        self.assertFalse(result.provenance["financials"].is_primary_source)
         self.assertEqual(result.diagnostics[0]["kind"], "fallback")
 
     def test_history_falls_back_to_raw_close_and_empty_chart(self):
@@ -85,10 +88,12 @@ class RankingProviderTest(unittest.TestCase):
             {"chart": {"result": [{"timestamp": [1767139200], "indicators": {"quote": [{"close": [7.0]}]}, "meta": {}}]}},
             {"chart": {"result": None}},
         ])
-        frame, _ = provider._history("ABC", 0)
-        empty, metadata = provider._history("ABC", 2)
+        frame, raw, _ = provider._history("ABC", 0)
+        empty, empty_raw, metadata = provider._history("ABC", 2)
         self.assertEqual(frame.iloc[0, 0], 7.0)
+        self.assertEqual(raw.iloc[0, 0], 7.0)
         self.assertTrue(empty.empty)
+        self.assertTrue(empty_raw.empty)
         self.assertEqual(metadata, {})
 
     def test_helpers_handle_empty_and_invalid_values(self):
