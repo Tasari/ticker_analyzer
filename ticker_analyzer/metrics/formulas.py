@@ -45,6 +45,20 @@ def operating_margin(income: pd.DataFrame) -> float | None:
     return operating_income / revenue * 100
 
 
+def operating_margin_trend(income: pd.DataFrame, years: int) -> float | None:
+    operating_income = row_values(income, ["Operating Income"])
+    revenue = row_values(income, ["Total Revenue", "Operating Revenue"])
+    if len(operating_income) < years + 1:
+        return None
+    current_date, base_date = operating_income.index[-1], operating_income.index[-(years + 1)]
+    current_revenue, base_revenue = value_on_or_before(revenue, current_date), value_on_or_before(revenue, base_date)
+    current_income = clean_number(operating_income.iloc[-1])
+    base_income = clean_number(operating_income.iloc[-(years + 1)])
+    if current_income is None or base_income is None or current_revenue in (None, 0) or base_revenue in (None, 0):
+        return None
+    return (current_income / current_revenue - base_income / base_revenue) * 100
+
+
 def gross_margin_trend(income: pd.DataFrame, years: int) -> float | None:
     gross_profit = row_values(income, ["Gross Profit"])
     revenue = row_values(income, ["Total Revenue", "Operating Revenue"])

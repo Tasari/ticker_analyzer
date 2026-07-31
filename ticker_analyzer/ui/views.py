@@ -166,8 +166,8 @@ def render_company_cards(results: list[dict]) -> None:
             columns[6].metric("Value", result["tabs"]["Value"].get("rating", "Not Rated"))
             coverage = result.get("coverage", {})
             st.caption(
-                f"Data confidence: {coverage.get('confidence', 'Unknown')} "
-                f"({coverage.get('percentage', 0):.0f}% weighted metric coverage)"
+                f"Data confidence: {confidence_label(result.get('confidence', 0))} "
+                f"({result.get('confidence', 0):.0f}%; coverage {coverage.get('percentage', 0):.0f}%)"
             )
 
 
@@ -183,7 +183,7 @@ def render_comparison_table(results: list[dict]) -> None:
                 "Price": format_company_price(result),
                 "Overall Score": format_score(result.get("overall_score")),
                 "Overall Rating": result.get("rating", "Not Rated"),
-                "Confidence": format_coverage(result.get("coverage", {})),
+                "Confidence": format_confidence(result),
                 "Growth": format_tab_summary(result, "Growth"),
                 "Fundamentals": format_tab_summary(result, "Fundamentals"),
                 "Value": format_tab_summary(result, "Value"),
@@ -247,6 +247,19 @@ def format_coverage(coverage: dict) -> str:
     return f"{coverage.get('confidence', 'Unknown')} ({percentage:.0f}%)"
 
 
+def confidence_label(value: float) -> str:
+    if value >= 80:
+        return "High"
+    if value >= 60:
+        return "Medium"
+    return "Low"
+
+
+def format_confidence(result: dict) -> str:
+    value = float(result.get("confidence", 0))
+    return f"{confidence_label(value)} ({value:.0f}%)"
+
+
 def render_summary(result: dict) -> None:
     score = result.get("overall_score")
     score_label = "Not Rated" if score is None else f"{score:.1f}/100"
@@ -261,7 +274,8 @@ def render_summary(result: dict) -> None:
     cols[2].metric("Current Price", price_label)
     cols[3].metric("Analysis Profile", result.get("profile", "Industrial"))
     cols[4].metric("Available Tabs", sum(1 for tab in result["tabs"].values() if tab["score"] is not None))
-    cols[5].metric("Data Confidence", format_coverage(result.get("coverage", {})))
+    cols[5].metric("Data Confidence", format_confidence(result))
+    st.caption("Scores are model-based comparative indicators, not guarantees or investment advice.")
 
     rating_cols = st.columns(3)
     for index, tab_name in enumerate(["Growth", "Fundamentals", "Value"]):

@@ -20,6 +20,7 @@ from ticker_analyzer.metrics.formulas import (
     net_margin,
     ohlson_probability,
     operating_margin,
+    operating_margin_trend,
     quick_ratio,
     quick_ratio_median,
     quick_ratio_observations,
