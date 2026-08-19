@@ -1,3 +1,4 @@
+import os
 import tempfile
 import threading
 import time
@@ -8,11 +9,13 @@ from unittest.mock import patch
 
 from ticker_analyzer.ranking import save_ranking
 from ticker_analyzer.ui.actions import (
+    acquire_refresh_lock,
     analysis_worker_count,
     analyze_selected_tickers,
     cached_ticker_analysis,
     ranking_refresh_is_complete,
     refresh_large_cap_ranking,
+    read_log_tail,
 )
 
 
@@ -66,11 +69,26 @@ class UiActionsTest(unittest.TestCase):
     def test_refresh_ranking_rejects_concurrent_run(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "ranking.json"
-            output.with_suffix(".refresh.lock").write_text("123", encoding="utf-8")
+            output.with_suffix(".refresh.lock").write_text(str(os.getpid()), encoding="utf-8")
             success, message, metadata = refresh_large_cap_ranking(output, limit=1)
             self.assertFalse(success)
             self.assertIn("already running", message)
             self.assertEqual(metadata, {})
+
+    def test_refresh_lock_recovers_dead_process(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lock = Path(directory) / "ranking.refresh.lock"
+            lock.write_text("999999999", encoding="utf-8")
+
+            self.assertTrue(acquire_refresh_lock(lock))
+            self.assertEqual(lock.read_text(encoding="utf-8"), str(os.getpid()))
+
+    def test_log_tail_reads_only_last_message(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "ranking.refresh.log"
+            log.write_text("first\nsecond\nlast error\n", encoding="utf-8")
+
+            self.assertEqual(read_log_tail(log), "last error")
 
     def test_analysis_worker_count_is_capped(self):
         self.assertEqual(analysis_worker_count([]), 1)

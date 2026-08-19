@@ -102,6 +102,7 @@ def build_large_cap_ranking(
     checkpoint: Callable[[dict[str, Any]], None] | None = None,
     retries: int = 2,
     retry_delay: float = 5.0,
+    checkpoint_every: int = 25,
     retry_insufficient: bool = False,
     data_as_of: str | None = None,
 ) -> dict[str, Any]:
@@ -171,7 +172,7 @@ def build_large_cap_ranking(
                     error_by_ticker.pop(item["ticker"], None)
                 except Exception as exc:
                     error_by_ticker[item["ticker"]] = {"ticker": item["ticker"], "error": str(exc)}
-                if checkpoint and completed % 10 == 0:
+                if checkpoint and completed % max(1, checkpoint_every) == 0:
                     checkpoint(
                         ranking_payload(
                             universe, rows, list(error_by_ticker.values()), ranges, config,
@@ -229,4 +230,3 @@ def ranking_payload(
         # second copy wastes memory every time Streamlit loads the snapshot.
         "universe": universe if not complete else [],
     }
-

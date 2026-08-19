@@ -240,6 +240,23 @@ class RankingTest(unittest.TestCase):
         self.assertTrue(bounded_wait.called)
         self.assertTrue(all(len(call.args[0]) <= 2 for call in bounded_wait.call_args_list))
 
+    def test_large_build_limits_full_checkpoint_writes(self):
+        universe = [{"ticker": str(index)} for index in range(60)]
+        checkpoints = []
+
+        build_large_cap_ranking(
+            universe,
+            {"version": 5},
+            analyzer=lambda ticker, _ranges, _config: analysis(ticker, 70),
+            workers=2,
+            retries=0,
+            checkpoint=checkpoints.append,
+            data_as_of="2026-07-31",
+        )
+
+        self.assertEqual(len(checkpoints), 2)
+        self.assertEqual([item["metadata"]["processed"] for item in checkpoints], [25, 50])
+
     def test_changed_config_digest_invalidates_checkpoint(self):
         universe = [{"ticker": "A"}]
         old = {"version": 5, "calibration_version": "v5-audit-2026Q3", "threshold": 1}
