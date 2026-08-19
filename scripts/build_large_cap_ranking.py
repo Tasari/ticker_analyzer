@@ -12,6 +12,7 @@ from ticker_analyzer.ranking import (
     fetch_large_cap_universe,
     fetch_large_cap_universe_nasdaq,
     load_ranking,
+    merge_large_cap_universes,
     normalize_ticker,
     save_ranking,
 )
@@ -35,14 +36,28 @@ def main() -> None:
     saved_universe = (previous or {}).get("universe", [])
     for item in saved_universe:
         item["ticker"] = normalize_ticker(item.get("ticker"))
-    if len(saved_universe) >= args.limit:
+    # Preserve the exact universe only while resuming an incomplete checkpoint.
+    # A new run from a complete snapshot must fetch it again so newly eligible
+    # listings and ADRs can enter the ranking.
+    resuming = bool(previous) and not (previous or {}).get("metadata", {}).get("complete", False)
+    if resuming and len(saved_universe) >= args.limit:
         universe = saved_universe[: args.limit]
     else:
+        yahoo_universe = []
+        nasdaq_universe = []
         try:
-            universe = fetch_large_cap_universe(args.limit)
+            yahoo_universe = fetch_large_cap_universe(args.limit)
         except Exception as exc:
-            print(f"Yahoo universe unavailable ({exc}); using Nasdaq screener fallback.")
-            universe = fetch_large_cap_universe_nasdaq(args.limit)
+            print(f"Yahoo universe unavailable ({exc}).")
+        try:
+            # Unlike Yahoo's region filter, this includes foreign companies and
+            # ADRs listed in the US (for example FUTU).
+            nasdaq_universe = fetch_large_cap_universe_nasdaq(args.limit)
+        except Exception as exc:
+            print(f"Nasdaq universe unavailable ({exc}).")
+        universe = merge_large_cap_universes(nasdaq_universe, yahoo_universe, limit=args.limit)
+        if not universe:
+            raise RuntimeError("No ranking universe could be fetched from Yahoo or Nasdaq.")
         seed = previous or {"companies": [], "errors": []}
         seed["universe"] = universe
         save_ranking(seed, args.output)

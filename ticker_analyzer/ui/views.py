@@ -190,10 +190,13 @@ def render_large_cap_ranking() -> None:
         "value_score": "Value",
     }
     available = [name for name in columns if name in table.columns]
-    st.dataframe(
+    table_event = st.dataframe(
         table[available].rename(columns=columns),
         hide_index=True,
         width="stretch",
+        key="large_cap_ranking_table",
+        on_select="rerun",
+        selection_mode="multi-row",
         column_config={
             "Market Cap": st.column_config.NumberColumn(format="$%.0f"),
             "Overall": st.column_config.NumberColumn(format="%.1f"),
@@ -204,7 +207,30 @@ def render_large_cap_ranking() -> None:
             "Value": st.column_config.NumberColumn(format="%.1f"),
         },
     )
+    selected_rows = table_event.selection.rows
+    selected_tickers = [filtered[index]["ticker"] for index in selected_rows]
+    st.button(
+        "Add selected companies to Analyzer",
+        type="primary",
+        disabled=not selected_tickers,
+        help="Select one or more rows, then add those tickers to Stock Analyzer.",
+        on_click=add_ranking_tickers_to_analyzer,
+        args=(selected_tickers,),
+    )
     st.caption("Ranking is a model-based screening tool, not investment advice. Missing tabs are never treated as neutral scores.")
+
+
+def add_ranking_tickers_to_analyzer(tickers: list[str]) -> None:
+    normalized_tickers = [ticker.strip().upper() for ticker in tickers if ticker and ticker.strip()]
+    if not normalized_tickers:
+        return
+    for ticker in normalized_tickers:
+        if ticker not in st.session_state.selected_tickers:
+            st.session_state.selected_tickers.append(ticker)
+    st.session_state.analysis_results = {}
+    st.session_state.analysis_errors = {}
+    st.session_state.active_ticker = normalized_tickers[0]
+    st.session_state.page = "Stock Analyzer"
 
 
 def rank_results(results: dict[str, dict], sort_option: str) -> list[dict]:

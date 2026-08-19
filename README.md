@@ -41,7 +41,7 @@ The suite contains formula-level tests and network-free integration tests for th
 
 ## Large Cap Ranking
 
-The ranking universe is the 1,000 largest equities returned by the Nasdaq stock screener, ordered by market capitalization. Each company is analyzed with the same scoring-v5 engine as the single-stock view. Missing data remains `Insufficient Data` and is not replaced with a neutral score.
+The ranking universe merges Yahoo's US-region results with the Nasdaq US-listed stock screener, then keeps the 1,000 largest equities by market capitalization. The merge includes US-listed foreign companies and ADRs that a country-only filter would omit. Each company is analyzed with the same scoring-v5 engine as the single-stock view. Missing data remains `Insufficient Data` and is not replaced with a neutral score.
 
 The snapshot is stored in `data/large_cap_ranking_v5.json`. Refresh or resume it with:
 

@@ -113,6 +113,36 @@ def fetch_large_cap_universe_nasdaq(limit: int = 1000) -> list[dict[str, Any]]:
     return sorted(universe, key=lambda item: item["market_cap"], reverse=True)[:limit]
 
 
+def merge_large_cap_universes(
+    *universes: list[dict[str, Any]], limit: int = 1000
+) -> list[dict[str, Any]]:
+    """Combine screener results without losing US-listed foreign companies/ADRs."""
+    combined: dict[str, dict[str, Any]] = {}
+    for universe in universes:
+        for source_item in universe:
+            ticker = normalize_ticker(source_item.get("ticker"))
+            if not ticker:
+                continue
+            item = {**source_item, "ticker": ticker}
+            existing = combined.get(ticker)
+            if existing is None:
+                combined[ticker] = item
+                continue
+            for key, value in item.items():
+                if existing.get(key) in (None, "") and value not in (None, ""):
+                    existing[key] = value
+            existing["market_cap"] = max(
+                float(existing.get("market_cap") or 0),
+                float(item.get("market_cap") or 0),
+            )
+
+    return sorted(
+        combined.values(),
+        key=lambda item: float(item.get("market_cap") or 0),
+        reverse=True,
+    )[:limit]
+
+
 def ranking_row(
     universe_item: dict[str, Any], analysis: dict[str, Any], fingerprint: dict[str, Any] | None = None
 ) -> dict[str, Any]:
