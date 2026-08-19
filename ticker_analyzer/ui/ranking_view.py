@@ -4,8 +4,8 @@ import pandas as pd
 import streamlit as st
 
 from ticker_analyzer.ranking import load_ranking
-from ticker_analyzer.ui.actions import refresh_large_cap_ranking
 from ticker_analyzer.ui.config_view import mutation_allowed
+from ticker_analyzer.ui.ranking_actions import refresh_large_cap_ranking
 
 
 def render_large_cap_ranking() -> None:
@@ -151,4 +151,3 @@ def add_ranking_tickers_to_analyzer(tickers: list[str]) -> None:
     st.session_state.analysis_errors = {}
     st.session_state.active_ticker = normalized_tickers[0]
     st.session_state.page = "Stock Analyzer"
-
