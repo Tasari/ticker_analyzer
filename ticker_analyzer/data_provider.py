@@ -23,8 +23,21 @@ class YFinanceProvider:
         ticker = yf.Ticker(ticker_symbol)
         growth_start = history_start_date(ranges.growth)
         value_start = history_start_date(ranges.value)
+        history_start = min(growth_start, value_start)
         diagnostics: list[dict[str, str]] = []
         fetched_at = datetime.now(UTC)
+        value_history = safe_frame(
+            lambda: ticker.history(start=history_start, auto_adjust=False, actions=True),
+            label="price history",
+            diagnostics=diagnostics,
+        )
+        growth_history = adjusted_price_history(value_history)
+        if not value_history.empty and "Adj Close" not in value_history:
+            growth_history = safe_frame(
+                lambda: ticker.history(start=growth_start, auto_adjust=True),
+                label="adjusted price history",
+                diagnostics=diagnostics,
+            )
         result = MarketData(
             ticker=ticker_symbol,
             info=safe_dict(lambda: ticker.info, label="company info", diagnostics=diagnostics),
@@ -34,15 +47,11 @@ class YFinanceProvider:
             quarterly_income=normalize_statement(safe_frame(lambda: ticker.quarterly_financials, label="quarterly income statement", diagnostics=diagnostics)),
             quarterly_balance=normalize_statement(safe_frame(lambda: ticker.quarterly_balance_sheet, label="quarterly balance sheet", diagnostics=diagnostics)),
             quarterly_cashflow=normalize_statement(safe_frame(lambda: ticker.quarterly_cashflow, label="quarterly cash flow", diagnostics=diagnostics)),
-            growth_history=safe_frame(lambda: ticker.history(start=growth_start, auto_adjust=True), label="growth price history", diagnostics=diagnostics),
+            growth_history=growth_history,
             # Valuation multiples must use the price shareholders actually paid.
             # Adjusted prices are useful for total-return/growth charts, but applying
             # them to today's share count makes historical P/E and P/S split-sensitive.
-            value_history=safe_frame(
-                lambda: ticker.history(start=value_start, auto_adjust=False, actions=True),
-                label="value price history",
-                diagnostics=diagnostics,
-            ),
+            value_history=value_history,
             analyst_targets=safe_dict(lambda: ticker.analyst_price_targets, label="analyst price targets", diagnostics=diagnostics),
             revenue_estimate=safe_frame(lambda: ticker.revenue_estimate, label="revenue estimates", diagnostics=diagnostics),
             earnings_estimate=safe_frame(lambda: ticker.earnings_estimate, label="earnings estimates", diagnostics=diagnostics),
@@ -52,6 +61,14 @@ class YFinanceProvider:
         )
         result.provenance = build_yfinance_provenance(result, fetched_at)
         return result
+
+
+def adjusted_price_history(history: pd.DataFrame) -> pd.DataFrame:
+    """Build the adjusted-price view from the raw history response when available."""
+    adjusted = history.copy()
+    if not adjusted.empty and "Adj Close" in adjusted:
+        adjusted["Close"] = adjusted["Adj Close"]
+    return adjusted
 
 
 def safe_frame(

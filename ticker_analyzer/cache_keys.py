@@ -10,8 +10,8 @@ def analysis_cache_key(ticker: str, ranges: str | dict[str, str], config: dict[s
     payload = {
         "ticker": ticker.strip().upper(),
         "ranges": ranges,
-        "scoring_version": 4,
-        "config_version": config.get("version", 4),
+        "scoring_version": 5,
+        "config_version": config.get("version", 5),
         "calibration_version": config.get("calibration_version"),
         "config": config,
     }

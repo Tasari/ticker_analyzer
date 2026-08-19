@@ -114,12 +114,24 @@ def analyze_tickers_sequentially(tickers: list[str], ranges: dict[str, str], con
 
 def analyze_one_ticker(ticker: str, ranges: dict[str, str], config: dict) -> TickerAnalysisOutcome:
     try:
-        return analyze_ticker(ticker, ranges, config), None
+        return cached_ticker_analysis(ticker, ranges, config, id(analyze_ticker)), None
     except ValueError as exc:
         return None, str(exc)
     except Exception:
         logger.exception("Unexpected analysis failure for %s", ticker)
         return None, "Unexpected internal error. Check application logs."
+
+
+@st.cache_data(ttl=900, max_entries=250, show_spinner=False)
+def cached_ticker_analysis(
+    ticker: str,
+    ranges: dict[str, str],
+    config: dict,
+    analyzer_identity: int,
+) -> AnalysisResult:
+    """Cache successful analyses independently so expanding a comparison is incremental."""
+    del analyzer_identity  # Included only to isolate patched/test analyzer implementations.
+    return analyze_ticker(ticker, ranges, config)
 
 
 def ordered_analysis_results(

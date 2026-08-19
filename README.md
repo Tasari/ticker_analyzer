@@ -26,7 +26,7 @@ The suite contains formula-level tests and network-free integration tests for th
 
 ## Features
 
-- Search and select any number of tickers supported by `yfinance`; data fetching remains capped at five concurrent workers to avoid provider overload.
+- Search and select any number of tickers supported by `yfinance`; data fetching remains capped at five concurrent workers to avoid provider overload. Successful per-ticker analyses are cached for 15 minutes, so adding companies does not refetch an unchanged comparison.
 - Compare selected companies in a Summary view, then inspect each company in detail. Multi-ticker analysis runs ticker fetches concurrently.
 - Separate Growth, Fundamentals, and Value tabs.
 - Separate range selectors for Growth, Fundamentals, and Value. Fundamentals metrics use medians over the selected annual range where applicable.
