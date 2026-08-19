@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,7 +19,7 @@ DEFAULT_RANKING_PATH = Path("data/large_cap_ranking_v5.json")
 SCORING_VERSION = 5
 PROVIDER_SCHEMA_VERSION = "providers-v2"
 METRIC_SCHEMA_VERSION = "metrics-v5"
-UNIVERSE_SCHEMA_VERSION = "xtb-markets-v2"
+UNIVERSE_SCHEMA_VERSION = "xtb-markets-v3"
 US_MARKET = "United States"
 CHINA_ADR_MARKET = "China (US ADR)"
 XTB_EUROPE_MARKETS: dict[str, tuple[str, str]] = {
@@ -107,6 +107,37 @@ def fetch_large_cap_universe(
                 }
             )
     return universe[:limit]
+
+
+def fetch_large_cap_universe_with_retry(
+    limit: int,
+    minimum_market_cap: float,
+    *,
+    region: str,
+    country: str,
+    market: str,
+    attempts: int = 3,
+    retry_delay: float = 2.0,
+) -> list[dict[str, Any]]:
+    """Fetch one Yahoo market without allowing an empty transient response to pass."""
+    last_error: Exception | None = None
+    for attempt in range(max(1, attempts)):
+        try:
+            universe = fetch_large_cap_universe(
+                limit,
+                minimum_market_cap,
+                region=region,
+                country=country,
+                market=market,
+            )
+            if universe:
+                return universe
+            last_error = RuntimeError("Yahoo returned no companies")
+        except Exception as exc:
+            last_error = exc
+        if attempt + 1 < attempts:
+            time.sleep(retry_delay * (attempt + 1))
+    raise RuntimeError(f"Yahoo {market} universe unavailable after {attempts} attempts: {last_error}")
 
 
 def fetch_large_cap_universe_nasdaq(limit: int = 10000) -> list[dict[str, Any]]:
@@ -239,14 +270,46 @@ def merge_large_cap_universes(
     )[:limit]
 
 
-def checkpoint_universe_is_current(payload: dict[str, Any] | None, *, limit: int) -> bool:
+def market_counts(universe: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        market: sum((item.get("market") or "Unknown") == market for item in universe)
+        for market in sorted({str(item.get("market") or "Unknown") for item in universe})
+    }
+
+
+def validate_market_coverage(
+    universe: list[dict[str, Any]],
+    required_markets: Iterable[str],
+) -> dict[str, int]:
+    counts = market_counts(universe)
+    missing = [market for market in required_markets if counts.get(market, 0) == 0]
+    if missing:
+        raise RuntimeError(f"Ranking universe is missing markets: {', '.join(missing)}")
+    return counts
+
+
+def checkpoint_universe_is_current(
+    payload: dict[str, Any] | None,
+    *,
+    limit: int,
+    required_markets: Iterable[str] = (),
+) -> bool:
     if not payload:
         return False
     metadata = payload.get("metadata", {})
+    universe = payload.get("universe", [])
+    required = tuple(required_markets)
+    has_required_coverage = len(universe) >= limit
+    if required:
+        counts = market_counts(universe)
+        has_required_coverage = (
+            counts.get(US_MARKET, 0) >= limit
+            and all(counts.get(market, 0) > 0 for market in required)
+        )
     return (
         not metadata.get("complete", False)
         and metadata.get("universe_schema_version") == UNIVERSE_SCHEMA_VERSION
-        and len(payload.get("universe", [])) >= limit
+        and has_required_coverage
     )
 
 
@@ -395,10 +458,7 @@ def ranking_payload(
         "metadata": {
             "generated_at": datetime.now(UTC).isoformat(),
             "universe": "USA 1000 plus up to 100 companies per supported international market",
-            "market_counts": {
-                market: sum((item.get("market") or "Unknown") == market for item in universe)
-                for market in sorted({str(item.get("market") or "Unknown") for item in universe})
-            },
+            "market_counts": market_counts(universe),
             "requested": len(universe),
             "processed": len(rows) + len(unique_errors) if processed_count is None else processed_count,
             "analyzed": len(rows),

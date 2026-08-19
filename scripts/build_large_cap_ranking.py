@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 from pathlib import Path
 
 import yfinance as yf
@@ -16,11 +16,13 @@ from ticker_analyzer.ranking import (
     checkpoint_universe_is_current,
     combine_market_universes,
     fetch_large_cap_universe,
+    fetch_large_cap_universe_with_retry,
     fetch_large_cap_universe_nasdaq,
     load_ranking,
     normalize_ticker,
     save_ranking,
     select_nasdaq_market,
+    validate_market_coverage,
 )
 from ticker_analyzer.ranking_provider import PublicYahooRankingProvider
 
@@ -46,7 +48,12 @@ def main() -> None:
     # Preserve the exact universe only while resuming an incomplete checkpoint.
     # A new run from a complete snapshot must fetch it again so newly eligible
     # listings and ADRs can enter the ranking.
-    if checkpoint_universe_is_current(previous, limit=args.limit):
+    required_markets = [CHINA_ADR_MARKET, *XTB_EUROPE_MARKETS]
+    if checkpoint_universe_is_current(
+        previous,
+        limit=args.limit,
+        required_markets=required_markets,
+    ):
         universe = saved_universe
     else:
         nasdaq_all = []
@@ -66,26 +73,26 @@ def main() -> None:
         except Exception as exc:
             print(f"Yahoo US universe unavailable ({exc}).")
 
+        # yfinance uses shared Yahoo cookie/crumb state. Concurrent screener
+        # calls can invalidate it and silently leave every European bucket empty.
         regional_by_name: dict[str, list[dict]] = {}
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = {
-                executor.submit(
-                    fetch_large_cap_universe,
+        regional_errors: list[str] = []
+        for market, (region, country) in XTB_EUROPE_MARKETS.items():
+            try:
+                regional_by_name[market] = fetch_large_cap_universe_with_retry(
                     args.market_limit,
                     0,
                     region=region,
                     country=country,
                     market=market,
-                ): market
-                for market, (region, country) in XTB_EUROPE_MARKETS.items()
-            }
-            for future in as_completed(futures):
-                market = futures[future]
-                try:
-                    regional_by_name[market] = future.result()
-                except Exception as exc:
-                    regional_by_name[market] = []
-                    print(f"Yahoo {market} universe unavailable ({exc}).")
+                )
+            except Exception as exc:
+                regional_by_name[market] = []
+                regional_errors.append(str(exc))
+            time.sleep(0.5)
+
+        if regional_errors:
+            raise RuntimeError("; ".join(regional_errors))
 
         regional_universes = [regional_by_name[name] for name in XTB_EUROPE_MARKETS]
         universe = combine_market_universes(
@@ -98,6 +105,7 @@ def main() -> None:
         )
         if not universe:
             raise RuntimeError("No ranking universe could be fetched from Yahoo or Nasdaq.")
+        validate_market_coverage(universe, [US_MARKET, *required_markets])
         seed = previous or {"companies": [], "errors": []}
         seed["universe"] = universe
         seed["metadata"] = {}
