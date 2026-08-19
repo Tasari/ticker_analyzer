@@ -179,7 +179,6 @@ def financial_groups(profile: str) -> dict[str, Any]:
         },
     }
 
-
 def default_profile_rules() -> dict[str, Any]:
     industrial = {
         "Growth": {
@@ -266,4 +265,3 @@ def default_data_quality_config() -> dict[str, Any]:
             "cross_source_reconciliation": 0.10,
         },
     }
-

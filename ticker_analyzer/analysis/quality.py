@@ -155,4 +155,3 @@ def has_statement_period_mismatch(data: MarketData) -> bool:
         if not dates.empty:
             latest.append(pd.Timestamp(dates.max()))
     return len(latest) > 1 and (max(latest) - min(latest)).days > 120
-

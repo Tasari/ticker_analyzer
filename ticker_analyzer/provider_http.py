@@ -64,4 +64,3 @@ class JsonApiClient:
             if wait > 0:
                 time.sleep(wait + random.uniform(0, min(0.025, self.minimum_interval)))
             self._host_last_request[host] = time.monotonic()
-

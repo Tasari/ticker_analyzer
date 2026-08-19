@@ -36,4 +36,3 @@ def mutation_allowed(setting: str) -> bool:
     if os.getenv("APP_MODE", "local").strip().lower() != "production":
         return True
     return os.getenv(setting, "").strip().lower() in {"1", "true", "yes", "on"}
-

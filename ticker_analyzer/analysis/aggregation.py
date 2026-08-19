@@ -156,4 +156,3 @@ def grouped_tab_score(
 
 def profile_cap_applies(config: dict[str, Any], tab_name: str) -> bool:
     return config.get("active_profile") == "Financial" and tab_name == "Fundamentals"
-

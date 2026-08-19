@@ -46,4 +46,3 @@ Compatibility facades (`ticker_analyzer.engine`, `ticker_analyzer.providers`, `t
 - Import-boundary tests ensure lightweight package and ranking-page imports do not initialize pandas, Plotly, yfinance, or the analysis engine unnecessarily.
 - Ranking fingerprints include config, scoring, provider, metric, universe, and data-as-of versions; incompatible checkpoints are rebuilt.
 - File replacement is atomic for configuration and ranking snapshots.
-
