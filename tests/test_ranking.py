@@ -11,6 +11,7 @@ from ticker_analyzer.ranking import (
     fetch_large_cap_universe,
     fetch_large_cap_universe_nasdaq,
     load_ranking,
+    merge_large_cap_universes,
     normalize_ticker,
     ranking_row,
     save_ranking,
@@ -67,6 +68,22 @@ class RankingTest(unittest.TestCase):
 
     def test_normalize_ticker_converts_nasdaq_share_class_separator(self):
         self.assertEqual(normalize_ticker("brk/b"), "BRK-B")
+
+    def test_merge_universes_keeps_us_listed_foreign_company(self):
+        yahoo = [
+            {"ticker": "MSFT", "market_cap": 100, "sector": "Technology"},
+            {"ticker": "AAPL", "market_cap": 90},
+        ]
+        nasdaq = [
+            {"ticker": "FUTU", "market_cap": 95, "country": "China"},
+            {"ticker": "MSFT", "market_cap": 99, "exchange": "NASDAQ"},
+        ]
+
+        result = merge_large_cap_universes(nasdaq, yahoo, limit=3)
+
+        self.assertEqual([item["ticker"] for item in result], ["MSFT", "FUTU", "AAPL"])
+        self.assertEqual(result[0]["sector"], "Technology")
+        self.assertEqual(result[0]["exchange"], "NASDAQ")
 
     def test_ranking_row_keeps_market_cap_and_scores(self):
         row = ranking_row({"ticker": "AAA", "market_cap": 10}, analysis("AAA", 72))

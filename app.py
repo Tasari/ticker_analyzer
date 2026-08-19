@@ -21,7 +21,7 @@ def main() -> None:
 
     config = load_config()
     initialize_state()
-    page = st.sidebar.radio("View", ["Stock Analyzer", "Large Cap Ranking"])
+    page = st.sidebar.radio("View", ["Stock Analyzer", "Large Cap Ranking"], key="page")
     if page == "Large Cap Ranking":
         render_large_cap_ranking()
         return
