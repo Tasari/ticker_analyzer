@@ -3,7 +3,7 @@ from __future__ import annotations
 import streamlit as st
 from streamlit_searchbox import st_searchbox
 
-from ticker_analyzer.ui.actions import search_tickers
+from ticker_analyzer.ui.analysis_actions import search_tickers
 from ticker_analyzer.ui.config_view import render_config_editor
 from ticker_analyzer.ui.state import remove_tickers_from_state
 
@@ -89,4 +89,3 @@ def render_selected_tickers() -> None:
 
 def remove_selected_tickers(tickers: list[str]) -> None:
     remove_tickers_from_state(st.session_state, tickers)
-

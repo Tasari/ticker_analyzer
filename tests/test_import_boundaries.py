@@ -39,10 +39,21 @@ class ImportBoundaryTest(unittest.TestCase):
         )
 
         self.assertNotIn("ticker_analyzer.analysis.engine", modules)
+        self.assertNotIn("ticker_analyzer.ui.analysis_actions", modules)
         self.assertNotIn("ticker_analyzer.ui.analysis_views", modules)
         self.assertNotIn("ticker_analyzer.ranking_builder", modules)
         self.assertNotIn("ticker_analyzer.ranking_universe", modules)
         self.assertNotIn("yfinance", modules)
+
+    def test_stock_sidebar_does_not_load_ranking_pipeline(self):
+        modules = self.imported_modules(
+            "from ticker_analyzer.ui import views\n"
+            "views.render_sidebar"
+        )
+
+        self.assertNotIn("ticker_analyzer.ui.ranking_actions", modules)
+        self.assertNotIn("ticker_analyzer.ranking_builder", modules)
+        self.assertNotIn("ticker_analyzer.ranking_universe", modules)
 
 
 if __name__ == "__main__":
