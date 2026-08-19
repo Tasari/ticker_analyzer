@@ -286,6 +286,20 @@ class RankingTest(unittest.TestCase):
             save_ranking(payload, path)
             self.assertEqual(load_ranking(path), payload)
 
+    def test_ranking_load_is_cached_and_save_invalidates_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ranking.json"
+            first_payload = {"metadata": {"version": 1}, "companies": [], "errors": []}
+            save_ranking(first_payload, path)
+
+            first = load_ranking(path)
+            self.assertIs(load_ranking(path), first)
+
+            second_payload = {"metadata": {"version": 2}, "companies": [], "errors": []}
+            save_ranking(second_payload, path)
+            self.assertEqual(load_ranking(path), second_payload)
+            self.assertIsNot(load_ranking(path), first)
+
 
 if __name__ == "__main__":
     unittest.main()
