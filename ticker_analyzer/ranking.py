@@ -5,7 +5,7 @@ import json
 import os
 import time
 from collections.abc import Callable, Iterable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -415,24 +415,45 @@ def build_large_cap_ranking(
                     time.sleep(retry_delay * (attempt + 1))
         raise last_error or RuntimeError("analysis failed")
 
-    with ThreadPoolExecutor(max_workers=max(1, min(workers, 8))) as executor:
-        futures = {executor.submit(analyze, item): item for item in pending}
-        for completed, future in enumerate(as_completed(futures), start=1):
-            item = futures[future]
+    worker_count = max(1, min(workers, 8))
+    pending_items = iter(pending)
+    completed = 0
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        # Keep only a bounded number of futures alive. Keeping one future for
+        # every company retains each completed full analysis until the entire
+        # run ends, which can exhaust a small Streamlit Cloud container.
+        futures = {}
+        for _ in range(worker_count):
             try:
-                source, analysis = future.result()
-                rows.append(ranking_row(source, analysis, fingerprint))
-                error_by_ticker.pop(item["ticker"], None)
-            except Exception as exc:
-                error_by_ticker[item["ticker"]] = {"ticker": item["ticker"], "error": str(exc)}
-            if checkpoint and completed % 10 == 0:
-                checkpoint(
-                    ranking_payload(
-                        universe, rows, list(error_by_ticker.values()), ranges, config,
-                        complete=False, data_as_of=as_of,
-                        processed_count=len(previous_rows) + completed,
+                item = next(pending_items)
+            except StopIteration:
+                break
+            futures[executor.submit(analyze, item)] = item
+
+        while futures:
+            done, _ = wait(futures, return_when=FIRST_COMPLETED)
+            for future in done:
+                item = futures.pop(future)
+                completed += 1
+                try:
+                    source, analysis = future.result()
+                    rows.append(ranking_row(source, analysis, fingerprint))
+                    error_by_ticker.pop(item["ticker"], None)
+                except Exception as exc:
+                    error_by_ticker[item["ticker"]] = {"ticker": item["ticker"], "error": str(exc)}
+                if checkpoint and completed % 10 == 0:
+                    checkpoint(
+                        ranking_payload(
+                            universe, rows, list(error_by_ticker.values()), ranges, config,
+                            complete=False, data_as_of=as_of,
+                            processed_count=len(previous_rows) + completed,
+                        )
                     )
-                )
+                try:
+                    next_item = next(pending_items)
+                except StopIteration:
+                    continue
+                futures[executor.submit(analyze, next_item)] = next_item
     return ranking_payload(
         universe, rows, list(error_by_ticker.values()), ranges, config,
         complete=True, data_as_of=as_of, processed_count=len(universe),

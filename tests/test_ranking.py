@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from concurrent.futures import wait as futures_wait
 from pathlib import Path
 from unittest.mock import patch
 
@@ -203,6 +204,24 @@ class RankingTest(unittest.TestCase):
         self.assertEqual(set(calls), {"B", "C"})
         self.assertEqual(result["metadata"]["analyzed"], 2)
         self.assertEqual(result["metadata"]["failed"], 1)
+
+    def test_build_keeps_only_worker_count_futures_in_memory(self):
+        universe = [{"ticker": str(index)} for index in range(12)]
+        config = {"version": 5, "calibration_version": "v5-audit-2026Q3"}
+
+        with patch("ticker_analyzer.ranking.wait", wraps=futures_wait) as bounded_wait:
+            result = build_large_cap_ranking(
+                universe,
+                config,
+                analyzer=lambda ticker, _ranges, _config: analysis(ticker, 70),
+                workers=2,
+                retries=0,
+                data_as_of="2026-07-31",
+            )
+
+        self.assertEqual(result["metadata"]["analyzed"], 12)
+        self.assertTrue(bounded_wait.called)
+        self.assertTrue(all(len(call.args[0]) <= 2 for call in bounded_wait.call_args_list))
 
     def test_changed_config_digest_invalidates_checkpoint(self):
         universe = [{"ticker": "A"}]
