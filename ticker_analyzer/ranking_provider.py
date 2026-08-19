@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime
 from typing import Any
 
@@ -46,8 +47,29 @@ class PublicYahooRankingProvider:
     def __init__(self, universe_by_ticker: dict[str, dict[str, Any]], timeout: int = 20) -> None:
         self.universe_by_ticker = universe_by_ticker
         self.timeout = timeout
-        self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+        self._thread_local = threading.local()
+        self._session_override: Any | None = None
+
+    @property
+    def session(self) -> Any:
+        """Return one connection pool per ranking worker.
+
+        ``requests.Session`` carries mutable connection and cookie state and is
+        not designed to be shared by concurrent threads. Tests and callers can
+        still inject an explicit session through the setter.
+        """
+        if self._session_override is not None:
+            return self._session_override
+        session = getattr(self._thread_local, "session", None)
+        if session is None:
+            session = requests.Session()
+            session.headers.update({"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+            self._thread_local.session = session
+        return session
+
+    @session.setter
+    def session(self, value: Any) -> None:
+        self._session_override = value
 
     def fetch(self, ticker_symbol: str, ranges: AnalysisRanges) -> MarketData:
         item = self.universe_by_ticker.get(ticker_symbol, {})

@@ -4,10 +4,14 @@ import tempfile
 import unittest
 from concurrent.futures import wait as futures_wait
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from scripts.build_large_cap_ranking import SMOKE_OUTPUT_PATH, configure_run
 from ticker_analyzer.ranking import (
+    DEFAULT_RANKING_PATH,
     UNIVERSE_SCHEMA_VERSION,
+    XTB_EUROPE_MARKETS,
     analysis_fingerprint,
     build_large_cap_ranking,
     checkpoint_universe_is_current,
@@ -48,6 +52,32 @@ def analysis(ticker: str, score: float | None, confidence: float = 80) -> dict:
 
 
 class RankingTest(unittest.TestCase):
+    def test_smoke_run_has_bounded_quotas_workers_and_separate_output(self):
+        args = SimpleNamespace(
+            smoke=True,
+            limit=1000,
+            market_limit=100,
+            workers=8,
+            output=DEFAULT_RANKING_PATH,
+        )
+
+        markets = configure_run(args)
+
+        self.assertEqual(args.limit, 20)
+        self.assertEqual(args.market_limit, 5)
+        self.assertEqual(args.workers, 3)
+        self.assertEqual(args.output, SMOKE_OUTPUT_PATH)
+        self.assertEqual(list(markets), ["Poland", "United Kingdom", "Germany"])
+
+    def test_normal_run_keeps_all_market_settings(self):
+        output = Path("custom.json")
+        args = SimpleNamespace(smoke=False, limit=12, market_limit=4, workers=2, output=output)
+
+        markets = configure_run(args)
+
+        self.assertEqual((args.limit, args.market_limit, args.workers, args.output), (12, 4, 2, output))
+        self.assertEqual(markets, XTB_EUROPE_MARKETS)
+
     def test_only_current_incomplete_universe_checkpoint_is_resumed(self):
         universe = [{"ticker": "A"}]
         current = {
@@ -78,7 +108,7 @@ class RankingTest(unittest.TestCase):
             checkpoint_universe_is_current(current, limit=1, required_markets=["Poland"])
         )
 
-    @patch("ticker_analyzer.ranking.requests.post")
+    @patch("ticker_analyzer.ranking_universe.requests.post")
     def test_tradingview_universe_maps_symbol_and_metadata(self, post):
         post.return_value.raise_for_status.return_value = None
         post.return_value.json.return_value = {
@@ -106,6 +136,7 @@ class RankingTest(unittest.TestCase):
     def test_tradingview_symbols_are_mapped_to_yahoo_format(self):
         self.assertEqual(yahoo_ticker_from_tradingview("GPW:PKN", ".WA"), "PKN.WA")
         self.assertEqual(yahoo_ticker_from_tradingview("LSE:BT.A", ".L"), "BT-A.L")
+        self.assertEqual(yahoo_ticker_from_tradingview("LSE:RR.", ".L"), "RR.L")
         self.assertEqual(yahoo_ticker_from_tradingview("OMXCOP:MAERSK_B", ".CO"), "MAERSK-B.CO")
 
     def test_market_coverage_rejects_missing_market(self):
@@ -114,8 +145,8 @@ class RankingTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Poland"):
             validate_market_coverage(universe, ["United States", "Poland"])
 
-    @patch("ticker_analyzer.ranking.yf.screen")
-    @patch("ticker_analyzer.ranking.yf.EquityQuery")
+    @patch("ticker_analyzer.ranking_universe.yf.screen")
+    @patch("ticker_analyzer.ranking_universe.yf.EquityQuery")
     def test_yahoo_universe_deduplicates_and_normalizes(self, query, screen):
         query.return_value = object()
         screen.return_value = {
@@ -130,7 +161,7 @@ class RankingTest(unittest.TestCase):
         self.assertEqual(result[0]["company_name"], "Berkshire")
         self.assertEqual(result[0]["country"], "United States")
 
-    @patch("ticker_analyzer.ranking.requests.get")
+    @patch("ticker_analyzer.ranking_universe.requests.get")
     def test_nasdaq_universe_filters_bad_caps_and_sorts(self, get):
         get.return_value.raise_for_status.return_value = None
         get.return_value.json.return_value = {
@@ -220,12 +251,13 @@ class RankingTest(unittest.TestCase):
         self.assertEqual(set(calls), {"B", "C"})
         self.assertEqual(result["metadata"]["analyzed"], 2)
         self.assertEqual(result["metadata"]["failed"], 1)
+        self.assertEqual(result["universe"], [])
 
     def test_build_keeps_only_worker_count_futures_in_memory(self):
         universe = [{"ticker": str(index)} for index in range(12)]
         config = {"version": 5, "calibration_version": "v5-audit-2026Q3"}
 
-        with patch("ticker_analyzer.ranking.wait", wraps=futures_wait) as bounded_wait:
+        with patch("ticker_analyzer.ranking_builder.wait", wraps=futures_wait) as bounded_wait:
             result = build_large_cap_ranking(
                 universe,
                 config,
@@ -238,6 +270,23 @@ class RankingTest(unittest.TestCase):
         self.assertEqual(result["metadata"]["analyzed"], 12)
         self.assertTrue(bounded_wait.called)
         self.assertTrue(all(len(call.args[0]) <= 2 for call in bounded_wait.call_args_list))
+
+    def test_large_build_limits_full_checkpoint_writes(self):
+        universe = [{"ticker": str(index)} for index in range(60)]
+        checkpoints = []
+
+        build_large_cap_ranking(
+            universe,
+            {"version": 5},
+            analyzer=lambda ticker, _ranges, _config: analysis(ticker, 70),
+            workers=2,
+            retries=0,
+            checkpoint=checkpoints.append,
+            data_as_of="2026-07-31",
+        )
+
+        self.assertEqual(len(checkpoints), 2)
+        self.assertEqual([item["metadata"]["processed"] for item in checkpoints], [25, 50])
 
     def test_changed_config_digest_invalidates_checkpoint(self):
         universe = [{"ticker": "A"}]
@@ -267,6 +316,20 @@ class RankingTest(unittest.TestCase):
             payload = {"metadata": {"complete": True}, "companies": [], "errors": []}
             save_ranking(payload, path)
             self.assertEqual(load_ranking(path), payload)
+
+    def test_ranking_load_is_cached_and_save_invalidates_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ranking.json"
+            first_payload = {"metadata": {"version": 1}, "companies": [], "errors": []}
+            save_ranking(first_payload, path)
+
+            first = load_ranking(path)
+            self.assertIs(load_ranking(path), first)
+
+            second_payload = {"metadata": {"version": 2}, "companies": [], "errors": []}
+            save_ranking(second_payload, path)
+            self.assertEqual(load_ranking(path), second_payload)
+            self.assertIsNot(load_ranking(path), first)
 
 
 if __name__ == "__main__":
