@@ -41,12 +41,36 @@ class YFinanceProvider:
         result = MarketData(
             ticker=ticker_symbol,
             info=safe_dict(lambda: ticker.info, label="company info", diagnostics=diagnostics),
-            annual_income=normalize_statement(safe_frame(lambda: ticker.financials, label="annual income statement", diagnostics=diagnostics)),
-            annual_balance=normalize_statement(safe_frame(lambda: ticker.balance_sheet, label="annual balance sheet", diagnostics=diagnostics)),
-            annual_cashflow=normalize_statement(safe_frame(lambda: ticker.cashflow, label="annual cash flow", diagnostics=diagnostics)),
-            quarterly_income=normalize_statement(safe_frame(lambda: ticker.quarterly_financials, label="quarterly income statement", diagnostics=diagnostics)),
-            quarterly_balance=normalize_statement(safe_frame(lambda: ticker.quarterly_balance_sheet, label="quarterly balance sheet", diagnostics=diagnostics)),
-            quarterly_cashflow=normalize_statement(safe_frame(lambda: ticker.quarterly_cashflow, label="quarterly cash flow", diagnostics=diagnostics)),
+            annual_income=safe_statement(
+                lambda: ticker.financials,
+                label="annual income statement",
+                diagnostics=diagnostics,
+            ),
+            annual_balance=safe_statement(
+                lambda: ticker.balance_sheet,
+                label="annual balance sheet",
+                diagnostics=diagnostics,
+            ),
+            annual_cashflow=safe_statement(
+                lambda: ticker.cashflow,
+                label="annual cash flow",
+                diagnostics=diagnostics,
+            ),
+            quarterly_income=safe_statement(
+                lambda: ticker.quarterly_financials,
+                label="quarterly income statement",
+                diagnostics=diagnostics,
+            ),
+            quarterly_balance=safe_statement(
+                lambda: ticker.quarterly_balance_sheet,
+                label="quarterly balance sheet",
+                diagnostics=diagnostics,
+            ),
+            quarterly_cashflow=safe_statement(
+                lambda: ticker.quarterly_cashflow,
+                label="quarterly cash flow",
+                diagnostics=diagnostics,
+            ),
             growth_history=growth_history,
             # Valuation multiples must use the price shareholders actually paid.
             # Adjusted prices are useful for total-return/growth charts, but applying
@@ -87,6 +111,19 @@ def safe_frame(
     return value.copy() if isinstance(value, pd.DataFrame) else pd.DataFrame(value)
 
 
+def safe_statement(
+    callback: Callable[[], Any],
+    *,
+    label: str = "financial statement",
+    diagnostics: list[dict[str, str]] | None = None,
+) -> pd.DataFrame:
+    """Fetch and normalize a statement while taking ownership with one copy."""
+    return normalize_statement(
+        safe_frame(callback, label=label, diagnostics=diagnostics),
+        copy=False,
+    )
+
+
 def safe_dict(
     callback: Callable[[], Any],
     *,
@@ -118,10 +155,11 @@ def record_fetch_failure(
         diagnostics.append({"source": label, "kind": kind, "message": message[:240]})
 
 
-def normalize_statement(frame: pd.DataFrame) -> pd.DataFrame:
+def normalize_statement(frame: pd.DataFrame, *, copy: bool = True) -> pd.DataFrame:
     if frame.empty:
         return frame
-    frame = frame.copy()
+    if copy:
+        frame = frame.copy()
     try:
         frame.columns = pd.to_datetime(frame.columns)
         frame = frame.sort_index(axis=1)

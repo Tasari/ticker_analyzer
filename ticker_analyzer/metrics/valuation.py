@@ -20,7 +20,6 @@ from ticker_analyzer.metrics.utils import (
     latest_row_value,
     median_or_none,
     metric_value,
-    percent_change,
     range_median_note,
     row_values,
     value_on_or_before,
