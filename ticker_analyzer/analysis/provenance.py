@@ -116,4 +116,3 @@ def apply_peer_calibration(
             "note": f"Compared with versioned {profile} peer median; "
             + ("positive is better" if higher_is_better else "negative is cheaper"),
         }
-

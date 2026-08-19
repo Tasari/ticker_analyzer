@@ -159,4 +159,3 @@ def target_upside(info: dict[str, Any], analyst_targets: dict[str, Any]) -> floa
     if price in (None, 0) or target is None:
         return None
     return percent_change(target, price)
-

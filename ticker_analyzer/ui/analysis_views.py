@@ -358,4 +358,3 @@ def render_metrics_table(metrics: list) -> None:
         "</table>",
         unsafe_allow_html=True,
     )
-

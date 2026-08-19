@@ -381,4 +381,3 @@ def _utc_datetime(value: Any) -> datetime | None:
     if pd.isna(parsed):
         return None
     return pd.Timestamp(parsed).to_pydatetime().replace(tzinfo=UTC)
-

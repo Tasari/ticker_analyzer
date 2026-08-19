@@ -338,4 +338,3 @@ def checkpoint_universe_is_current(
         and metadata.get("universe_schema_version") == UNIVERSE_SCHEMA_VERSION
         and has_required_coverage
     )
-

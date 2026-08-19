@@ -68,4 +68,3 @@ def config_for_profile(config: dict[str, Any], profile: str) -> dict[str, Any]:
         else config.get("profile_rules", {}).get("Industrial", {}),
     )
     return selected
-

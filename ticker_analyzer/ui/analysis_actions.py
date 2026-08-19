@@ -120,4 +120,3 @@ def cached_ticker_search(query: str) -> list[str]:
         exchange = result.get("exchDisp") or result.get("exchange") or ""
         suggestions.append(f"{symbol} | {name} | {exchange}".rstrip(" |"))
     return suggestions
-

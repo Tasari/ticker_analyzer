@@ -11,7 +11,6 @@ class NbpClient(JsonApiClient):
             f"https://api.nbp.pl/api/exchangerates/rates/{table}/{currency.lower()}/last/{top_count}/",
             headers={"Accept": "application/json"},
         )
-
     def exchange_rates(self, currency: str, start: str, end: str, *, table: str = "A") -> list[dict[str, Any]]:
         payload = self.get_json(
             f"https://api.nbp.pl/api/exchangerates/rates/{table}/{currency.lower()}/{start}/{end}/",
@@ -69,4 +68,3 @@ class FinraClient(JsonApiClient):
             params={"firmCrdNumber": crd_number},
             headers={"Accept": "application/json"},
         )
-
