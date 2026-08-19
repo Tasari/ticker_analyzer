@@ -25,8 +25,8 @@ def refresh_large_cap_ranking(
     output_path: Path = DEFAULT_RANKING_PATH,
     *,
     limit: int = 1000,
-    workers: int = 5,
-    timeout: int = 1200,
+    workers: int = 8,
+    timeout: int = 1800,
 ) -> tuple[bool, str, dict[str, Any]]:
     if os.getenv("APP_MODE", "local").strip().lower() == "production" and os.getenv(
         "ALLOW_RANKING_REFRESH", ""
@@ -74,14 +74,27 @@ def refresh_large_cap_ranking(
             return False, f"Ranking update failed: {detail}", {}
         payload = load_ranking(refresh_path)
         metadata = payload.get("metadata", {})
-        if not metadata.get("complete") or len(payload.get("companies", [])) != limit:
+        if not ranking_refresh_is_complete(payload, expected_limit=limit):
             return False, "Ranking update stopped before all companies were processed; the checkpoint was preserved.", metadata
         refresh_path.replace(resolved_output)
-        return True, f"Ranking updated: {metadata.get('scored', 0)} scored, {metadata.get('insufficient_data', 0)} insufficient data.", metadata
+        return True, (
+            f"Ranking updated: {metadata.get('scored', 0)} scored, "
+            f"{metadata.get('insufficient_data', 0)} insufficient data, "
+            f"{metadata.get('failed', 0)} failed."
+        ), metadata
     except subprocess.TimeoutExpired:
         return False, "Ranking update timed out; the checkpoint was preserved and the next run will resume it.", {}
     finally:
         lock_path.unlink(missing_ok=True)
+
+
+def ranking_refresh_is_complete(payload: dict[str, Any], *, expected_limit: int) -> bool:
+    metadata = payload.get("metadata", {})
+    if not metadata.get("complete"):
+        return False
+    requested = int(metadata.get("requested", expected_limit) or 0)
+    processed = len(payload.get("companies", [])) + len(payload.get("errors", []))
+    return requested > 0 and processed >= requested
 
 
 def analyze_selected_tickers(tickers: list[str], ranges: dict[str, str], config: dict) -> tuple[dict, dict]:
