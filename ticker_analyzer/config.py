@@ -25,6 +25,7 @@ from ticker_analyzer.config_defaults import (
     reconcile_v3_groups,
     specialized_financial_profiles,
 )
+from ticker_analyzer.numbers import clean_number
 
 CONFIG_PATH = Path("metrics_config.json")
 CONFIG_VERSION = 5
@@ -407,10 +408,4 @@ def validate_profile_rules(config: dict[str, Any]) -> None:
 
 
 def optional_number(value: Any) -> float | None:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    if result != result or result in (float("inf"), float("-inf")):
-        return None
-    return result
+    return clean_number(value)
