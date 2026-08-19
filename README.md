@@ -49,7 +49,7 @@ The snapshot is stored in `data/large_cap_ranking_v5.json`. Refresh or resume it
 python scripts/build_large_cap_ranking.py --limit 1000 --market-limit 100 --workers 8 --ranges 3Y --public-fallback
 ```
 
-The job checkpoints every ten completed companies, and the Streamlit refresh view reports progress from those checkpoints. A checkpoint is resumed only when its universe contains every configured market and its scoring, config, and calibration versions match. The public fallback uses Yahoo annual fundamentals and price history when the normal crumb-based yfinance client is rate limited.
+The job checkpoints every ten completed companies, and the Streamlit refresh view reports progress from those checkpoints. A checkpoint is resumed only when its universe contains every configured market and its scoring, config, and calibration versions match. Ranking work is scheduled with a bounded in-flight queue, and refreshes started from the UI use three workers to stay within small hosted-container memory limits. The public fallback uses Yahoo annual fundamentals and price history when the normal crumb-based yfinance client is rate limited.
 
 ## Scoring Notes
 

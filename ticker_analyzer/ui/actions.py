@@ -28,7 +28,7 @@ def refresh_large_cap_ranking(
     *,
     limit: int = 1000,
     market_limit: int = 100,
-    workers: int = 8,
+    workers: int = 3,
     timeout: int = 3600,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[bool, str, dict[str, Any]]:
