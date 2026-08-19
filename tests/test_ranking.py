@@ -149,10 +149,12 @@ class RankingTest(unittest.TestCase):
         nasdaq = [
             {"ticker": "A", "market_cap": 100, "country": "United States", "market": "United States"},
             {"ticker": "B", "market_cap": 90, "country": "United States", "market": "United States"},
-            {"ticker": "FUTU", "market_cap": 80, "country": "China", "market": "United States"},
+            {"ticker": "FUTU", "market_cap": 80, "country": "Hong Kong", "market": "United States"},
         ]
         us = select_nasdaq_market(nasdaq, country="United States", market="United States", limit=2)
-        china = select_nasdaq_market(nasdaq, country="China", market="China (US ADR)", limit=1)
+        china = select_nasdaq_market(
+            nasdaq, country=("China", "Hong Kong"), market="China (US ADR)", limit=1
+        )
         yahoo = [{"ticker": "A", "market_cap": 100, "exchange": "NasdaqGS"}]
         poland = [{"ticker": "PKN.WA", "market_cap": 70, "country": "Poland", "market": "Poland"}]
 
@@ -164,6 +166,7 @@ class RankingTest(unittest.TestCase):
         self.assertEqual(result[0]["exchange"], "NasdaqGS")
         self.assertEqual(result[1]["exchange"], "US-listed")
         self.assertEqual(result[2]["market"], "China (US ADR)")
+        self.assertEqual(result[2]["country"], "Hong Kong")
 
     def test_merge_universes_keeps_us_listed_foreign_company(self):
         yahoo = [

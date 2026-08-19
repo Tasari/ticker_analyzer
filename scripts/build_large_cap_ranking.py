@@ -8,6 +8,7 @@ import yfinance as yf
 from ticker_analyzer import load_config
 from ticker_analyzer.analysis.engine import StockAnalysisEngine
 from ticker_analyzer.ranking import (
+    CHINA_ADR_COUNTRIES,
     CHINA_ADR_MARKET,
     DEFAULT_RANKING_PATH,
     US_MARKET,
@@ -65,7 +66,10 @@ def main() -> None:
             nasdaq_all, country=US_MARKET, market=US_MARKET, limit=args.limit
         )
         china_adrs = select_nasdaq_market(
-            nasdaq_all, country="China", market=CHINA_ADR_MARKET, limit=args.market_limit
+            nasdaq_all,
+            country=CHINA_ADR_COUNTRIES,
+            market=CHINA_ADR_MARKET,
+            limit=args.market_limit,
         )
         yahoo_us = []
         try:
