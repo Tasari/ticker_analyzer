@@ -7,7 +7,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from ticker_analyzer.ranking import save_ranking
-from ticker_analyzer.ui.actions import analysis_worker_count, analyze_selected_tickers, refresh_large_cap_ranking
+from ticker_analyzer.ui.actions import (
+    analysis_worker_count,
+    analyze_selected_tickers,
+    cached_ticker_analysis,
+    refresh_large_cap_ranking,
+)
 
 
 class UiActionsTest(unittest.TestCase):
@@ -104,6 +109,34 @@ class UiActionsTest(unittest.TestCase):
 
         self.assertEqual(list(results), ["ONE", "TWO"])
         self.assertEqual(errors, {})
+
+    def test_successful_ticker_analysis_is_reused(self):
+        cached_ticker_analysis.clear()
+        with patch(
+            "ticker_analyzer.ui.actions.analyze_ticker",
+            return_value={"ticker": "CACHED"},
+        ) as analyze:
+            first, first_errors = analyze_selected_tickers(["CACHED"], {"Growth": "2Y"}, {})
+            second, second_errors = analyze_selected_tickers(["CACHED"], {"Growth": "2Y"}, {})
+
+        self.assertEqual(first, second)
+        self.assertEqual(first_errors, second_errors)
+        self.assertEqual(analyze.call_count, 1)
+
+    def test_failed_ticker_analysis_is_not_cached(self):
+        cached_ticker_analysis.clear()
+        with patch(
+            "ticker_analyzer.ui.actions.analyze_ticker",
+            side_effect=[ValueError("temporary failure"), {"ticker": "RETRY"}],
+        ) as analyze:
+            first, first_errors = analyze_selected_tickers(["RETRY"], {"Growth": "2Y"}, {})
+            second, second_errors = analyze_selected_tickers(["RETRY"], {"Growth": "2Y"}, {})
+
+        self.assertEqual(first, {})
+        self.assertIn("RETRY", first_errors)
+        self.assertEqual(second, {"RETRY": {"ticker": "RETRY"}})
+        self.assertEqual(second_errors, {})
+        self.assertEqual(analyze.call_count, 2)
 
 
 if __name__ == "__main__":

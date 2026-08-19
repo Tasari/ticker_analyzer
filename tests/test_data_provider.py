@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import pandas as pd
-from ticker_analyzer.data_provider import YFinanceProvider, safe_dict, safe_frame
+from ticker_analyzer.data_provider import YFinanceProvider, adjusted_price_history, safe_dict, safe_frame
 from ticker_analyzer.domain import AnalysisRanges
 
 
@@ -20,14 +20,23 @@ class DataProviderTest(unittest.TestCase):
 
             def history(self, **kwargs):
                 self.history_calls.append(kwargs)
-                return pd.DataFrame({"Close": [10.0]}, index=[pd.Timestamp("2026-01-01")])
+                return pd.DataFrame(
+                    {"Close": [10.0], "Adj Close": [8.0]},
+                    index=[pd.Timestamp("2026-01-01")],
+                )
 
         fake = FakeTicker()
         with patch("ticker_analyzer.data_provider.yf.Ticker", return_value=fake):
             YFinanceProvider().fetch("ABC", AnalysisRanges.from_input("2Y"))
-        self.assertTrue(fake.history_calls[0]["auto_adjust"])
-        self.assertFalse(fake.history_calls[1]["auto_adjust"])
-        self.assertTrue(fake.history_calls[1]["actions"])
+        self.assertEqual(len(fake.history_calls), 1)
+        self.assertFalse(fake.history_calls[0]["auto_adjust"])
+        self.assertTrue(fake.history_calls[0]["actions"])
+
+    def test_adjusted_history_uses_adjusted_close_without_another_request(self):
+        raw = pd.DataFrame({"Close": [10.0], "Adj Close": [8.0]})
+        adjusted = adjusted_price_history(raw)
+        self.assertEqual(adjusted["Close"].iloc[0], 8.0)
+        self.assertEqual(raw["Close"].iloc[0], 10.0)
 
     def test_safe_frame_records_provider_failure(self):
         diagnostics = []
