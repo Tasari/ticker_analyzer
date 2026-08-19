@@ -19,6 +19,7 @@ DEFAULT_RANKING_PATH = Path("data/large_cap_ranking_v5.json")
 SCORING_VERSION = 5
 PROVIDER_SCHEMA_VERSION = "providers-v2"
 METRIC_SCHEMA_VERSION = "metrics-v5"
+UNIVERSE_SCHEMA_VERSION = "us-listed-merged-v1"
 
 
 def config_digest(config: dict[str, Any]) -> str:
@@ -141,6 +142,17 @@ def merge_large_cap_universes(
         key=lambda item: float(item.get("market_cap") or 0),
         reverse=True,
     )[:limit]
+
+
+def checkpoint_universe_is_current(payload: dict[str, Any] | None, *, limit: int) -> bool:
+    if not payload:
+        return False
+    metadata = payload.get("metadata", {})
+    return (
+        not metadata.get("complete", False)
+        and metadata.get("universe_schema_version") == UNIVERSE_SCHEMA_VERSION
+        and len(payload.get("universe", [])) >= limit
+    )
 
 
 def ranking_row(
@@ -295,6 +307,7 @@ def ranking_payload(
             "insufficient_data": sum(row.get("overall_score") is None for row in rows),
             "failed": len(unique_errors),
             "ranges": ranges,
+            "universe_schema_version": UNIVERSE_SCHEMA_VERSION,
             **fingerprint,
             "code_commit": os.getenv("GIT_COMMIT", "unknown"),
             "complete": complete,

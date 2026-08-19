@@ -148,6 +148,7 @@ def render_large_cap_ranking() -> None:
     payload = load_ranking()
     metadata = payload.get("metadata", {})
     companies = payload.get("companies", [])
+    errors = payload.get("errors", [])
     if not companies:
         st.info("Ranking data has not been generated yet.")
         return
@@ -156,6 +157,9 @@ def render_large_cap_ranking() -> None:
         f"analyzed {metadata.get('analyzed', 0)}/{metadata.get('requested', 0)} · "
         f"scored {metadata.get('scored', 0)} · insufficient data {metadata.get('insufficient_data', 0)}"
     )
+    if errors:
+        with st.expander(f"Failed tickers ({len(errors)})", expanded=False):
+            st.dataframe(pd.DataFrame(errors), hide_index=True, width="stretch")
     profiles = sorted({row.get("profile") for row in companies if row.get("profile")})
     ratings = sorted({row.get("rating") for row in companies if row.get("rating")})
     filter_cols = st.columns(4)
