@@ -4,6 +4,8 @@ import logging
 import os
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -25,8 +27,10 @@ def refresh_large_cap_ranking(
     output_path: Path = DEFAULT_RANKING_PATH,
     *,
     limit: int = 1000,
+    market_limit: int = 100,
     workers: int = 8,
-    timeout: int = 1800,
+    timeout: int = 3600,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[bool, str, dict[str, Any]]:
     if os.getenv("APP_MODE", "local").strip().lower() == "production" and os.getenv(
         "ALLOW_RANKING_REFRESH", ""
@@ -51,6 +55,8 @@ def refresh_large_cap_ranking(
         str(limit),
         "--workers",
         str(workers),
+        "--market-limit",
+        str(market_limit),
         "--ranges",
         "3Y",
         "--output",
@@ -60,20 +66,37 @@ def refresh_large_cap_ranking(
     ]
     creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     try:
-        completed = subprocess.run(
-            command,
-            cwd=project_root,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-            creationflags=creationflags,
-        )
+        run_kwargs = {
+            "cwd": project_root,
+            "capture_output": True,
+            "text": True,
+            "timeout": timeout,
+            "check": False,
+            "creationflags": creationflags,
+        }
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(subprocess.run, command, **run_kwargs)
+            last_progress: tuple[int, int, int] | None = None
+            while not future.done():
+                if progress_callback and refresh_path.exists():
+                    progress = load_ranking(refresh_path).get("metadata", {})
+                    marker = (
+                        int(progress.get("processed", progress.get("analyzed", 0)) or 0),
+                        int(progress.get("failed", 0) or 0),
+                        int(progress.get("requested", 0) or 0),
+                    )
+                    if marker != last_progress:
+                        progress_callback(progress)
+                        last_progress = marker
+                time.sleep(0.5)
+            completed = future.result()
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "Unknown generator error").strip().splitlines()[-1]
             return False, f"Ranking update failed: {detail}", {}
         payload = load_ranking(refresh_path)
         metadata = payload.get("metadata", {})
+        if progress_callback:
+            progress_callback(metadata)
         if not ranking_refresh_is_complete(payload, expected_limit=limit):
             return False, "Ranking update stopped before all companies were processed; the checkpoint was preserved.", metadata
         refresh_path.replace(resolved_output)

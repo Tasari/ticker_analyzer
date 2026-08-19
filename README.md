@@ -37,19 +37,19 @@ The suite contains formula-level tests and network-free integration tests for th
 - Separate metric coverage, Data Quality (0–95 points), model applicability, rating confidence, active caps, and reason codes.
 - Industrial, bank, broker, lender, insurance, asset-manager, REIT, and Generic Financial profiles with explicit overrides.
 - Basic charts for adjusted price history, financial trends, assets, and debt.
-- A precomputed Large Cap Ranking covering 1,000 equities ordered by scoring-v5 Overall Score.
+- A precomputed multi-market Large Cap Ranking covering 1,000 US companies plus up to 100 companies per configured international market, ordered by scoring-v5 Overall Score.
 
 ## Large Cap Ranking
 
-The ranking universe merges Yahoo's US-region results with the Nasdaq US-listed stock screener, then keeps the 1,000 largest equities by market capitalization. The merge includes US-listed foreign companies and ADRs that a country-only filter would omit. Each company is analyzed with the same scoring-v5 engine as the single-stock view. Missing data remains `Insufficient Data` and is not replaced with a neutral score.
+The ranking universe contains 1,000 US companies, up to 100 Chinese ADRs, and up to 100 companies from each configured European market available through XTB: Poland, the United Kingdom, Germany, France, Spain, Italy, Portugal, the Netherlands, Belgium, Austria, Switzerland, Denmark, Finland, Norway, and Sweden. Market quotas are selected independently by local market capitalization, avoiding invalid comparisons between unconverted currencies. Each company is analyzed with the same scoring-v5 engine as the single-stock view. Missing data remains `Insufficient Data` and is not replaced with a neutral score. The UI can filter results by country and exchange.
 
 The snapshot is stored in `data/large_cap_ranking_v5.json`. Refresh or resume it with:
 
 ```powershell
-python scripts/build_large_cap_ranking.py --limit 1000 --workers 5 --ranges 3Y --public-fallback
+python scripts/build_large_cap_ranking.py --limit 1000 --market-limit 100 --workers 8 --ranges 3Y --public-fallback
 ```
 
-The job checkpoints every ten completed companies. A checkpoint is resumed only when its scoring, config, and calibration versions match. The public fallback uses Yahoo annual fundamentals and price history when the normal crumb-based yfinance client is rate limited.
+The job checkpoints every ten completed companies, and the Streamlit refresh view reports progress from those checkpoints. A checkpoint is resumed only when its universe, scoring, config, and calibration versions match. The public fallback uses Yahoo annual fundamentals and price history when the normal crumb-based yfinance client is rate limited.
 
 ## Scoring Notes
 

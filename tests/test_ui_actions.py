@@ -39,24 +39,29 @@ class UiActionsTest(unittest.TestCase):
             save_ranking({"metadata": {"complete": False}, "companies": [{"ticker": "OLD"}], "errors": []}, output)
             refresh = output.with_suffix(".refresh.json")
             payload = {
-                "metadata": {"complete": True, "scored": 1, "insufficient_data": 0},
+                "metadata": {"complete": True, "requested": 1, "scored": 1, "insufficient_data": 0},
                 "companies": [{"ticker": "NEW"}],
                 "errors": [],
             }
             save_ranking(payload, refresh)
+            progress = []
             with patch(
                 "ticker_analyzer.ui.actions.subprocess.run",
                 return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
             ) as run:
-                success, message, _ = refresh_large_cap_ranking(output, limit=1)
+                success, message, _ = refresh_large_cap_ranking(
+                    output, limit=1, market_limit=2, progress_callback=progress.append
+                )
 
             self.assertTrue(success)
             command = run.call_args.args[0]
             self.assertEqual(command[1:3], ["-m", "scripts.build_large_cap_ranking"])
+            self.assertEqual(command[command.index("--market-limit") + 1], "2")
             self.assertEqual(run.call_args.kwargs["cwd"], Path(__file__).resolve().parents[1])
             self.assertIn("Ranking updated", message)
             self.assertFalse(refresh.exists())
             self.assertIn('"NEW"', output.read_text(encoding="utf-8"))
+            self.assertEqual(progress[-1]["requested"], 1)
 
     def test_refresh_ranking_rejects_concurrent_run(self):
         with tempfile.TemporaryDirectory() as directory:

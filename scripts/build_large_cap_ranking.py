@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import yfinance as yf
@@ -8,21 +9,26 @@ from ticker_analyzer import load_config
 from ticker_analyzer.analysis.engine import StockAnalysisEngine
 from ticker_analyzer.ranking import (
     DEFAULT_RANKING_PATH,
+    CHINA_ADR_MARKET,
+    US_MARKET,
+    XTB_EUROPE_MARKETS,
     build_large_cap_ranking,
     checkpoint_universe_is_current,
+    combine_market_universes,
     fetch_large_cap_universe,
     fetch_large_cap_universe_nasdaq,
     load_ranking,
-    merge_large_cap_universes,
     normalize_ticker,
     save_ranking,
+    select_nasdaq_market,
 )
 from ticker_analyzer.ranking_provider import PublicYahooRankingProvider
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build a resumable scoring-v5 ranking of large US equities.")
-    parser.add_argument("--limit", type=int, default=1000)
+    parser = argparse.ArgumentParser(description="Build a resumable scoring-v5 multi-market ranking.")
+    parser.add_argument("--limit", type=int, default=1000, help="US company quota.")
+    parser.add_argument("--market-limit", type=int, default=100, help="Quota for each non-US market.")
     parser.add_argument("--workers", type=int, default=5)
     parser.add_argument("--ranges", default="3Y")
     parser.add_argument("--data-as-of", help="UTC snapshot date (YYYY-MM-DD); defaults to today.")
@@ -41,25 +47,60 @@ def main() -> None:
     # A new run from a complete snapshot must fetch it again so newly eligible
     # listings and ADRs can enter the ranking.
     if checkpoint_universe_is_current(previous, limit=args.limit):
-        universe = saved_universe[: args.limit]
+        universe = saved_universe
     else:
-        yahoo_universe = []
-        nasdaq_universe = []
+        nasdaq_all = []
         try:
-            yahoo_universe = fetch_large_cap_universe(args.limit)
-        except Exception as exc:
-            print(f"Yahoo universe unavailable ({exc}).")
-        try:
-            # Unlike Yahoo's region filter, this includes foreign companies and
-            # ADRs listed in the US (for example FUTU).
-            nasdaq_universe = fetch_large_cap_universe_nasdaq(args.limit)
+            nasdaq_all = fetch_large_cap_universe_nasdaq(10000)
         except Exception as exc:
             print(f"Nasdaq universe unavailable ({exc}).")
-        universe = merge_large_cap_universes(nasdaq_universe, yahoo_universe, limit=args.limit)
+        us_nasdaq = select_nasdaq_market(
+            nasdaq_all, country=US_MARKET, market=US_MARKET, limit=args.limit
+        )
+        china_adrs = select_nasdaq_market(
+            nasdaq_all, country="China", market=CHINA_ADR_MARKET, limit=args.market_limit
+        )
+        yahoo_us = []
+        try:
+            yahoo_us = fetch_large_cap_universe(args.limit)
+        except Exception as exc:
+            print(f"Yahoo US universe unavailable ({exc}).")
+
+        regional_by_name: dict[str, list[dict]] = {}
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {
+                executor.submit(
+                    fetch_large_cap_universe,
+                    args.market_limit,
+                    0,
+                    region=region,
+                    country=country,
+                    market=market,
+                ): market
+                for market, (region, country) in XTB_EUROPE_MARKETS.items()
+            }
+            for future in as_completed(futures):
+                market = futures[future]
+                try:
+                    regional_by_name[market] = future.result()
+                except Exception as exc:
+                    regional_by_name[market] = []
+                    print(f"Yahoo {market} universe unavailable ({exc}).")
+
+        regional_universes = [regional_by_name[name] for name in XTB_EUROPE_MARKETS]
+        universe = combine_market_universes(
+            us_nasdaq,
+            yahoo_us,
+            china_adrs,
+            regional_universes,
+            us_limit=args.limit,
+            market_limit=args.market_limit,
+        )
         if not universe:
             raise RuntimeError("No ranking universe could be fetched from Yahoo or Nasdaq.")
         seed = previous or {"companies": [], "errors": []}
         seed["universe"] = universe
+        seed["metadata"] = {}
         save_ranking(seed, args.output)
     checkpoint = lambda payload: save_ranking(payload, args.output)  # noqa: E731
     analyzer = None
