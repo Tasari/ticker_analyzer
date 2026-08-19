@@ -92,7 +92,7 @@ def fetch_large_cap_universe(
 
 def yahoo_ticker_from_tradingview(symbol: Any, yahoo_suffix: str) -> str:
     local_symbol = str(symbol or "").rsplit(":", 1)[-1]
-    local_symbol = local_symbol.replace("/", "-").replace(".", "-").replace("_", "-")
+    local_symbol = local_symbol.replace("/", "-").replace(".", "-").replace("_", "-").strip("-")
     ticker = normalize_ticker(local_symbol)
     return f"{ticker}{yahoo_suffix}" if ticker else ""
 
