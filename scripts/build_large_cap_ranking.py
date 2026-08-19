@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import time
+import tracemalloc
 from pathlib import Path
+from typing import Any
 
 import yfinance as yf
 from ticker_analyzer import load_config
@@ -27,6 +29,9 @@ from ticker_analyzer.ranking import (
 )
 from ticker_analyzer.ranking_provider import PublicYahooRankingProvider
 
+SMOKE_EUROPE_MARKETS = ("Poland", "United Kingdom", "Germany")
+SMOKE_OUTPUT_PATH = Path("data/large_cap_ranking_smoke.json")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build a resumable scoring-v5 multi-market ranking.")
@@ -39,7 +44,22 @@ def main() -> None:
     parser.add_argument("--restart", action="store_true", help="Ignore a previous checkpoint.")
     parser.add_argument("--public-fallback", action="store_true", help="Use public Yahoo timeseries endpoints instead of crumb-based yfinance.")
     parser.add_argument("--retry-insufficient", action="store_true", help="Recalculate rows that previously lacked an Overall score.")
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Run a small multi-market build into a separate snapshot with resource profiling.",
+    )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Record total runtime and peak traced Python memory in snapshot metadata.",
+    )
     args = parser.parse_args()
+    selected_europe_markets = configure_run(args)
+    profiling = args.profile or args.smoke
+    started = time.perf_counter()
+    if profiling:
+        tracemalloc.start()
 
     yf.set_tz_cache_location(str(Path(".yfinance_cache").resolve()))
     previous = None if args.restart else load_ranking(args.output)
@@ -49,7 +69,7 @@ def main() -> None:
     # Preserve the exact universe only while resuming an incomplete checkpoint.
     # A new run from a complete snapshot must fetch it again so newly eligible
     # listings and ADRs can enter the ranking.
-    required_markets = [CHINA_ADR_MARKET, *XTB_EUROPE_MARKETS]
+    required_markets = [CHINA_ADR_MARKET, *selected_europe_markets]
     if checkpoint_universe_is_current(
         previous,
         limit=args.limit,
@@ -82,7 +102,7 @@ def main() -> None:
         # per-ticker analysis provider after symbols are mapped to its suffixes.
         regional_by_name: dict[str, list[dict]] = {}
         regional_errors: list[str] = []
-        for market, (scanner_market, country, yahoo_suffix) in XTB_EUROPE_MARKETS.items():
+        for market, (scanner_market, country, yahoo_suffix) in selected_europe_markets.items():
             try:
                 regional_by_name[market] = fetch_tradingview_market_universe(
                     args.market_limit,
@@ -99,7 +119,7 @@ def main() -> None:
         if regional_errors:
             raise RuntimeError("; ".join(regional_errors))
 
-        regional_universes = [regional_by_name[name] for name in XTB_EUROPE_MARKETS]
+        regional_universes = [regional_by_name[name] for name in selected_europe_markets]
         universe = combine_market_universes(
             us_nasdaq,
             yahoo_us,
@@ -117,7 +137,7 @@ def main() -> None:
         save_ranking(seed, args.output)
     checkpoint = lambda payload: save_ranking(payload, args.output)  # noqa: E731
     analyzer = None
-    if args.public_fallback:
+    if args.public_fallback or args.smoke:
         provider = PublicYahooRankingProvider({item["ticker"]: item for item in universe})
         engine = StockAnalysisEngine(provider=provider)
         analyzer = lambda ticker, ranges, config: engine.analyze(ticker, ranges, config).as_dict()  # noqa: E731
@@ -129,13 +149,30 @@ def main() -> None:
         workers=args.workers,
         existing=previous,
         checkpoint=checkpoint,
-        retries=1,
+        retries=0 if args.smoke else 1,
         retry_insufficient=args.retry_insufficient,
         data_as_of=args.data_as_of,
         **build_kwargs,
     )
+    if profiling:
+        _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        result["metadata"]["runtime_seconds"] = round(time.perf_counter() - started, 3)
+        result["metadata"]["peak_python_memory_mb"] = round(peak_bytes / (1024 * 1024), 3)
     save_ranking(result, args.output)
     print(result["metadata"])
+
+
+def configure_run(args: Any) -> dict[str, tuple[str, str, str]]:
+    """Apply safe smoke defaults and return the markets included in the run."""
+    if not args.smoke:
+        return XTB_EUROPE_MARKETS
+    args.limit = min(args.limit, 20)
+    args.market_limit = min(args.market_limit, 5)
+    args.workers = min(args.workers, 3)
+    if args.output == DEFAULT_RANKING_PATH:
+        args.output = SMOKE_OUTPUT_PATH
+    return {market: XTB_EUROPE_MARKETS[market] for market in SMOKE_EUROPE_MARKETS}
 
 
 if __name__ == "__main__":

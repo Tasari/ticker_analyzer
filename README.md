@@ -51,6 +51,14 @@ python scripts/build_large_cap_ranking.py --limit 1000 --market-limit 100 --work
 
 The job checkpoints every 25 completed companies, and the Streamlit refresh view reports progress only when the checkpoint file changes. A checkpoint is resumed only when its universe contains every configured market and its scoring, config, and calibration versions match. Ranking work is scheduled with a bounded in-flight queue, and refreshes started from the UI use three workers to stay within small hosted-container memory limits. The public fallback uses Yahoo annual fundamentals and price history when the normal crumb-based yfinance client is rate limited.
 
+Before a full refresh, run a non-destructive multi-market smoke build. It scans at most 20 US companies plus five each from China ADR, Poland, the United Kingdom, and Germany, uses three workers, disables long analysis retries, and writes to the ignored `data/large_cap_ranking_smoke.json` file. Runtime and peak traced Python memory are included in its metadata:
+
+```powershell
+python scripts/build_large_cap_ranking.py --smoke
+```
+
+Add `--profile` to a normal build to store the same measurements in its snapshot metadata.
+
 ## Scoring Notes
 
 - Scoring version 4 maps `warn` to 25 points, `good` to 75, and their midpoint to a neutral 50. Zero and 100 require values a full threshold span beyond the anchors.
