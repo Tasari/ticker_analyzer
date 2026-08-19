@@ -8,8 +8,8 @@ import yfinance as yf
 from ticker_analyzer import load_config
 from ticker_analyzer.analysis.engine import StockAnalysisEngine
 from ticker_analyzer.ranking import (
-    DEFAULT_RANKING_PATH,
     CHINA_ADR_MARKET,
+    DEFAULT_RANKING_PATH,
     US_MARKET,
     XTB_EUROPE_MARKETS,
     build_large_cap_ranking,
