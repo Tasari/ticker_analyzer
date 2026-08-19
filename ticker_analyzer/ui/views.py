@@ -12,6 +12,7 @@ from streamlit_searchbox import st_searchbox
 from ticker_analyzer import format_metric_value, save_config
 from ticker_analyzer.ranking import load_ranking
 from ticker_analyzer.ui.actions import refresh_large_cap_ranking, search_tickers
+from ticker_analyzer.ui.state import remove_tickers_from_state
 
 
 def render_sidebar(config: dict) -> tuple[dict[str, str], bool]:
@@ -64,17 +65,37 @@ def render_selected_tickers() -> None:
     if not st.session_state.selected_tickers:
         st.write("No stocks selected.")
         return
-    for ticker in list(st.session_state.selected_tickers):
-        label_col, remove_col = st.columns([4, 1])
+
+    tickers = list(st.session_state.selected_tickers)
+    for ticker in tickers:
+        select_col, label_col, remove_col = st.columns([1, 4, 1])
+        select_col.checkbox(
+            f"Select {ticker}",
+            key=f"select_remove_{ticker}",
+            label_visibility="collapsed",
+            help=f"Select {ticker} for removal",
+        )
         label_col.write(ticker)
-        if remove_col.button("X", key=f"remove_{ticker}", help=f"Remove {ticker}"):
-            st.session_state.selected_tickers.remove(ticker)
-            st.session_state.analysis_results.pop(ticker, None)
-            st.session_state.analysis_errors.pop(ticker, None)
-            if st.session_state.active_ticker == ticker:
-                remaining = list(st.session_state.analysis_results)
-                st.session_state.active_ticker = remaining[0] if remaining else None
-            st.rerun()
+        remove_col.button(
+            "X",
+            key=f"remove_{ticker}",
+            help=f"Remove {ticker}",
+            on_click=remove_selected_tickers,
+            args=([ticker],),
+        )
+
+    selected = [ticker for ticker in tickers if st.session_state.get(f"select_remove_{ticker}")]
+    st.button(
+        f"Remove selected ({len(selected)})",
+        width="stretch",
+        disabled=not selected,
+        on_click=remove_selected_tickers,
+        args=(selected,),
+    )
+
+
+def remove_selected_tickers(tickers: list[str]) -> None:
+    remove_tickers_from_state(st.session_state, tickers)
 
 
 def render_analysis_errors(errors: dict[str, str]) -> None:
