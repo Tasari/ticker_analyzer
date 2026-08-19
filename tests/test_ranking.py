@@ -8,6 +8,7 @@ from unittest.mock import patch
 from ticker_analyzer.ranking import (
     analysis_fingerprint,
     build_large_cap_ranking,
+    checkpoint_universe_is_current,
     fetch_large_cap_universe,
     fetch_large_cap_universe_nasdaq,
     load_ranking,
@@ -39,6 +40,22 @@ def analysis(ticker: str, score: float | None, confidence: float = 80) -> dict:
 
 
 class RankingTest(unittest.TestCase):
+    def test_only_current_incomplete_universe_checkpoint_is_resumed(self):
+        universe = [{"ticker": "A"}]
+        current = {
+            "metadata": {"complete": False, "universe_schema_version": "us-listed-merged-v1"},
+            "universe": universe,
+        }
+        stale = {"metadata": {"complete": False}, "universe": universe}
+        complete = {
+            "metadata": {"complete": True, "universe_schema_version": "us-listed-merged-v1"},
+            "universe": universe,
+        }
+
+        self.assertTrue(checkpoint_universe_is_current(current, limit=1))
+        self.assertFalse(checkpoint_universe_is_current(stale, limit=1))
+        self.assertFalse(checkpoint_universe_is_current(complete, limit=1))
+
     @patch("ticker_analyzer.ranking.yf.screen")
     @patch("ticker_analyzer.ranking.yf.EquityQuery")
     def test_yahoo_universe_deduplicates_and_normalizes(self, query, screen):

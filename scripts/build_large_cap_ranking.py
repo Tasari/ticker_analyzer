@@ -9,6 +9,7 @@ from ticker_analyzer.analysis.engine import StockAnalysisEngine
 from ticker_analyzer.ranking import (
     DEFAULT_RANKING_PATH,
     build_large_cap_ranking,
+    checkpoint_universe_is_current,
     fetch_large_cap_universe,
     fetch_large_cap_universe_nasdaq,
     load_ranking,
@@ -39,8 +40,7 @@ def main() -> None:
     # Preserve the exact universe only while resuming an incomplete checkpoint.
     # A new run from a complete snapshot must fetch it again so newly eligible
     # listings and ADRs can enter the ranking.
-    resuming = bool(previous) and not (previous or {}).get("metadata", {}).get("complete", False)
-    if resuming and len(saved_universe) >= args.limit:
+    if checkpoint_universe_is_current(previous, limit=args.limit):
         universe = saved_universe[: args.limit]
     else:
         yahoo_universe = []
