@@ -11,11 +11,28 @@ from ticker_analyzer.ui.actions import (
     analysis_worker_count,
     analyze_selected_tickers,
     cached_ticker_analysis,
+    ranking_refresh_is_complete,
     refresh_large_cap_ranking,
 )
 
 
 class UiActionsTest(unittest.TestCase):
+    def test_complete_refresh_accepts_processed_ticker_errors(self):
+        payload = {
+            "metadata": {"complete": True, "requested": 3},
+            "companies": [{"ticker": "A"}, {"ticker": "B"}],
+            "errors": [{"ticker": "C", "error": "unavailable"}],
+        }
+        self.assertTrue(ranking_refresh_is_complete(payload, expected_limit=3))
+
+    def test_refresh_rejects_incomplete_processing(self):
+        payload = {
+            "metadata": {"complete": True, "requested": 3},
+            "companies": [{"ticker": "A"}],
+            "errors": [{"ticker": "B", "error": "unavailable"}],
+        }
+        self.assertFalse(ranking_refresh_is_complete(payload, expected_limit=3))
+
     def test_refresh_ranking_replaces_snapshot_only_after_complete_result(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "ranking.json"
