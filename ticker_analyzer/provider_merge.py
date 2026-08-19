@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import fields
 from typing import Any
 
 import pandas as pd
 
-from ticker_analyzer.domain import MarketData
+from ticker_analyzer.domain import AnalysisRanges, MarketData
 
 
 class CompositeProvider:
@@ -102,4 +103,3 @@ def merge_observations(primary: pd.DataFrame, fallback: pd.DataFrame) -> pd.Data
 def _period_label(value: Any) -> str:
     parsed = pd.to_datetime(value, errors="coerce")
     return str(value) if pd.isna(parsed) else pd.Timestamp(parsed).date().isoformat()
-
