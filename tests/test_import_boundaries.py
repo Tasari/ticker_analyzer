@@ -40,6 +40,9 @@ class ImportBoundaryTest(unittest.TestCase):
 
         self.assertNotIn("ticker_analyzer.analysis.engine", modules)
         self.assertNotIn("ticker_analyzer.ui.analysis_views", modules)
+        self.assertNotIn("ticker_analyzer.ranking_builder", modules)
+        self.assertNotIn("ticker_analyzer.ranking_universe", modules)
+        self.assertNotIn("yfinance", modules)
 
 
 if __name__ == "__main__":

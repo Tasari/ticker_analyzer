@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 import streamlit as st
-import yfinance as yf
 
 from ticker_analyzer import analyze_ticker
 from ticker_analyzer.ranking import DEFAULT_RANKING_PATH, load_ranking
@@ -187,6 +186,8 @@ def ordered_analysis_results(
 
 @st.cache_data(ttl=900, show_spinner=False)
 def search_tickers(searchterm: str) -> list[str]:
+    import yfinance as yf
+
     query = searchterm.strip()
     if len(query) < 1:
         return []

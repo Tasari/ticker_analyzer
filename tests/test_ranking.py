@@ -78,7 +78,7 @@ class RankingTest(unittest.TestCase):
             checkpoint_universe_is_current(current, limit=1, required_markets=["Poland"])
         )
 
-    @patch("ticker_analyzer.ranking.requests.post")
+    @patch("ticker_analyzer.ranking_universe.requests.post")
     def test_tradingview_universe_maps_symbol_and_metadata(self, post):
         post.return_value.raise_for_status.return_value = None
         post.return_value.json.return_value = {
@@ -114,8 +114,8 @@ class RankingTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Poland"):
             validate_market_coverage(universe, ["United States", "Poland"])
 
-    @patch("ticker_analyzer.ranking.yf.screen")
-    @patch("ticker_analyzer.ranking.yf.EquityQuery")
+    @patch("ticker_analyzer.ranking_universe.yf.screen")
+    @patch("ticker_analyzer.ranking_universe.yf.EquityQuery")
     def test_yahoo_universe_deduplicates_and_normalizes(self, query, screen):
         query.return_value = object()
         screen.return_value = {
@@ -130,7 +130,7 @@ class RankingTest(unittest.TestCase):
         self.assertEqual(result[0]["company_name"], "Berkshire")
         self.assertEqual(result[0]["country"], "United States")
 
-    @patch("ticker_analyzer.ranking.requests.get")
+    @patch("ticker_analyzer.ranking_universe.requests.get")
     def test_nasdaq_universe_filters_bad_caps_and_sorts(self, get):
         get.return_value.raise_for_status.return_value = None
         get.return_value.json.return_value = {
@@ -226,7 +226,7 @@ class RankingTest(unittest.TestCase):
         universe = [{"ticker": str(index)} for index in range(12)]
         config = {"version": 5, "calibration_version": "v5-audit-2026Q3"}
 
-        with patch("ticker_analyzer.ranking.wait", wraps=futures_wait) as bounded_wait:
+        with patch("ticker_analyzer.ranking_builder.wait", wraps=futures_wait) as bounded_wait:
             result = build_large_cap_ranking(
                 universe,
                 config,
