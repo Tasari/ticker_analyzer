@@ -49,7 +49,7 @@ The snapshot is stored in `data/large_cap_ranking_v5.json`. Refresh or resume it
 python scripts/build_large_cap_ranking.py --limit 1000 --market-limit 100 --workers 8 --ranges 3Y --public-fallback
 ```
 
-The job checkpoints every ten completed companies, and the Streamlit refresh view reports progress from those checkpoints. A checkpoint is resumed only when its universe contains every configured market and its scoring, config, and calibration versions match. Ranking work is scheduled with a bounded in-flight queue, and refreshes started from the UI use three workers to stay within small hosted-container memory limits. The public fallback uses Yahoo annual fundamentals and price history when the normal crumb-based yfinance client is rate limited.
+The job checkpoints every 25 completed companies, and the Streamlit refresh view reports progress only when the checkpoint file changes. A checkpoint is resumed only when its universe contains every configured market and its scoring, config, and calibration versions match. Ranking work is scheduled with a bounded in-flight queue, and refreshes started from the UI use three workers to stay within small hosted-container memory limits. The public fallback uses Yahoo annual fundamentals and price history when the normal crumb-based yfinance client is rate limited.
 
 ## Scoring Notes
 
@@ -93,17 +93,21 @@ The app validates the config when loading or saving it. Invalid JSON or inconsis
 
 ## Architecture
 
-- `ticker_analyzer/analysis/engine.py`: analysis orchestration, profile selection, scoring, and result assembly.
+- `ticker_analyzer/analysis/engine.py`: lightweight analysis orchestration and result assembly.
+- `ticker_analyzer/analysis/`: aggregation, profile selection, provenance, and quality evaluation.
 - `ticker_analyzer/metrics/builder.py`: builds the raw metric dictionary and chart data.
 - `ticker_analyzer/metrics/formulas.py`: Growth and Fundamentals business formulas.
-- `ticker_analyzer/metrics/valuation.py`: analyst estimates, targets, and historical valuation comparisons.
+- `ticker_analyzer/metrics/valuation.py`: current and point-in-time historical valuation comparisons.
+- `ticker_analyzer/metrics/estimates.py`: analyst estimates, targets, and forecast growth.
 - `ticker_analyzer/metrics/utils.py`: reusable statement, range, CAGR, and ratio helpers.
 - `ticker_analyzer/engine.py`: backward-compatible exports for existing imports.
 - `ticker_analyzer/data_provider.py`: yfinance access and normalization.
-- `ticker_analyzer/providers.py`: composite provider plus SEC, NBP, FDIC, GLEIF, and FINRA clients.
+- `ticker_analyzer/providers.py`: lazy compatibility facade for provider integrations.
+- `ticker_analyzer/provider_*.py`: HTTP infrastructure, provider composition, SEC, and reference-data clients.
 - `ticker_analyzer/data_quality.py`: Data Quality components, penalties, and caps.
-- `ticker_analyzer/scoring.py`: metric, tab, and overall scoring.
-- `ticker_analyzer/ui/`: Streamlit state, actions, and rendering helpers.
+- `ticker_analyzer/scoring.py`: metric and tab scoring; `ratings.py` owns rating decisions and gates.
+- `ticker_analyzer/ranking_*.py`: universe discovery, batch analysis, storage, and public fallback data.
+- `ticker_analyzer/ui/`: lazy page facade plus separate analysis, ranking, configuration, and sidebar modules.
 
 Metric IDs referring to a historical median use `selected_median`, because the comparison period follows the Value range selected in the UI. Config v5 is active. v3/v4 are migrated explicitly; v2 is rejected because its threshold semantics cannot be migrated safely. See `docs/SCORING_V5.md` for the model, data-source, and migration details.
 

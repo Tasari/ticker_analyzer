@@ -66,17 +66,22 @@ def refresh_large_cap_ranking(
             with ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(subprocess.run, command, **run_kwargs)
                 last_progress: tuple[int, int, int] | None = None
+                last_checkpoint: tuple[int, int] | None = None
                 while not future.done():
                     if progress_callback and refresh_path.exists():
-                        progress = load_ranking(refresh_path).get("metadata", {})
-                        marker = (
-                            int(progress.get("processed", progress.get("analyzed", 0)) or 0),
-                            int(progress.get("failed", 0) or 0),
-                            int(progress.get("requested", 0) or 0),
-                        )
-                        if marker != last_progress:
-                            progress_callback(progress)
-                            last_progress = marker
+                        stat = refresh_path.stat()
+                        checkpoint = (stat.st_mtime_ns, stat.st_size)
+                        if checkpoint != last_checkpoint:
+                            progress = load_ranking(refresh_path).get("metadata", {})
+                            marker = (
+                                int(progress.get("processed", progress.get("analyzed", 0)) or 0),
+                                int(progress.get("failed", 0) or 0),
+                                int(progress.get("requested", 0) or 0),
+                            )
+                            if marker != last_progress:
+                                progress_callback(progress)
+                                last_progress = marker
+                            last_checkpoint = checkpoint
                     time.sleep(0.5)
                 completed = future.result()
         if completed.returncode != 0:
@@ -152,4 +157,3 @@ def ranking_refresh_is_complete(payload: dict[str, Any], *, expected_limit: int)
     requested = int(metadata.get("requested", expected_limit) or 0)
     processed = len(payload.get("companies", [])) + len(payload.get("errors", []))
     return requested > 0 and processed >= requested
-

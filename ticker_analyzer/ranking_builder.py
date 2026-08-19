@@ -43,6 +43,8 @@ def analysis_fingerprint(config: dict[str, Any], data_as_of: str) -> dict[str, A
         "peer_artifact_version": str(config.get("peer_artifact_version", "none")),
         "data_as_of": data_as_of,
     }
+
+
 def ranking_row(
     universe_item: dict[str, Any], analysis: dict[str, Any], fingerprint: dict[str, Any] | None = None
 ) -> dict[str, Any]:
