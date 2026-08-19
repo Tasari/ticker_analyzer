@@ -10,4 +10,5 @@ __pycache__/
 venv/
 
 .yfinance_cache/
+data/large_cap_ranking_smoke.json
 docs/audits/

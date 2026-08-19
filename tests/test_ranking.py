@@ -4,10 +4,14 @@ import tempfile
 import unittest
 from concurrent.futures import wait as futures_wait
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from scripts.build_large_cap_ranking import SMOKE_OUTPUT_PATH, configure_run
 from ticker_analyzer.ranking import (
+    DEFAULT_RANKING_PATH,
     UNIVERSE_SCHEMA_VERSION,
+    XTB_EUROPE_MARKETS,
     analysis_fingerprint,
     build_large_cap_ranking,
     checkpoint_universe_is_current,
@@ -48,6 +52,32 @@ def analysis(ticker: str, score: float | None, confidence: float = 80) -> dict:
 
 
 class RankingTest(unittest.TestCase):
+    def test_smoke_run_has_bounded_quotas_workers_and_separate_output(self):
+        args = SimpleNamespace(
+            smoke=True,
+            limit=1000,
+            market_limit=100,
+            workers=8,
+            output=DEFAULT_RANKING_PATH,
+        )
+
+        markets = configure_run(args)
+
+        self.assertEqual(args.limit, 20)
+        self.assertEqual(args.market_limit, 5)
+        self.assertEqual(args.workers, 3)
+        self.assertEqual(args.output, SMOKE_OUTPUT_PATH)
+        self.assertEqual(list(markets), ["Poland", "United Kingdom", "Germany"])
+
+    def test_normal_run_keeps_all_market_settings(self):
+        output = Path("custom.json")
+        args = SimpleNamespace(smoke=False, limit=12, market_limit=4, workers=2, output=output)
+
+        markets = configure_run(args)
+
+        self.assertEqual((args.limit, args.market_limit, args.workers, args.output), (12, 4, 2, output))
+        self.assertEqual(markets, XTB_EUROPE_MARKETS)
+
     def test_only_current_incomplete_universe_checkpoint_is_resumed(self):
         universe = [{"ticker": "A"}]
         current = {
