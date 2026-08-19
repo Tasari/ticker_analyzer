@@ -2,7 +2,14 @@ import unittest
 from unittest.mock import patch
 
 import pandas as pd
-from ticker_analyzer.data_provider import YFinanceProvider, adjusted_price_history, safe_dict, safe_frame
+from ticker_analyzer.data_provider import (
+    YFinanceProvider,
+    adjusted_price_history,
+    normalize_statement,
+    safe_dict,
+    safe_frame,
+    safe_statement,
+)
 from ticker_analyzer.domain import AnalysisRanges
 
 
@@ -69,6 +76,29 @@ class DataProviderTest(unittest.TestCase):
 
         self.assertTrue(result.empty)
         self.assertEqual(diagnostics, [])
+
+    def test_normalize_statement_preserves_callers_frame_by_default(self):
+        original = pd.DataFrame({"2025-12-31": [1], "2024-12-31": [2]})
+
+        normalized = normalize_statement(original)
+
+        self.assertEqual(list(original.columns), ["2025-12-31", "2024-12-31"])
+        self.assertEqual(
+            list(normalized.columns),
+            [pd.Timestamp("2024-12-31"), pd.Timestamp("2025-12-31")],
+        )
+
+    def test_safe_statement_returns_an_independent_normalized_frame(self):
+        original = pd.DataFrame({"2025-12-31": [1], "2024-12-31": [2]})
+
+        normalized = safe_statement(lambda: original)
+
+        self.assertIsNot(normalized, original)
+        self.assertEqual(list(original.columns), ["2025-12-31", "2024-12-31"])
+        self.assertEqual(
+            list(normalized.columns),
+            [pd.Timestamp("2024-12-31"), pd.Timestamp("2025-12-31")],
+        )
 
 
 if __name__ == "__main__":
