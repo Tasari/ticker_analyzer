@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -82,9 +83,18 @@ class MetricsConfig:
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
-        config = json.load(handle)
-    return normalize_config(config)
+    stat = path.stat()
+    normalized = _load_config_cached(str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+    # Callers historically receive an independent mutable config. Keep that
+    # contract while reusing the expensive parsing, migration and validation.
+    return deepcopy(normalized)
+
+
+@lru_cache(maxsize=1)
+def _load_config_cached(resolved_path: str, modified_ns: int, size: int) -> dict[str, Any]:
+    del modified_ns, size  # Cache-key fields; reading only needs the resolved path.
+    with Path(resolved_path).open("r", encoding="utf-8") as handle:
+        return normalize_config(json.load(handle))
 
 
 def save_config(config: dict[str, Any], path: Path = CONFIG_PATH) -> None:
@@ -98,6 +108,7 @@ def save_config(config: dict[str, Any], path: Path = CONFIG_PATH) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary_name, path)
+        _load_config_cached.cache_clear()
     except Exception:
         Path(temporary_name).unlink(missing_ok=True)
         raise

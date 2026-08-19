@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import streamlit as st
-from ticker_analyzer.config import load_config
 from ticker_analyzer.ui import views
-from ticker_analyzer.ui.analysis_actions import analyze_selected_tickers
-from ticker_analyzer.ui.state import initialize_state
 
 st.set_page_config(page_title="Stock Analyzer", page_icon="chart_with_upwards_trend", layout="wide")
 
@@ -13,12 +10,17 @@ def main() -> None:
     st.title("Stock Analyzer")
     st.caption("Rule-based stock analysis with source provenance and point-in-time safeguards. This is not financial advice.")
 
-    config = load_config()
-    initialize_state()
     page = st.sidebar.radio("View", ["Stock Analyzer", "Large Cap Ranking"], key="page")
     if page == "Large Cap Ranking":
         views.render_large_cap_ranking()
         return
+
+    from ticker_analyzer.config import load_config
+    from ticker_analyzer.ui.analysis_actions import analyze_selected_tickers
+    from ticker_analyzer.ui.state import initialize_state
+
+    config = load_config()
+    initialize_state()
     ranges, analyze_clicked = views.render_sidebar(config)
 
     if analyze_clicked or not st.session_state.analysis_results:
