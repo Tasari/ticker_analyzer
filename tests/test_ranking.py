@@ -14,7 +14,7 @@ from ticker_analyzer.ranking import (
     combine_market_universes,
     fetch_large_cap_universe,
     fetch_large_cap_universe_nasdaq,
-    fetch_large_cap_universe_with_retry,
+    fetch_tradingview_market_universe,
     load_ranking,
     market_counts,
     merge_large_cap_universes,
@@ -24,6 +24,7 @@ from ticker_analyzer.ranking import (
     select_nasdaq_market,
     sort_ranking,
     validate_market_coverage,
+    yahoo_ticker_from_tradingview,
 )
 
 
@@ -77,23 +78,35 @@ class RankingTest(unittest.TestCase):
             checkpoint_universe_is_current(current, limit=1, required_markets=["Poland"])
         )
 
-    @patch("ticker_analyzer.ranking.time.sleep")
-    @patch("ticker_analyzer.ranking.fetch_large_cap_universe")
-    def test_regional_universe_retries_empty_response(self, fetch, sleep):
-        fetch.side_effect = [[], [{"ticker": "PKO.WA", "market": "Poland"}]]
+    @patch("ticker_analyzer.ranking.requests.post")
+    def test_tradingview_universe_maps_symbol_and_metadata(self, post):
+        post.return_value.raise_for_status.return_value = None
+        post.return_value.json.return_value = {
+            "totalCount": 1,
+            "data": [{"s": "GPW:PKN", "d": [
+                "PKN", "ORLEN", 100, "GPW", "Energy", "Oil Refining", "Poland", "stock"
+            ]}],
+        }
 
-        result = fetch_large_cap_universe_with_retry(
+        result = fetch_tradingview_market_universe(
             100,
-            0,
-            region="pl",
+            scanner_market="poland",
             country="Poland",
             market="Poland",
-            retry_delay=0,
+            yahoo_suffix=".WA",
         )
 
-        self.assertEqual(result[0]["ticker"], "PKO.WA")
-        self.assertEqual(fetch.call_count, 2)
-        sleep.assert_called_once_with(0)
+        self.assertEqual(result[0]["ticker"], "PKN.WA")
+        self.assertEqual(result[0]["company_name"], "ORLEN")
+        self.assertEqual(result[0]["universe_source"], "TradingView stock screener")
+        request = post.call_args.kwargs
+        self.assertEqual(request["json"]["range"], [0, 100])
+        self.assertEqual(request["json"]["sort"]["sortBy"], "market_cap_basic")
+
+    def test_tradingview_symbols_are_mapped_to_yahoo_format(self):
+        self.assertEqual(yahoo_ticker_from_tradingview("GPW:PKN", ".WA"), "PKN.WA")
+        self.assertEqual(yahoo_ticker_from_tradingview("LSE:BT.A", ".L"), "BT-A.L")
+        self.assertEqual(yahoo_ticker_from_tradingview("OMXCOP:MAERSK_B", ".CO"), "MAERSK-B.CO")
 
     def test_market_coverage_rejects_missing_market(self):
         universe = [{"ticker": "A", "market": "United States"}]

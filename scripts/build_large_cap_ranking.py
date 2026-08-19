@@ -17,7 +17,7 @@ from ticker_analyzer.ranking import (
     combine_market_universes,
     fetch_large_cap_universe,
     fetch_large_cap_universe_nasdaq,
-    fetch_large_cap_universe_with_retry,
+    fetch_tradingview_market_universe,
     load_ranking,
     normalize_ticker,
     save_ranking,
@@ -73,18 +73,19 @@ def main() -> None:
         except Exception as exc:
             print(f"Yahoo US universe unavailable ({exc}).")
 
-        # yfinance uses shared Yahoo cookie/crumb state. Concurrent screener
-        # calls can invalidate it and silently leave every European bucket empty.
+        # Streamlit Cloud IPs are frequently rate-limited by Yahoo's screener.
+        # TradingView provides the European discovery data; Yahoo remains the
+        # per-ticker analysis provider after symbols are mapped to its suffixes.
         regional_by_name: dict[str, list[dict]] = {}
         regional_errors: list[str] = []
-        for market, (region, country) in XTB_EUROPE_MARKETS.items():
+        for market, (scanner_market, country, yahoo_suffix) in XTB_EUROPE_MARKETS.items():
             try:
-                regional_by_name[market] = fetch_large_cap_universe_with_retry(
+                regional_by_name[market] = fetch_tradingview_market_universe(
                     args.market_limit,
-                    0,
-                    region=region,
+                    scanner_market=scanner_market,
                     country=country,
                     market=market,
+                    yahoo_suffix=yahoo_suffix,
                 )
             except Exception as exc:
                 regional_by_name[market] = []
@@ -104,7 +105,7 @@ def main() -> None:
             market_limit=args.market_limit,
         )
         if not universe:
-            raise RuntimeError("No ranking universe could be fetched from Yahoo or Nasdaq.")
+            raise RuntimeError("No ranking universe could be fetched from TradingView, Yahoo, or Nasdaq.")
         validate_market_coverage(universe, [US_MARKET, *required_markets])
         seed = previous or {"companies": [], "errors": []}
         seed["universe"] = universe
