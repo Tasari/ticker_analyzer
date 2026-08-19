@@ -220,6 +220,7 @@ class RankingTest(unittest.TestCase):
         self.assertEqual(set(calls), {"B", "C"})
         self.assertEqual(result["metadata"]["analyzed"], 2)
         self.assertEqual(result["metadata"]["failed"], 1)
+        self.assertEqual(result["universe"], [])
 
     def test_build_keeps_only_worker_count_futures_in_memory(self):
         universe = [{"ticker": str(index)} for index in range(12)]

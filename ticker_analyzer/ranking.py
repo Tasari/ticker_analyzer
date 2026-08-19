@@ -13,7 +13,16 @@ from typing import Any
 import requests
 import yfinance as yf
 
-from ticker_analyzer.analysis.engine import analyze_ticker
+
+def analyze_ticker(
+    ticker_symbol: str,
+    ranges: str | dict[str, str],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """Load the heavy analysis engine only when a ranking worker needs it."""
+    from ticker_analyzer.analysis.engine import analyze_ticker as execute
+
+    return execute(ticker_symbol, ranges, config)
 
 DEFAULT_RANKING_PATH = Path("data/large_cap_ranking_v5.json")
 SCORING_VERSION = 5
@@ -551,7 +560,10 @@ def ranking_payload(
         },
         "companies": ranked,
         "errors": unique_errors,
-        "universe": universe,
+        # The full universe is needed only to resume an incomplete checkpoint.
+        # Completed rows already contain all display metadata, so retaining a
+        # second copy wastes memory every time Streamlit loads the snapshot.
+        "universe": universe if not complete else [],
     }
 
 
