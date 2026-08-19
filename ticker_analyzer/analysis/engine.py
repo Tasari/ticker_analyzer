@@ -3,17 +3,34 @@ from __future__ import annotations
 import os
 from typing import Any
 
-import pandas as pd
-
+from ticker_analyzer.analysis.aggregation import (
+    grouped_tab_score,
+    is_empty_ticker_response,
+    metric_coverage,
+    overall_score_with_missing_policy,
+    partial_overall_note,
+    profile_cap_applies,
+    weighted_tab_score_from_results,
+    years_from_range,
+)
+from ticker_analyzer.analysis.profiles import company_profile, config_for_profile
+from ticker_analyzer.analysis.provenance import apply_peer_calibration, attach_metric_provenance
+from ticker_analyzer.analysis.quality import (
+    analysis_coverage,
+    analysis_data_quality,
+    analysis_model_applicability,
+    calculate_confidence,
+    confidence_label,
+    diagnostic_warnings,
+    has_statement_period_mismatch,
+)
 from ticker_analyzer.data_provider import MarketDataProvider, YFinanceProvider
-from ticker_analyzer.data_quality import calculate_data_quality, freshness_score
-from ticker_analyzer.domain import AnalysisRanges, DataProvenance, MarketData, StockAnalysis
+from ticker_analyzer.domain import AnalysisRanges, MarketData, StockAnalysis
 from ticker_analyzer.metrics.builder import (
     apply_configured_metric_fallbacks,
     build_charts_data,
     build_raw_metrics,
 )
-from ticker_analyzer.metrics.formulas import is_financial_company
 from ticker_analyzer.metrics.utils import clean_number
 from ticker_analyzer.providers import CompositeProvider, SecClient, SecCompanyFactsProvider
 from ticker_analyzer.scoring import (
@@ -21,6 +38,31 @@ from ticker_analyzer.scoring import (
     calculate_rating_decision,
     rating_label,
 )
+
+__all__ = [
+    "StockAnalysisEngine",
+    "analyze_ticker",
+    "default_market_data_provider",
+    "years_from_range",
+    "is_empty_ticker_response",
+    "overall_score_with_missing_policy",
+    "weighted_tab_score_from_results",
+    "partial_overall_note",
+    "metric_coverage",
+    "grouped_tab_score",
+    "profile_cap_applies",
+    "analysis_data_quality",
+    "analysis_model_applicability",
+    "calculate_confidence",
+    "analysis_coverage",
+    "confidence_label",
+    "diagnostic_warnings",
+    "company_profile",
+    "config_for_profile",
+    "attach_metric_provenance",
+    "apply_peer_calibration",
+    "has_statement_period_mismatch",
+]
 
 
 def analyze_ticker(ticker_symbol: str, ranges: str | dict[str, str], config: dict[str, Any]) -> dict[str, Any]:
@@ -214,477 +256,3 @@ def default_market_data_provider() -> MarketDataProvider:
     if sec_user_agent:
         return CompositeProvider([SecCompanyFactsProvider(SecClient(sec_user_agent)), YFinanceProvider()])
     return YFinanceProvider()
-
-
-def years_from_range(price_range: str) -> int:
-    normalized = price_range.strip().lower()
-    if normalized.endswith("y"):
-        try:
-            return max(1, int(normalized[:-1]))
-        except ValueError:
-            return 2
-    return 2
-
-
-def is_empty_ticker_response(
-    info: dict[str, Any],
-    annual_income: pd.DataFrame,
-    annual_balance: pd.DataFrame,
-    annual_cashflow: pd.DataFrame,
-    history: pd.DataFrame,
-) -> bool:
-    has_identity = bool(info.get("longName") or info.get("shortName") or info.get("symbol"))
-    has_prices = not history.empty and "Close" in history and not history["Close"].dropna().empty
-    has_financials = not annual_income.empty or not annual_balance.empty or not annual_cashflow.empty
-    return not has_identity and not has_prices and not has_financials
-
-
-def overall_score_with_missing_policy(tab_results: dict[str, Any], config: dict[str, Any]) -> float | None:
-    tab_weights = config.get("tab_weights", {})
-    policy = config.get("missing_policy", {})
-    scored_tabs = [result for result in tab_results.values() if result.get("score") is not None]
-    if policy.get("require_all_tabs_for_overall", False) and len(scored_tabs) < len(tab_results):
-        return None
-    required_tabs = policy.get("required_tabs", [])
-    if any(tab_results.get(name, {}).get("score") is None for name in required_tabs):
-        return None
-    minimum_scored_tabs = int(clean_number(policy.get("minimum_scored_tabs")) or 1)
-    if len(scored_tabs) < minimum_scored_tabs:
-        return None
-    weighted_mean = weighted_tab_score_from_results(tab_results, tab_weights)
-    if weighted_mean is None:
-        return None
-    available_scores = [float(result["score"]) for result in tab_results.values() if result.get("score") is not None]
-    missing_count = len(tab_results) - len(available_scores)
-    missing_penalties = policy.get("missing_tab_penalty", {"0": 0, "1": 5, "2": 15})
-    missing_penalty = float(missing_penalties.get(str(missing_count), missing_penalties.get(missing_count, 0)))
-    weakest = min(available_scores)
-    weakest_penalty = 4.0 if weakest < 30 else 2.0 if weakest < 40 else 0.0
-    return max(0.0, weighted_mean - missing_penalty - weakest_penalty)
-
-
-def weighted_tab_score_from_results(tab_results: dict[str, Any], tab_weights: dict[str, Any]) -> float | None:
-    scoring = ScoringEngine()
-    return scoring.weighted_tab_score(tab_results, tab_weights)
-
-
-def partial_overall_note(tab_results: dict[str, Any], overall_score: float | None) -> str | None:
-    if overall_score is None:
-        return None
-    scored = sum(1 for result in tab_results.values() if result.get("score") is not None)
-    total = len(tab_results)
-    if scored == total:
-        return None
-    return f"Overall: Partial rating based on {scored} of {total} scored tabs."
-
-
-def metric_coverage(
-    metrics: list[Any], tab_name: str | None = None, config: dict[str, Any] | None = None
-) -> dict[str, Any]:
-    positive_group_metric_ids: set[str] | None = None
-    if tab_name and config:
-        groups = config.get("tab_groups", {}).get(tab_name, {})
-        if groups:
-            positive_group_metric_ids = {
-                metric_id
-                for definition in groups.values()
-                if float(definition.get("weight", 0)) > 0
-                for metric_id in definition.get("metrics", [])
-            }
-    eligible = [
-        metric for metric in metrics
-        if metric.weight > 0
-        and (positive_group_metric_ids is None or metric.id in positive_group_metric_ids)
-    ]
-    scored = [metric for metric in eligible if metric.score is not None]
-    scored_weight = sum(metric.weight for metric in scored)
-    total_weight = sum(metric.weight for metric in eligible)
-    percentage = scored_weight / total_weight * 100 if total_weight > 0 else 0.0
-    return {
-        "scored_metrics": len(scored),
-        "total_metrics": len(eligible),
-        "scored_weight": scored_weight,
-        "total_weight": total_weight,
-        "percentage": percentage,
-        "confidence": confidence_label(percentage),
-    }
-
-
-def grouped_tab_score(
-    tab_name: str,
-    metrics: list[Any],
-    config: dict[str, Any],
-    coverage: dict[str, Any],
-) -> tuple[float | None, dict[str, Any]]:
-    active_rule = config.get("active_profile_rules", {}).get(tab_name, {})
-    minimum = float(
-        active_rule.get("minimum_coverage", config.get("minimum_weight_coverage", {}).get(tab_name, 0))
-    ) * 100
-    by_id = {metric.id: metric for metric in metrics}
-    available_ids = {metric.id for metric in metrics if metric.score is not None and metric.weight > 0}
-    groups = config.get("tab_groups", {}).get(tab_name, {})
-    breakdown: dict[str, Any] = {"minimum_coverage": minimum, "groups": {}, "caps": []}
-    if coverage["percentage"] + 1e-9 < minimum:
-        breakdown["reason"] = "minimum_weight_coverage"
-        return None, breakdown
-
-    if not groups:
-        return ScoringEngine().weighted_score(metrics), breakdown
-    configured_ids = set(by_id)
-    if not any(configured_ids & set(definition.get("metrics", [])) for definition in groups.values()):
-        return ScoringEngine().weighted_score(metrics), breakdown
-    scored_groups: list[tuple[float, float]] = []
-    for group_name, definition in groups.items():
-        members = [by_id[item] for item in definition.get("metrics", []) if item in by_id]
-        group_score = ScoringEngine().weighted_score(members)
-        group_weight = float(definition.get("weight", 0))
-        member_ids = definition.get("metrics", [])
-        breakdown["groups"][group_name] = {
-            "score": group_score,
-            "weight": group_weight,
-            "available_metrics": len(available_ids & set(member_ids)),
-            "total_metrics": len(member_ids),
-        }
-        if group_score is not None and group_weight > 0:
-            scored_groups.append((group_score, group_weight))
-    for group_name, requirement in active_rule.get("required_groups", {}).items():
-        minimum_available = int(requirement.get("minimum_available_metrics", 1))
-        available = breakdown["groups"].get(group_name, {}).get("available_metrics", 0)
-        if available < minimum_available:
-            breakdown["reason"] = "required_group_missing"
-            breakdown["failed_group"] = group_name
-            return None, breakdown
-
-    total_group_weight = sum(weight for _, weight in scored_groups)
-    if total_group_weight <= 0:
-        return None, breakdown
-    return sum(score * weight for score, weight in scored_groups) / total_group_weight, breakdown
-
-
-def profile_cap_applies(config: dict[str, Any], tab_name: str) -> bool:
-    return config.get("active_profile") == "Financial" and tab_name == "Fundamentals"
-
-
-def analysis_data_quality(
-    tab_results: dict[str, Any],
-    config: dict[str, Any],
-    profile: str,
-    data: MarketData,
-) -> tuple[float, dict[str, Any]]:
-    weight_coverage = analysis_coverage(tab_results, config)["percentage"]
-    financial_provenance = data.provenance.get("financials")
-    freshness_date = (
-        financial_provenance.filed_at or financial_provenance.period_end
-        if financial_provenance else None
-    )
-    freshness = freshness_score(pd.Timestamp(freshness_date) if freshness_date else None)
-    quarterly_observations = max(
-        (len(frame.columns) for frame in (data.quarterly_income, data.quarterly_balance, data.quarterly_cashflow)),
-        default=0,
-    )
-    annual_observations = max(
-        (len(frame.columns) for frame in (data.annual_income, data.annual_balance, data.annual_cashflow)),
-        default=0,
-    )
-    actual_observations = quarterly_observations or annual_observations * 4
-    provenance_items = list(data.provenance.values())
-    provenance_score = (
-        sum(100 if item.is_primary_source else 35 if item.fallback_level == "estimated" else 75 for item in provenance_items)
-        / len(provenance_items)
-        if provenance_items else 0
-    )
-    has_primary = any(item.is_primary_source for item in provenance_items)
-    has_secondary = any(not item.is_primary_source for item in provenance_items)
-    source_mix = (
-        "primary_and_secondary" if has_primary and has_secondary
-        else "primary_only" if has_primary
-        else "secondary_only"
-    )
-    reconciliation_items = [
-        item
-        for frame in (
-            data.annual_income,
-            data.annual_balance,
-            data.annual_cashflow,
-            data.quarterly_income,
-            data.quarterly_balance,
-            data.quarterly_cashflow,
-        )
-        for item in frame.attrs.get("reconciliation", [])
-    ]
-    relative_differences = [float(item.get("relative_difference", 0)) for item in reconciliation_items]
-    reconciliation_score = (
-        max(
-            0.0,
-            100.0
-            - sum(min(value, 1.0) for value in relative_differences) / len(relative_differences) * 100,
-        )
-        if relative_differences
-        else None
-    )
-    score, breakdown = calculate_data_quality(
-        metric_weight_coverage=weight_coverage,
-        filing_freshness=freshness,
-        provenance_score=provenance_score,
-        source_mix=source_mix,
-        has_period_mismatch=has_statement_period_mismatch(data),
-        reconciliation_score=reconciliation_score,
-        has_critical_mismatch=any(value > 0.20 for value in relative_differences),
-        config=config,
-    )
-    breakdown.update(
-        {
-            "actual_observations": actual_observations,
-            "reconciled_observations": len(relative_differences),
-        }
-    )
-    return score, breakdown
-
-
-def analysis_model_applicability(
-    config: dict[str, Any], profile: str, data: MarketData
-) -> tuple[float, list[str]]:
-    """Score how well the active analytical model fits the company, not its data."""
-    settings = config.get("model_applicability", {})
-    score = float(settings.get("native", 90))
-    warnings: list[str] = []
-    if config.get("active_metric_model") == "generic_financial_fallback":
-        score = min(score, float(settings.get("generic_financial_maximum", 65)))
-        warnings.append("Rating limited to Buy by generic financial model")
-    override_without_evidence = (
-        data.ticker.upper() in config.get("profile_overrides", {})
-        and not any(data.official_ids.get(key) for key in ("fdic_cert", "finra_crd", "naic_code"))
-    )
-    if override_without_evidence:
-        score = min(score, float(settings.get("manual_override_without_evidence", 60)))
-        warnings.append("Profile override lacks a matching regulatory identifier")
-    return max(0.0, min(score, 100.0)), warnings
-
-
-# Compatibility for callers which imported the v3 helper.
-calculate_confidence = analysis_data_quality
-
-
-def analysis_coverage(tab_results: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
-    tab_weights = config.get("tab_weights", {})
-    weighted_coverage = 0.0
-    total_tab_weight = 0.0
-    scored_tabs = 0
-    for tab_name, result in tab_results.items():
-        if result.get("score") is not None:
-            scored_tabs += 1
-        weight = clean_number(tab_weights.get(tab_name)) or 0
-        if weight <= 0:
-            continue
-        percentage = clean_number(result.get("coverage", {}).get("percentage")) or 0
-        weighted_coverage += percentage * weight
-        total_tab_weight += weight
-    percentage = weighted_coverage / total_tab_weight if total_tab_weight > 0 else 0.0
-    return {
-        "scored_tabs": scored_tabs,
-        "total_tabs": len(tab_results),
-        "percentage": percentage,
-        "confidence": confidence_label(percentage),
-    }
-
-
-def confidence_label(percentage: float) -> str:
-    if percentage >= 85:
-        return "High"
-    if percentage >= 60:
-        return "Medium"
-    return "Low"
-
-
-def diagnostic_warnings(diagnostics: list[dict[str, str]]) -> list[str]:
-    return [
-        f"Data source: {item.get('source', 'unknown source')} failed "
-        f"({item.get('kind', 'provider_error')}): {item.get('message', 'unknown error')}"
-        for item in diagnostics
-    ]
-
-
-def company_profile(
-    info: dict[str, Any],
-    ticker: str = "",
-    official_ids: dict[str, Any] | None = None,
-    config: dict[str, Any] | None = None,
-) -> str:
-    overrides = (config or {}).get("profile_overrides", {})
-    normalized_ticker = ticker.strip().upper()
-    if normalized_ticker in overrides:
-        return str(overrides[normalized_ticker])
-    identifiers = official_ids or {}
-    if identifiers.get("fdic_cert"):
-        return "FinancialBank"
-    if identifiers.get("finra_crd"):
-        return "FinancialBroker"
-    if identifiers.get("naic_code"):
-        return "FinancialInsurance"
-    industry = str(info.get("industry") or info.get("industryDisp") or "").lower()
-    sector = str(info.get("sector") or "").lower()
-    sic = str(identifiers.get("sec_sic") or identifiers.get("sic") or info.get("sic") or "")
-    if "reit" in industry or sic.startswith("6798"):
-        return "REIT"
-    if sic.startswith("63") or any(term in industry for term in ("insurance", "reinsurance")):
-        return "FinancialInsurance"
-    if sic == "6282" or any(term in industry for term in ("asset management", "investment management")):
-        return "FinancialAssetManager"
-    if sic == "6211" or any(term in industry for term in ("capital markets", "broker", "securities")):
-        return "FinancialBroker"
-    if sic in {"6141", "6153", "6159", "6162", "6163"} or any(
-        term in industry for term in ("credit services", "consumer finance", "mortgage finance")
-    ):
-        return "FinancialLender"
-    if "bank" in industry or sic in {"6021", "6022", "6029", "6035", "6036"}:
-        return "FinancialBank"
-    if is_financial_company(info) or sector == "financial services":
-        return "Financial"
-    return "Industrial"
-
-
-def config_for_profile(config: dict[str, Any], profile: str) -> dict[str, Any]:
-    profile_metrics = config.get("profile_metrics", {}).get(profile)
-    if not profile_metrics and profile.startswith("Financial"):
-        profile_metrics = config.get("profile_metrics", {}).get("Financial")
-    selected = dict(config)
-    selected["active_profile"] = profile
-    selected["active_metric_model"] = config.get("profile_models", {}).get(profile, "native")
-    if selected["active_metric_model"] == "generic_financial_fallback":
-        selected["active_rating_cap"] = "strong"
-    if profile_metrics:
-        selected["metrics"] = profile_metrics
-    selected["tab_groups"] = config.get("profile_tab_groups", {}).get(
-        profile,
-        config.get("profile_tab_groups", {}).get("Financial", config.get("tab_groups", {}))
-        if profile.startswith("Financial") or profile == "REIT"
-        else config.get("tab_groups", {}),
-    )
-    selected["active_profile_rules"] = config.get("profile_rules", {}).get(
-        profile,
-        config.get("profile_rules", {}).get("Financial", {})
-        if profile.startswith("Financial") or profile == "REIT"
-        else config.get("profile_rules", {}).get("Industrial", {}),
-    )
-    return selected
-
-
-def attach_metric_provenance(raw_metrics: dict[str, dict[str, Any]], data: MarketData) -> None:
-    estimate_metrics = {
-        "revenue_estimate_growth",
-        "eps_estimate_avg_growth",
-        "price_target",
-        "upside_vs_configured_benchmark",
-    }
-    price_metrics = {
-        "price_change",
-        "ps_vs_selected_median",
-        "pe_vs_selected_median",
-        "pb_vs_selected_median",
-        "ev_ebitda_vs_selected_median",
-        "price_to_cfo_vs_selected_median",
-        "fcf_yield",
-        "fcf_yield_ttm",
-        "pe_vs_profile_median",
-        "ev_ebitda_vs_profile_median",
-        "fcf_yield_vs_profile_median",
-        "valuation_growth_adjustment",
-    }
-    for metric_id, raw in raw_metrics.items():
-        source = "estimates" if metric_id in estimate_metrics else "prices" if metric_id in price_metrics else "financials"
-        provenance = data.provenance.get(source)
-        if provenance is None:
-            provenance = DataProvenance(
-                provider="unavailable",
-                observation_count=0,
-                fallback_level="estimated",
-                is_primary_source=False,
-            )
-        input_facts: list[dict[str, Any]] = []
-        if source == "financials":
-            for statement_name in (
-                "annual_income", "annual_balance", "annual_cashflow",
-                "quarterly_income", "quarterly_balance", "quarterly_cashflow",
-            ):
-                frame = getattr(data, statement_name)
-                for (fact_name, period), versions in frame.attrs.get("observation_provenance", {}).items():
-                    input_facts.append(
-                        {
-                            "fact": fact_name,
-                            "period_end": pd.Timestamp(period).date().isoformat(),
-                            "statement": statement_name,
-                            "versions": versions,
-                        }
-                    )
-                if not frame.attrs.get("observation_provenance"):
-                    for fact_name, values in frame.iterrows():
-                        for period, value in values.dropna().items():
-                            input_facts.append(
-                                {
-                                    "fact": str(fact_name),
-                                    "period_end": pd.Timestamp(period).date().isoformat(),
-                                    "statement": statement_name,
-                                    "versions": [{"provider": provenance.provider, "value": clean_number(value)}],
-                                }
-                            )
-        elif source == "prices":
-            input_facts.append(
-                {
-                    "fact": "raw_close_history",
-                    "period_end": provenance.period_end.isoformat() if provenance.period_end else None,
-                    "provider": provenance.provider,
-                    "observation_count": provenance.observation_count,
-                }
-            )
-        else:
-            input_facts.append(
-                {
-                    "fact": "analyst_consensus",
-                    "provider": provenance.provider,
-                    "observation_count": provenance.observation_count,
-                    "fallback_level": provenance.fallback_level,
-                }
-            )
-        raw["provenance"] = {**provenance.as_dict(), "input_facts": input_facts}
-
-
-def apply_peer_calibration(
-    raw_metrics: dict[str, dict[str, Any]],
-    info: dict[str, Any],
-    profile: str,
-    config: dict[str, Any],
-) -> None:
-    medians = config.get("peer_medians", {}).get(profile) or config.get("peer_medians", {}).get("Financial" if profile.startswith("Financial") else profile, {})
-    comparisons = {
-        "pe_vs_profile_median": (clean_number(info.get("trailingPE")), clean_number(medians.get("pe")), False),
-        "ev_ebitda_vs_profile_median": (
-            clean_number(info.get("enterpriseToEbitda")),
-            clean_number(medians.get("ev_ebitda")),
-            False,
-        ),
-        "fcf_yield_vs_profile_median": (
-            clean_number(raw_metrics.get("fcf_yield_ttm", {}).get("value")),
-            clean_number(medians.get("fcf_yield")),
-            True,
-        ),
-    }
-    for metric_id, (current, peer, higher_is_better) in comparisons.items():
-        if current is None or peer in (None, 0):
-            continue
-        relative = (current / peer - 1) * 100
-        raw_metrics[metric_id] = {
-            "value": relative,
-            "note": f"Compared with versioned {profile} peer median; "
-            + ("positive is better" if higher_is_better else "negative is cheaper"),
-        }
-
-
-def has_statement_period_mismatch(data: MarketData) -> bool:
-    latest: list[pd.Timestamp] = []
-    for frame in (data.quarterly_income, data.quarterly_balance, data.quarterly_cashflow):
-        if frame.empty:
-            continue
-        dates = pd.to_datetime(frame.columns, errors="coerce").dropna()
-        if not dates.empty:
-            latest.append(pd.Timestamp(dates.max()))
-    return len(latest) > 1 and (max(latest) - min(latest)).days > 120

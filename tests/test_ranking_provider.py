@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from unittest.mock import patch
 
 import pandas as pd
 from ticker_analyzer.domain import AnalysisRanges
@@ -104,6 +107,40 @@ class RankingProviderTest(unittest.TestCase):
         self.assertIsNone(_latest_value(pd.DataFrame(), "Revenue"))
         self.assertEqual(_years("5Y"), 5)
         self.assertEqual(_years("bad"), 3)
+
+    def test_public_provider_uses_one_session_per_worker_thread(self):
+        provider = PublicYahooRankingProvider({})
+        created = []
+
+        class Session:
+            headers = {}
+
+        def make_session():
+            session = Session()
+            created.append(session)
+            return session
+
+        barrier = Barrier(2)
+
+        def worker_session(_index):
+            session = provider.session
+            barrier.wait(timeout=1)
+            return session
+
+        with patch("ticker_analyzer.ranking_provider.requests.Session", side_effect=make_session):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                sessions = list(executor.map(worker_session, range(2)))
+
+        self.assertEqual(len(created), 2)
+        self.assertIsNot(sessions[0], sessions[1])
+
+    def test_explicit_session_override_is_shared_for_test_clients(self):
+        provider = PublicYahooRankingProvider({})
+        injected = object()
+
+        provider.session = injected
+
+        self.assertIs(provider.session, injected)
 
 
 if __name__ == "__main__":

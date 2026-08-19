@@ -1,3 +1,4 @@
+import os
 import tempfile
 import threading
 import time
@@ -8,11 +9,14 @@ from unittest.mock import patch
 
 from ticker_analyzer.ranking import save_ranking
 from ticker_analyzer.ui.actions import (
+    acquire_refresh_lock,
     analysis_worker_count,
     analyze_selected_tickers,
     cached_ticker_analysis,
     ranking_refresh_is_complete,
+    read_log_tail,
     refresh_large_cap_ranking,
+    search_tickers,
 )
 
 
@@ -46,7 +50,7 @@ class UiActionsTest(unittest.TestCase):
             save_ranking(payload, refresh)
             progress = []
             with patch(
-                "ticker_analyzer.ui.actions.subprocess.run",
+                "ticker_analyzer.ui.ranking_actions.subprocess.run",
                 return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
             ) as run:
                 success, message, _ = refresh_large_cap_ranking(
@@ -66,21 +70,42 @@ class UiActionsTest(unittest.TestCase):
     def test_refresh_ranking_rejects_concurrent_run(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "ranking.json"
-            output.with_suffix(".refresh.lock").write_text("123", encoding="utf-8")
+            output.with_suffix(".refresh.lock").write_text(str(os.getpid()), encoding="utf-8")
             success, message, metadata = refresh_large_cap_ranking(output, limit=1)
             self.assertFalse(success)
             self.assertIn("already running", message)
             self.assertEqual(metadata, {})
+
+    def test_refresh_lock_recovers_dead_process(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lock = Path(directory) / "ranking.refresh.lock"
+            lock.write_text("999999999", encoding="utf-8")
+
+            self.assertTrue(acquire_refresh_lock(lock))
+            self.assertEqual(lock.read_text(encoding="utf-8"), str(os.getpid()))
+
+    def test_log_tail_reads_only_last_message(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "ranking.refresh.log"
+            log.write_text("first\nsecond\nlast error\n", encoding="utf-8")
+
+            self.assertEqual(read_log_tail(log), "last error")
 
     def test_analysis_worker_count_is_capped(self):
         self.assertEqual(analysis_worker_count([]), 1)
         self.assertEqual(analysis_worker_count(["ONE", "TWO"]), 2)
         self.assertEqual(analysis_worker_count(["A", "B", "C", "D", "E", "F"]), 5)
 
+    def test_ticker_search_normalizes_query_before_cache_lookup(self):
+        with patch("ticker_analyzer.ui.analysis_actions.cached_ticker_search", return_value=[]) as cached:
+            search_tickers("  aapl  ")
+
+        cached.assert_called_once_with("aapl")
+
     def test_single_ticker_analysis_uses_sequential_path(self):
         with (
-            patch("ticker_analyzer.ui.actions.analyze_tickers_sequentially", return_value=({"ONE": {}}, {})) as sequential,
-            patch("ticker_analyzer.ui.actions.ThreadPoolExecutor") as executor,
+            patch("ticker_analyzer.ui.analysis_actions.analyze_tickers_sequentially", return_value=({"ONE": {}}, {})) as sequential,
+            patch("ticker_analyzer.ui.analysis_actions.ThreadPoolExecutor") as executor,
         ):
             results, errors = analyze_selected_tickers(["ONE"], {"Growth": "2Y"}, {})
 
@@ -95,7 +120,7 @@ class UiActionsTest(unittest.TestCase):
                 time.sleep(0.05)
             return {"ticker": ticker}
 
-        with patch("ticker_analyzer.ui.actions.analyze_ticker", side_effect=fake_analyze):
+        with patch("ticker_analyzer.ui.analysis_actions.analyze_ticker", side_effect=fake_analyze):
             results, errors = analyze_selected_tickers(["SLOW", "FAST"], {"Growth": "2Y"}, {})
 
         self.assertEqual(list(results), ["SLOW", "FAST"])
@@ -110,8 +135,8 @@ class UiActionsTest(unittest.TestCase):
             return {"ticker": ticker}
 
         with (
-            patch("ticker_analyzer.ui.actions.analyze_ticker", side_effect=fake_analyze),
-            patch("ticker_analyzer.ui.actions.logger"),
+            patch("ticker_analyzer.ui.analysis_actions.analyze_ticker", side_effect=fake_analyze),
+            patch("ticker_analyzer.ui.analysis_actions.logger"),
         ):
             results, errors = analyze_selected_tickers(["GOOD", "BAD", "BROKEN"], {"Growth": "2Y"}, {})
 
@@ -126,7 +151,7 @@ class UiActionsTest(unittest.TestCase):
             barrier.wait(timeout=1)
             return {"ticker": ticker}
 
-        with patch("ticker_analyzer.ui.actions.analyze_ticker", side_effect=fake_analyze):
+        with patch("ticker_analyzer.ui.analysis_actions.analyze_ticker", side_effect=fake_analyze):
             results, errors = analyze_selected_tickers(["ONE", "TWO"], {"Growth": "2Y"}, {})
 
         self.assertEqual(list(results), ["ONE", "TWO"])
@@ -135,7 +160,7 @@ class UiActionsTest(unittest.TestCase):
     def test_successful_ticker_analysis_is_reused(self):
         cached_ticker_analysis.clear()
         with patch(
-            "ticker_analyzer.ui.actions.analyze_ticker",
+            "ticker_analyzer.ui.analysis_actions.analyze_ticker",
             return_value={"ticker": "CACHED"},
         ) as analyze:
             first, first_errors = analyze_selected_tickers(["CACHED"], {"Growth": "2Y"}, {})
@@ -148,7 +173,7 @@ class UiActionsTest(unittest.TestCase):
     def test_failed_ticker_analysis_is_not_cached(self):
         cached_ticker_analysis.clear()
         with patch(
-            "ticker_analyzer.ui.actions.analyze_ticker",
+            "ticker_analyzer.ui.analysis_actions.analyze_ticker",
             side_effect=[ValueError("temporary failure"), {"ticker": "RETRY"}],
         ) as analyze:
             first, first_errors = analyze_selected_tickers(["RETRY"], {"Growth": "2Y"}, {})

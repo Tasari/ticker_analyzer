@@ -1,24 +1,15 @@
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from ticker_analyzer.numbers import clean_number
+
 
 def metric_value(value: float | None, note: str = "") -> dict[str, Any]:
     return {"value": clean_number(value), "note": note}
-
-
-def clean_number(value: Any) -> float | None:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    if math.isnan(result) or math.isinf(result):
-        return None
-    return result
 
 
 def scale_billions(value: Any) -> float | None:

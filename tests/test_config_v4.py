@@ -74,6 +74,21 @@ class ConfigV4Test(unittest.TestCase):
             save_config(load_config(), target)
             self.assertEqual(json.loads(target.read_text(encoding="utf-8"))["version"], 5)
 
+    def test_cached_config_loads_remain_independent_and_save_invalidates_cache(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "config.json"
+            original = load_config()
+            save_config(original, target)
+
+            first = load_config(target)
+            first["version"] = 999
+            second = load_config(target)
+            self.assertEqual(second["version"], 5)
+
+            second["calibration_version"] = "changed"
+            save_config(second, target)
+            self.assertEqual(load_config(target)["calibration_version"], "changed")
+
     def test_in_place_migration_creates_timestamped_backup(self):
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "config.json"
