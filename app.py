@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import streamlit as st
 from ticker_analyzer.config import load_config
+from ticker_analyzer.ui import views
 from ticker_analyzer.ui.actions import analyze_selected_tickers
 from ticker_analyzer.ui.state import initialize_state
-from ticker_analyzer.ui import views
 
 st.set_page_config(page_title="Stock Analyzer", page_icon="chart_with_upwards_trend", layout="wide")
 

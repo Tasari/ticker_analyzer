@@ -21,13 +21,15 @@ def format_metric_value(value: float | None, unit: str) -> str:
 
 
 def load_config(path: Path | None = None) -> dict[str, Any]:
-    from ticker_analyzer.config import CONFIG_PATH, load_config as _load_config
+    from ticker_analyzer.config import CONFIG_PATH
+    from ticker_analyzer.config import load_config as _load_config
 
     return _load_config(CONFIG_PATH if path is None else path)
 
 
 def save_config(config: dict[str, Any], path: Path | None = None) -> None:
-    from ticker_analyzer.config import CONFIG_PATH, save_config as _save_config
+    from ticker_analyzer.config import CONFIG_PATH
+    from ticker_analyzer.config import save_config as _save_config
 
     _save_config(config, CONFIG_PATH if path is None else path)
 
