@@ -136,6 +136,7 @@ class RankingTest(unittest.TestCase):
     def test_tradingview_symbols_are_mapped_to_yahoo_format(self):
         self.assertEqual(yahoo_ticker_from_tradingview("GPW:PKN", ".WA"), "PKN.WA")
         self.assertEqual(yahoo_ticker_from_tradingview("LSE:BT.A", ".L"), "BT-A.L")
+        self.assertEqual(yahoo_ticker_from_tradingview("LSE:RR.", ".L"), "RR.L")
         self.assertEqual(yahoo_ticker_from_tradingview("OMXCOP:MAERSK_B", ".CO"), "MAERSK-B.CO")
 
     def test_market_coverage_rejects_missing_market(self):
