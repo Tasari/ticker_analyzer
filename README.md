@@ -41,7 +41,7 @@ The suite contains formula-level tests and network-free integration tests for th
 
 ## Large Cap Ranking
 
-The ranking universe contains 1,000 US companies, up to 100 Chinese ADRs, and up to 100 companies from each configured European market available through XTB: Poland, the United Kingdom, Germany, France, Spain, Italy, Portugal, the Netherlands, Belgium, Austria, Switzerland, Denmark, Finland, Norway, and Sweden. Market quotas are selected independently by local market capitalization, avoiding invalid comparisons between unconverted currencies. Each company is analyzed with the same scoring-v5 engine as the single-stock view. Missing data remains `Insufficient Data` and is not replaced with a neutral score. The UI can filter results by country and exchange.
+The ranking universe contains 1,000 US companies, up to 100 Chinese ADRs, and up to 100 companies from each configured European market available through XTB: Poland, the United Kingdom, Germany, France, Spain, Italy, Portugal, the Netherlands, Belgium, Austria, Switzerland, Denmark, Finland, Norway, and Sweden. Market quotas are selected independently by local market capitalization, avoiding invalid comparisons between unconverted currencies. European Yahoo screeners are fetched sequentially with retries because their authentication state is shared; a snapshot or checkpoint missing any configured market is rejected. Each company is analyzed with the same scoring-v5 engine as the single-stock view. Missing data remains `Insufficient Data` and is not replaced with a neutral score. The UI can filter results by country and exchange.
 
 The snapshot is stored in `data/large_cap_ranking_v5.json`. Refresh or resume it with:
 
@@ -49,7 +49,7 @@ The snapshot is stored in `data/large_cap_ranking_v5.json`. Refresh or resume it
 python scripts/build_large_cap_ranking.py --limit 1000 --market-limit 100 --workers 8 --ranges 3Y --public-fallback
 ```
 
-The job checkpoints every ten completed companies, and the Streamlit refresh view reports progress from those checkpoints. A checkpoint is resumed only when its universe, scoring, config, and calibration versions match. The public fallback uses Yahoo annual fundamentals and price history when the normal crumb-based yfinance client is rate limited.
+The job checkpoints every ten completed companies, and the Streamlit refresh view reports progress from those checkpoints. A checkpoint is resumed only when its universe contains every configured market and its scoring, config, and calibration versions match. The public fallback uses Yahoo annual fundamentals and price history when the normal crumb-based yfinance client is rate limited.
 
 ## Scoring Notes
 

@@ -12,14 +12,17 @@ from ticker_analyzer.ranking import (
     checkpoint_universe_is_current,
     combine_market_universes,
     fetch_large_cap_universe,
+    fetch_large_cap_universe_with_retry,
     fetch_large_cap_universe_nasdaq,
     load_ranking,
+    market_counts,
     merge_large_cap_universes,
     normalize_ticker,
     ranking_row,
     save_ranking,
     select_nasdaq_market,
     sort_ranking,
+    validate_market_coverage,
 )
 
 
@@ -58,6 +61,44 @@ class RankingTest(unittest.TestCase):
         self.assertTrue(checkpoint_universe_is_current(current, limit=1))
         self.assertFalse(checkpoint_universe_is_current(stale, limit=1))
         self.assertFalse(checkpoint_universe_is_current(complete, limit=1))
+
+    def test_checkpoint_rejects_missing_required_market(self):
+        current = {
+            "metadata": {"complete": False, "universe_schema_version": UNIVERSE_SCHEMA_VERSION},
+            "universe": [{"ticker": "A", "market": "United States"}],
+        }
+
+        self.assertFalse(
+            checkpoint_universe_is_current(current, limit=1, required_markets=["Poland"])
+        )
+        current["universe"].append({"ticker": "PKO.WA", "market": "Poland"})
+        self.assertTrue(
+            checkpoint_universe_is_current(current, limit=1, required_markets=["Poland"])
+        )
+
+    @patch("ticker_analyzer.ranking.time.sleep")
+    @patch("ticker_analyzer.ranking.fetch_large_cap_universe")
+    def test_regional_universe_retries_empty_response(self, fetch, sleep):
+        fetch.side_effect = [[], [{"ticker": "PKO.WA", "market": "Poland"}]]
+
+        result = fetch_large_cap_universe_with_retry(
+            100,
+            0,
+            region="pl",
+            country="Poland",
+            market="Poland",
+            retry_delay=0,
+        )
+
+        self.assertEqual(result[0]["ticker"], "PKO.WA")
+        self.assertEqual(fetch.call_count, 2)
+        sleep.assert_called_once_with(0)
+
+    def test_market_coverage_rejects_missing_market(self):
+        universe = [{"ticker": "A", "market": "United States"}]
+        self.assertEqual(market_counts(universe), {"United States": 1})
+        with self.assertRaisesRegex(RuntimeError, "Poland"):
+            validate_market_coverage(universe, ["United States", "Poland"])
 
     @patch("ticker_analyzer.ranking.yf.screen")
     @patch("ticker_analyzer.ranking.yf.EquityQuery")
