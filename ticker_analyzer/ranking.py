@@ -19,9 +19,10 @@ DEFAULT_RANKING_PATH = Path("data/large_cap_ranking_v5.json")
 SCORING_VERSION = 5
 PROVIDER_SCHEMA_VERSION = "providers-v2"
 METRIC_SCHEMA_VERSION = "metrics-v5"
-UNIVERSE_SCHEMA_VERSION = "xtb-markets-v4"
+UNIVERSE_SCHEMA_VERSION = "xtb-markets-v5"
 US_MARKET = "United States"
 CHINA_ADR_MARKET = "China (US ADR)"
+CHINA_ADR_COUNTRIES = ("China", "Hong Kong")
 XTB_EUROPE_MARKETS: dict[str, tuple[str, str, str]] = {
     "Poland": ("poland", "Poland", ".WA"),
     "United Kingdom": ("uk", "United Kingdom", ".L"),
@@ -231,16 +232,18 @@ def fetch_large_cap_universe_nasdaq(limit: int = 10000) -> list[dict[str, Any]]:
 def select_nasdaq_market(
     universe: list[dict[str, Any]],
     *,
-    country: str,
+    country: str | Iterable[str],
     market: str,
     limit: int,
 ) -> list[dict[str, Any]]:
     selected = []
-    expected_country = country.casefold()
+    countries = (country,) if isinstance(country, str) else tuple(country)
+    expected_countries = {value.casefold() for value in countries}
     for source_item in universe:
-        if str(source_item.get("country") or "").strip().casefold() != expected_country:
+        source_country = str(source_item.get("country") or "").strip()
+        if source_country.casefold() not in expected_countries:
             continue
-        selected.append({**source_item, "country": country, "market": market})
+        selected.append({**source_item, "country": source_country, "market": market})
         if len(selected) >= limit:
             break
     return selected
