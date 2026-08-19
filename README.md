@@ -111,4 +111,6 @@ The app validates the config when loading or saving it. Invalid JSON or inconsis
 
 Metric IDs referring to a historical median use `selected_median`, because the comparison period follows the Value range selected in the UI. Config v5 is active. v3/v4 are migrated explicitly; v2 is rejected because its threshold semantics cannot be migrated safely. See `docs/SCORING_V5.md` for the model, data-source, and migration details.
 
+See `docs/ARCHITECTURE.md` for runtime boundaries, lazy-loading rules, and resource invariants.
+
 Production deployments are read-only by default. Set `APP_MODE=production`; only administrators should opt in to `ALLOW_CONFIG_WRITE=true` or `ALLOW_RANKING_REFRESH=true`. Local mode keeps both controls available for development.
