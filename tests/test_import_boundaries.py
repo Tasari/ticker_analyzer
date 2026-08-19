@@ -32,14 +32,14 @@ class ImportBoundaryTest(unittest.TestCase):
         self.assertNotIn("plotly", modules)
         self.assertNotIn("ticker_analyzer.ui.analysis_views", modules)
 
-    def test_ranking_view_does_not_load_analysis_or_plotly(self):
+    def test_ranking_view_does_not_load_analysis_engine(self):
         modules = self.imported_modules(
             "from ticker_analyzer.ui import views\n"
             "views.render_large_cap_ranking"
         )
 
-        self.assertNotIn("plotly", modules)
         self.assertNotIn("ticker_analyzer.analysis.engine", modules)
+        self.assertNotIn("ticker_analyzer.ui.analysis_views", modules)
 
 
 if __name__ == "__main__":
