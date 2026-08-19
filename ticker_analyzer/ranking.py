@@ -19,26 +19,36 @@ DEFAULT_RANKING_PATH = Path("data/large_cap_ranking_v5.json")
 SCORING_VERSION = 5
 PROVIDER_SCHEMA_VERSION = "providers-v2"
 METRIC_SCHEMA_VERSION = "metrics-v5"
-UNIVERSE_SCHEMA_VERSION = "xtb-markets-v3"
+UNIVERSE_SCHEMA_VERSION = "xtb-markets-v4"
 US_MARKET = "United States"
 CHINA_ADR_MARKET = "China (US ADR)"
-XTB_EUROPE_MARKETS: dict[str, tuple[str, str]] = {
-    "Poland": ("pl", "Poland"),
-    "United Kingdom": ("gb", "United Kingdom"),
-    "Germany": ("de", "Germany"),
-    "France": ("fr", "France"),
-    "Spain": ("es", "Spain"),
-    "Italy": ("it", "Italy"),
-    "Portugal": ("pt", "Portugal"),
-    "Netherlands": ("nl", "Netherlands"),
-    "Belgium": ("be", "Belgium"),
-    "Austria": ("at", "Austria"),
-    "Switzerland": ("ch", "Switzerland"),
-    "Denmark": ("dk", "Denmark"),
-    "Finland": ("fi", "Finland"),
-    "Norway": ("no", "Norway"),
-    "Sweden": ("se", "Sweden"),
+XTB_EUROPE_MARKETS: dict[str, tuple[str, str, str]] = {
+    "Poland": ("poland", "Poland", ".WA"),
+    "United Kingdom": ("uk", "United Kingdom", ".L"),
+    "Germany": ("germany", "Germany", ".DE"),
+    "France": ("france", "France", ".PA"),
+    "Spain": ("spain", "Spain", ".MC"),
+    "Italy": ("italy", "Italy", ".MI"),
+    "Portugal": ("portugal", "Portugal", ".LS"),
+    "Netherlands": ("netherlands", "Netherlands", ".AS"),
+    "Belgium": ("belgium", "Belgium", ".BR"),
+    "Austria": ("austria", "Austria", ".VI"),
+    "Switzerland": ("switzerland", "Switzerland", ".SW"),
+    "Denmark": ("denmark", "Denmark", ".CO"),
+    "Finland": ("finland", "Finland", ".HE"),
+    "Norway": ("norway", "Norway", ".OL"),
+    "Sweden": ("sweden", "Sweden", ".ST"),
 }
+TRADINGVIEW_COLUMNS = (
+    "name",
+    "description",
+    "market_cap_basic",
+    "exchange",
+    "sector",
+    "industry",
+    "country",
+    "type",
+)
 
 
 def config_digest(config: dict[str, Any]) -> str:
@@ -109,35 +119,79 @@ def fetch_large_cap_universe(
     return universe[:limit]
 
 
-def fetch_large_cap_universe_with_retry(
+def yahoo_ticker_from_tradingview(symbol: Any, yahoo_suffix: str) -> str:
+    local_symbol = str(symbol or "").rsplit(":", 1)[-1]
+    local_symbol = local_symbol.replace("/", "-").replace(".", "-").replace("_", "-")
+    ticker = normalize_ticker(local_symbol)
+    return f"{ticker}{yahoo_suffix}" if ticker else ""
+
+
+def fetch_tradingview_market_universe(
     limit: int,
-    minimum_market_cap: float,
     *,
-    region: str,
+    scanner_market: str,
     country: str,
     market: str,
+    yahoo_suffix: str,
     attempts: int = 3,
     retry_delay: float = 2.0,
 ) -> list[dict[str, Any]]:
-    """Fetch one Yahoo market without allowing an empty transient response to pass."""
+    """Fetch one European market without relying on Yahoo's rate-limited screener."""
+    payload = {
+        "markets": [scanner_market],
+        "symbols": {"query": {"types": []}, "tickers": []},
+        "options": {"lang": "en"},
+        "columns": list(TRADINGVIEW_COLUMNS),
+        "filter": [
+            {"left": "is_primary", "operation": "equal", "right": True},
+            {"left": "type", "operation": "equal", "right": "stock"},
+        ],
+        "sort": {"sortBy": "market_cap_basic", "sortOrder": "desc", "nullsFirst": False},
+        "range": [0, limit],
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
+        "Origin": "https://www.tradingview.com",
+        "Referer": "https://www.tradingview.com/",
+    }
     last_error: Exception | None = None
     for attempt in range(max(1, attempts)):
         try:
-            universe = fetch_large_cap_universe(
-                limit,
-                minimum_market_cap,
-                region=region,
-                country=country,
-                market=market,
+            response = requests.post(
+                f"https://scanner.tradingview.com/{scanner_market}/scan",
+                json=payload,
+                headers=headers,
+                timeout=20,
             )
+            response.raise_for_status()
+            universe = []
+            for row in response.json().get("data", []) or []:
+                values = dict(zip(TRADINGVIEW_COLUMNS, row.get("d", []), strict=False))
+                ticker = yahoo_ticker_from_tradingview(row.get("s") or values.get("name"), yahoo_suffix)
+                if not ticker:
+                    continue
+                universe.append(
+                    {
+                        "ticker": ticker,
+                        "company_name": values.get("description") or values.get("name") or ticker,
+                        "market_cap": values.get("market_cap_basic"),
+                        "exchange": values.get("exchange") or str(row.get("s") or "").partition(":")[0],
+                        "country": values.get("country") or country,
+                        "market": market,
+                        "sector": values.get("sector"),
+                        "industry": values.get("industry"),
+                        "universe_source": "TradingView stock screener",
+                    }
+                )
             if universe:
-                return universe
-            last_error = RuntimeError("Yahoo returned no companies")
+                return universe[:limit]
+            last_error = RuntimeError("TradingView returned no companies")
         except Exception as exc:
             last_error = exc
         if attempt + 1 < attempts:
             time.sleep(retry_delay * (attempt + 1))
-    raise RuntimeError(f"Yahoo {market} universe unavailable after {attempts} attempts: {last_error}")
+    raise RuntimeError(f"TradingView {market} universe unavailable after {attempts} attempts: {last_error}")
 
 
 def fetch_large_cap_universe_nasdaq(limit: int = 10000) -> list[dict[str, Any]]:
