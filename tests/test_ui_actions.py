@@ -14,8 +14,8 @@ from ticker_analyzer.ui.actions import (
     analyze_selected_tickers,
     cached_ticker_analysis,
     ranking_refresh_is_complete,
-    refresh_large_cap_ranking,
     read_log_tail,
+    refresh_large_cap_ranking,
 )
 
 
