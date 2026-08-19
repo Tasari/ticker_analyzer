@@ -19,7 +19,26 @@ DEFAULT_RANKING_PATH = Path("data/large_cap_ranking_v5.json")
 SCORING_VERSION = 5
 PROVIDER_SCHEMA_VERSION = "providers-v2"
 METRIC_SCHEMA_VERSION = "metrics-v5"
-UNIVERSE_SCHEMA_VERSION = "us-listed-merged-v1"
+UNIVERSE_SCHEMA_VERSION = "xtb-markets-v2"
+US_MARKET = "United States"
+CHINA_ADR_MARKET = "China (US ADR)"
+XTB_EUROPE_MARKETS: dict[str, tuple[str, str]] = {
+    "Poland": ("pl", "Poland"),
+    "United Kingdom": ("gb", "United Kingdom"),
+    "Germany": ("de", "Germany"),
+    "France": ("fr", "France"),
+    "Spain": ("es", "Spain"),
+    "Italy": ("it", "Italy"),
+    "Portugal": ("pt", "Portugal"),
+    "Netherlands": ("nl", "Netherlands"),
+    "Belgium": ("be", "Belgium"),
+    "Austria": ("at", "Austria"),
+    "Switzerland": ("ch", "Switzerland"),
+    "Denmark": ("dk", "Denmark"),
+    "Finland": ("fi", "Finland"),
+    "Norway": ("no", "Norway"),
+    "Sweden": ("se", "Sweden"),
+}
 
 
 def config_digest(config: dict[str, Any]) -> str:
@@ -44,11 +63,18 @@ def normalize_ticker(ticker: Any) -> str:
     return str(ticker or "").strip().upper().replace("/", "-")
 
 
-def fetch_large_cap_universe(limit: int = 1000, minimum_market_cap: float = 1_000_000_000) -> list[dict[str, Any]]:
+def fetch_large_cap_universe(
+    limit: int = 1000,
+    minimum_market_cap: float = 1_000_000_000,
+    *,
+    region: str = "us",
+    country: str = US_MARKET,
+    market: str = US_MARKET,
+) -> list[dict[str, Any]]:
     query = yf.EquityQuery(
         "and",
         [
-            yf.EquityQuery("eq", ["region", "us"]),
+            yf.EquityQuery("eq", ["region", region]),
             yf.EquityQuery("gt", ["intradaymarketcap", minimum_market_cap]),
         ],
     )
@@ -72,7 +98,9 @@ def fetch_large_cap_universe(limit: int = 1000, minimum_market_cap: float = 1_00
                     "ticker": ticker,
                     "company_name": quote.get("longName") or quote.get("shortName") or ticker,
                     "market_cap": quote.get("marketCap"),
-                    "exchange": quote.get("exchange"),
+                    "exchange": quote.get("fullExchangeName") or quote.get("exchange"),
+                    "country": country,
+                    "market": market,
                     "sector": quote.get("sector") or quote.get("sectorDisp"),
                     "industry": quote.get("industry") or quote.get("industryDisp"),
                     "universe_source": "Yahoo Finance equity screener",
@@ -81,7 +109,7 @@ def fetch_large_cap_universe(limit: int = 1000, minimum_market_cap: float = 1_00
     return universe[:limit]
 
 
-def fetch_large_cap_universe_nasdaq(limit: int = 1000) -> list[dict[str, Any]]:
+def fetch_large_cap_universe_nasdaq(limit: int = 10000) -> list[dict[str, Any]]:
     response = requests.get(
         "https://api.nasdaq.com/api/screener/stocks",
         params={"tableonly": "true", "limit": 10000, "offset": 0, "download": "true"},
@@ -108,10 +136,77 @@ def fetch_large_cap_universe_nasdaq(limit: int = 1000) -> list[dict[str, Any]]:
                 "sector": row.get("sector"),
                 "industry": row.get("industry"),
                 "country": row.get("country"),
+                "market": US_MARKET,
                 "universe_source": "Nasdaq stock screener",
             }
         )
     return sorted(universe, key=lambda item: item["market_cap"], reverse=True)[:limit]
+
+
+def select_nasdaq_market(
+    universe: list[dict[str, Any]],
+    *,
+    country: str,
+    market: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    selected = []
+    expected_country = country.casefold()
+    for source_item in universe:
+        if str(source_item.get("country") or "").strip().casefold() != expected_country:
+            continue
+        selected.append({**source_item, "country": country, "market": market})
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def combine_market_universes(
+    us_nasdaq: list[dict[str, Any]],
+    us_yahoo: list[dict[str, Any]],
+    china_adrs: list[dict[str, Any]],
+    regional_universes: list[list[dict[str, Any]]],
+    *,
+    us_limit: int,
+    market_limit: int,
+) -> list[dict[str, Any]]:
+    yahoo_by_ticker = {item["ticker"]: item for item in us_yahoo}
+
+    def enrich(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        enriched = []
+        for source_item in items:
+            item = dict(source_item)
+            supplement = yahoo_by_ticker.get(item["ticker"], {})
+            for key, value in supplement.items():
+                if item.get(key) in (None, "") and value not in (None, ""):
+                    item[key] = value
+            item["exchange"] = item.get("exchange") or "US-listed"
+            enriched.append(item)
+        return enriched
+
+    us = enrich(us_nasdaq)
+    seen_us = {item["ticker"] for item in us}
+    for item in us_yahoo:
+        if len(us) >= us_limit:
+            break
+        if item["ticker"] not in seen_us:
+            seen_us.add(item["ticker"])
+            us.append(item)
+    buckets = [
+        us[:us_limit],
+        enrich(china_adrs[:market_limit]),
+        *(items[:market_limit] for items in regional_universes),
+    ]
+    combined: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for bucket in buckets:
+        for item in bucket:
+            ticker = normalize_ticker(item.get("ticker"))
+            if not ticker or ticker in seen:
+                continue
+            seen.add(ticker)
+            combined.append({**item, "ticker": ticker})
+    return combined
 
 
 def merge_large_cap_universes(
@@ -272,10 +367,12 @@ def build_large_cap_ranking(
                     ranking_payload(
                         universe, rows, list(error_by_ticker.values()), ranges, config,
                         complete=False, data_as_of=as_of,
+                        processed_count=len(previous_rows) + completed,
                     )
                 )
     return ranking_payload(
-        universe, rows, list(error_by_ticker.values()), ranges, config, complete=True, data_as_of=as_of
+        universe, rows, list(error_by_ticker.values()), ranges, config,
+        complete=True, data_as_of=as_of, processed_count=len(universe),
     )
 
 
@@ -288,6 +385,7 @@ def ranking_payload(
     *,
     complete: bool,
     data_as_of: str | None = None,
+    processed_count: int | None = None,
 ) -> dict[str, Any]:
     ranked = sort_ranking(rows)
     unique_errors = sorted({item["ticker"]: item for item in errors}.values(), key=lambda item: item["ticker"])
@@ -296,12 +394,13 @@ def ranking_payload(
     return {
         "metadata": {
             "generated_at": datetime.now(UTC).isoformat(),
-            "universe": (
-                f"largest listed equities by {universe[0].get('universe_source', 'market cap screener')} market cap"
-                if universe
-                else "large-cap equities"
-            ),
+            "universe": "USA 1000 plus up to 100 companies per supported international market",
+            "market_counts": {
+                market: sum((item.get("market") or "Unknown") == market for item in universe)
+                for market in sorted({str(item.get("market") or "Unknown") for item in universe})
+            },
             "requested": len(universe),
+            "processed": len(rows) + len(unique_errors) if processed_count is None else processed_count,
             "analyzed": len(rows),
             "scored": sum(row.get("overall_score") is not None for row in rows),
             "insufficient_data": sum(row.get("overall_score") is None for row in rows),

@@ -131,15 +131,37 @@ def render_large_cap_ranking() -> None:
     update_clicked = update_col.button(
         "Update Ranking",
         type="primary",
-        help="Rebuild all 1,000 companies. This normally takes a few minutes.",
+        help="Rebuild the US 1,000 plus up to 100 companies from every configured international market.",
         disabled=not refresh_allowed,
     )
     note_col.caption("The current snapshot stays visible until a complete replacement is ready.")
     if not refresh_allowed:
         note_col.caption("Ranking refresh is read-only in production unless explicitly enabled by an administrator.")
     if update_clicked:
-        with st.spinner("Updating 1,000 companies. This can take several minutes; keep this page open..."):
-            success, message, _metadata = refresh_large_cap_ranking()
+        progress_bar = st.progress(0.0, text="Preparing the multi-market universe...")
+
+        def update_progress(progress: dict) -> None:
+            requested = int(progress.get("requested", 0) or 0)
+            processed = int(
+                progress.get(
+                    "processed",
+                    int(progress.get("analyzed", 0) or 0) + int(progress.get("failed", 0) or 0),
+                )
+                or 0
+            )
+            fraction = min(1.0, processed / requested) if requested else 0.0
+            progress_bar.progress(
+                fraction,
+                text=(
+                    f"Processed {processed:,}/{requested:,} companies "
+                    f"({fraction * 100:.1f}%)"
+                    if requested
+                    else "Preparing the multi-market universe..."
+                ),
+            )
+
+        with st.spinner("Updating the ranking; keep this page open..."):
+            success, message, _metadata = refresh_large_cap_ranking(progress_callback=update_progress)
         if success:
             st.success(message)
             st.rerun()
@@ -162,26 +184,36 @@ def render_large_cap_ranking() -> None:
             st.dataframe(pd.DataFrame(errors), hide_index=True, width="stretch")
     profiles = sorted({row.get("profile") for row in companies if row.get("profile")})
     ratings = sorted({row.get("rating") for row in companies if row.get("rating")})
-    filter_cols = st.columns(4)
-    profile = filter_cols[0].selectbox("Profile", ["All", *profiles])
-    rating = filter_cols[1].selectbox("Rating", ["All", *ratings])
-    minimum_quality = filter_cols[2].slider("Minimum Data Quality", 0, 95, 0)
-    maximum_rows = filter_cols[3].selectbox("Rows", [50, 100, 250, 500, 1000], index=1)
+    countries = sorted({row.get("country") for row in companies if row.get("country")})
+    exchanges = sorted({row.get("exchange") for row in companies if row.get("exchange")})
+    location_cols = st.columns(3)
+    country = location_cols[0].selectbox("Country", ["All", *countries])
+    exchange = location_cols[1].selectbox("Exchange", ["All", *exchanges])
+    maximum_rows = location_cols[2].selectbox("Rows", [50, 100, 250, 500, 1000, 2500, 5000], index=1)
+    score_cols = st.columns(3)
+    profile = score_cols[0].selectbox("Profile", ["All", *profiles])
+    rating = score_cols[1].selectbox("Rating", ["All", *ratings])
+    minimum_quality = score_cols[2].slider("Minimum Data Quality", 0, 95, 0)
     filtered = [
         row
         for row in companies
-        if (profile == "All" or row.get("profile") == profile)
+        if (country == "All" or row.get("country") == country)
+        and (exchange == "All" or row.get("exchange") == exchange)
+        and (profile == "All" or row.get("profile") == profile)
         and (rating == "All" or row.get("rating") == rating)
         and float(row.get("data_quality", row.get("confidence")) or 0) >= minimum_quality
     ][:maximum_rows]
     table = pd.DataFrame(filtered)
     if table.empty:
-        st.info("No companies match the selected filters. Lower Minimum Data Quality or clear the profile/rating filter.")
+        st.info("No companies match the selected country, exchange, profile, rating, and quality filters.")
         return
     columns = {
         "rank": "Rank",
         "ticker": "Ticker",
         "company_name": "Company",
+        "country": "Country",
+        "exchange": "Exchange",
+        "market": "Market Pool",
         "market_cap": "Market Cap",
         "profile": "Profile",
         "overall_score": "Overall",

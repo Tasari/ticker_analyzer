@@ -6,9 +6,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from ticker_analyzer.ranking import (
+    UNIVERSE_SCHEMA_VERSION,
     analysis_fingerprint,
     build_large_cap_ranking,
     checkpoint_universe_is_current,
+    combine_market_universes,
     fetch_large_cap_universe,
     fetch_large_cap_universe_nasdaq,
     load_ranking,
@@ -16,6 +18,7 @@ from ticker_analyzer.ranking import (
     normalize_ticker,
     ranking_row,
     save_ranking,
+    select_nasdaq_market,
     sort_ranking,
 )
 
@@ -43,12 +46,12 @@ class RankingTest(unittest.TestCase):
     def test_only_current_incomplete_universe_checkpoint_is_resumed(self):
         universe = [{"ticker": "A"}]
         current = {
-            "metadata": {"complete": False, "universe_schema_version": "us-listed-merged-v1"},
+            "metadata": {"complete": False, "universe_schema_version": UNIVERSE_SCHEMA_VERSION},
             "universe": universe,
         }
         stale = {"metadata": {"complete": False}, "universe": universe}
         complete = {
-            "metadata": {"complete": True, "universe_schema_version": "us-listed-merged-v1"},
+            "metadata": {"complete": True, "universe_schema_version": UNIVERSE_SCHEMA_VERSION},
             "universe": universe,
         }
 
@@ -70,6 +73,7 @@ class RankingTest(unittest.TestCase):
         result = fetch_large_cap_universe(limit=3)
         self.assertEqual([item["ticker"] for item in result], ["BRK-B", "MSFT"])
         self.assertEqual(result[0]["company_name"], "Berkshire")
+        self.assertEqual(result[0]["country"], "United States")
 
     @patch("ticker_analyzer.ranking.requests.get")
     def test_nasdaq_universe_filters_bad_caps_and_sorts(self, get):
@@ -85,6 +89,26 @@ class RankingTest(unittest.TestCase):
 
     def test_normalize_ticker_converts_nasdaq_share_class_separator(self):
         self.assertEqual(normalize_ticker("brk/b"), "BRK-B")
+
+    def test_market_buckets_keep_us_and_chinese_adrs_separate(self):
+        nasdaq = [
+            {"ticker": "A", "market_cap": 100, "country": "United States", "market": "United States"},
+            {"ticker": "B", "market_cap": 90, "country": "United States", "market": "United States"},
+            {"ticker": "FUTU", "market_cap": 80, "country": "China", "market": "United States"},
+        ]
+        us = select_nasdaq_market(nasdaq, country="United States", market="United States", limit=2)
+        china = select_nasdaq_market(nasdaq, country="China", market="China (US ADR)", limit=1)
+        yahoo = [{"ticker": "A", "market_cap": 100, "exchange": "NasdaqGS"}]
+        poland = [{"ticker": "PKN.WA", "market_cap": 70, "country": "Poland", "market": "Poland"}]
+
+        result = combine_market_universes(
+            us, yahoo, china, [poland], us_limit=2, market_limit=1
+        )
+
+        self.assertEqual([item["ticker"] for item in result], ["A", "B", "FUTU", "PKN.WA"])
+        self.assertEqual(result[0]["exchange"], "NasdaqGS")
+        self.assertEqual(result[1]["exchange"], "US-listed")
+        self.assertEqual(result[2]["market"], "China (US ADR)")
 
     def test_merge_universes_keeps_us_listed_foreign_company(self):
         yahoo = [
