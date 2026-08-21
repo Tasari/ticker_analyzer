@@ -9,6 +9,7 @@ from ticker_analyzer.account_statement import (
     AccountStatementError,
     ExternalCashFlow,
     analyze_account_statement,
+    analyze_statement_range,
     annualize_return,
     inspect_account_statement,
     modified_dietz_return,
@@ -63,6 +64,10 @@ def analysis_workbook(*, dated_deposit: bool = True) -> bytes:
     activity.append(["Date", "Type", "Amount", "Realized Equity Change"])
     if dated_deposit:
         activity.append(["06/01/2024 00:00:00", "Deposit", 50, 50])
+    activity.append(["07/01/2024 12:00:00", "Position closed", 25, 5])
+    activity.append(["08/01/2024 12:00:00", "Dividend", 2, 2])
+    activity.append(["09/01/2024 12:00:00", "Overnight fee", -1, -1])
+    activity.append(["10/01/2024 12:00:00", "Open Position", 20, 0])
 
     holdings = workbook.create_sheet("Holdings")
     holdings.append(["Direction", "Value in USD", "Type"])
@@ -109,6 +114,38 @@ class AccountStatementTest(unittest.TestCase):
         self.assertTrue(analysis.cash_flows[0].estimated_date)
         self.assertAlmostEqual(analysis.modified_dietz_return, 0.12)
         self.assertTrue(analysis.warnings)
+
+    def test_date_range_reports_only_realized_activity(self):
+        analysis = analyze_statement_range(
+            analysis_workbook(),
+            datetime(2024, 1, 7).date(),
+            datetime(2024, 1, 9).date(),
+        )
+
+        self.assertEqual(analysis.realized_profit_loss, 6)
+        self.assertEqual(analysis.closed_positions_profit_loss, 5)
+        self.assertEqual(analysis.dividends, 2)
+        self.assertEqual(analysis.fees, -1)
+        self.assertEqual(analysis.net_external_flows, 0)
+        self.assertEqual(
+            [(point.day.day, point.cumulative_profit_loss) for point in analysis.daily_performance],
+            [(7, 5), (8, 7), (9, 6)],
+        )
+
+    def test_date_range_validates_order_and_statement_boundaries(self):
+        payload = analysis_workbook()
+        with self.assertRaisesRegex(AccountStatementError, "must not be before"):
+            analyze_statement_range(
+                payload,
+                datetime(2024, 1, 5).date(),
+                datetime(2024, 1, 4).date(),
+            )
+        with self.assertRaisesRegex(AccountStatementError, "within the account statement"):
+            analyze_statement_range(
+                payload,
+                datetime(2023, 12, 31).date(),
+                datetime(2024, 1, 4).date(),
+            )
 
     def test_return_helpers_reject_invalid_denominators_and_periods(self):
         start = datetime(2024, 1, 1)
