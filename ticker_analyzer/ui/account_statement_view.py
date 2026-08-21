@@ -54,25 +54,37 @@ def _render_analysis(payload: bytes) -> None:
         st.error(str(exc))
         return
 
-    selected = st.date_input(
-        "Analysis period",
-        value=(analysis.start_date.date(), analysis.end_date.date()),
-        min_value=analysis.start_date.date(),
-        max_value=analysis.end_date.date(),
-        help="Both dates are inclusive and must stay within the uploaded statement.",
+    statement_start = analysis.start_date.date()
+    statement_end = analysis.end_date.date()
+    period_key = f"{statement_start.isoformat()}_{statement_end.isoformat()}"
+    date_columns = st.columns(2)
+    selected_start = date_columns[0].date_input(
+        "Start date",
+        value=statement_start,
+        min_value=statement_start,
+        max_value=statement_end,
+        help="Inclusive first day of the analysis period.",
+        key=f"account_statement_analysis_start_{period_key}",
     )
-    if not isinstance(selected, tuple) or len(selected) != 2:
-        st.info("Select both a start date and an end date.")
+    selected_end = date_columns[1].date_input(
+        "End date",
+        value=statement_end,
+        min_value=statement_start,
+        max_value=statement_end,
+        help="Inclusive last day of the analysis period.",
+        key=f"account_statement_analysis_end_{period_key}",
+    )
+    if selected_end < selected_start:
+        st.error("End date must not be before start date.")
         return
-    selected_start, selected_end = selected
     try:
         range_analysis = analyze_statement_range(payload, selected_start, selected_end)
     except AccountStatementError as exc:
         st.error(str(exc))
         return
     full_period = (
-        selected_start == analysis.start_date.date()
-        and selected_end == analysis.end_date.date()
+        selected_start == statement_start
+        and selected_end == statement_end
     )
 
     st.markdown("#### Selected-period performance")
