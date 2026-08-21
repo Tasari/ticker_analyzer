@@ -7,7 +7,11 @@ from io import BytesIO
 from openpyxl import Workbook
 from ticker_analyzer.account_statement import (
     AccountStatementError,
+    ExternalCashFlow,
+    analyze_account_statement,
+    annualize_return,
     inspect_account_statement,
+    modified_dietz_return,
     read_statement_sheet,
 )
 
@@ -33,7 +37,90 @@ def statement_workbook(*, include_summary: bool = True) -> bytes:
     return output.getvalue()
 
 
+def analysis_workbook(*, dated_deposit: bool = True) -> bytes:
+    workbook = Workbook()
+    summary = workbook.active
+    summary.title = "Account Summary"
+    rows = [
+        ("Details", "Totals"),
+        ("Currency", "USD"),
+        ("Start Date", "01/01/2024 00:00:00"),
+        ("End Date", "11/01/2024 00:00:00"),
+        ("Beginning Realized Equity", 100),
+        ("Ending Realized Equity", 165),
+        ("Beginning Unrealized Equity", 100),
+        ("Ending Unrealized Equity", 165),
+        ("Deposits", 50),
+        ("Profit or Loss (Closed positions only)", 5),
+        ("Dividends", 2),
+        ("Dividend CFD", 0),
+        ("Overnight Fees", -1),
+    ]
+    for row in rows:
+        summary.append(row)
+
+    activity = workbook.create_sheet("Account Activity")
+    activity.append(["Date", "Type", "Amount", "Realized Equity Change"])
+    if dated_deposit:
+        activity.append(["06/01/2024 00:00:00", "Deposit", 50, 50])
+
+    holdings = workbook.create_sheet("Holdings")
+    holdings.append(["Direction", "Value in USD", "Type"])
+    holdings.append(["Long", 80, "Stocks"])
+    holdings.append(["Short", -20, "CFD"])
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
 class AccountStatementTest(unittest.TestCase):
+    def test_analyzes_portfolio_and_modified_dietz_with_dated_flow(self):
+        analysis = analyze_account_statement(analysis_workbook())
+
+        self.assertEqual(analysis.total_profit_loss, 15)
+        self.assertAlmostEqual(analysis.simple_roi, 0.10)
+        self.assertAlmostEqual(analysis.modified_dietz_return, 0.12)
+        self.assertGreater(analysis.annualized_roi, analysis.simple_roi)
+        self.assertEqual(analysis.net_external_flows, 50)
+        self.assertEqual(analysis.open_positions, 2)
+        self.assertEqual(analysis.long_exposure, 80)
+        self.assertEqual(analysis.short_exposure, 20)
+        self.assertEqual(
+            [(group.name, group.value) for group in analysis.exposure_by_type],
+            [("Stocks", 80), ("CFD", 20)],
+        )
+        bridge = (
+            analysis.beginning_unrealized_equity
+            + analysis.net_external_flows
+            + analysis.closed_positions_profit_loss
+            + analysis.dividends
+            + analysis.fees
+            + analysis.other_performance
+            + analysis.unrealized_profit_loss_change
+        )
+        self.assertAlmostEqual(bridge, analysis.ending_unrealized_equity)
+        self.assertFalse(analysis.warnings)
+
+    def test_undated_summary_flow_uses_midpoint_and_warns(self):
+        analysis = analyze_account_statement(analysis_workbook(dated_deposit=False))
+
+        self.assertEqual(len(analysis.cash_flows), 1)
+        self.assertTrue(analysis.cash_flows[0].estimated_date)
+        self.assertAlmostEqual(analysis.modified_dietz_return, 0.12)
+        self.assertTrue(analysis.warnings)
+
+    def test_return_helpers_reject_invalid_denominators_and_periods(self):
+        start = datetime(2024, 1, 1)
+        end = datetime(2024, 1, 11)
+        flow = ExternalCashFlow(datetime(2024, 1, 6), 50, "Deposit")
+
+        self.assertAlmostEqual(modified_dietz_return(100, 165, [flow], start, end), 0.12)
+        self.assertIsNone(modified_dietz_return(-100, -50, [], start, end))
+        self.assertIsNone(modified_dietz_return(100, 110, [], end, start))
+        self.assertIsNone(annualize_return(-1, start, end))
+        self.assertIsNone(annualize_return(0.1, end, start))
+
     def test_inspects_etoro_workbook_metadata_and_sheet_sizes(self):
         overview = inspect_account_statement(statement_workbook())
 
