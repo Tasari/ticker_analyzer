@@ -134,17 +134,48 @@ def _render_partial_period_performance(
     range_analysis: StatementRangeAnalysis,
     currency: str,
 ) -> None:
-    st.warning(
-        "The statement has no historical open-position valuations for these boundaries. "
-        "This range therefore shows realized performance only; total portfolio ROI, CAGR, and TWR are unavailable."
+    st.info(
+        "Estimated total-return metrics combine exact Account Activity with interpolated "
+        "unrealized P/L from eToro Holdings snapshots. They are directional estimates, "
+        "not exact historical portfolio valuations."
     )
+    estimated = st.columns(4)
+    estimated[0].metric(
+        "Estimated total P/L",
+        _money(range_analysis.estimated_total_profit_loss, currency),
+    )
+    estimated[1].metric("Estimated ROI", _percent(range_analysis.estimated_roi))
+    estimated[2].metric(
+        "Estimated annualized ROI",
+        _percent(range_analysis.estimated_annualized_roi),
+        help="Estimated ROI annualized over the inclusive selected period (CAGR-style).",
+    )
+    estimated[3].metric(
+        "Estimated TWR",
+        _percent(range_analysis.estimated_modified_dietz_return),
+        help="Modified Dietz estimate using exact dated external cash flows.",
+    )
+    st.caption(
+        f"Estimated equity: {_money(range_analysis.estimated_beginning_equity, currency)} "
+        f"→ {_money(range_analysis.estimated_ending_equity, currency)}. "
+        f"Used {range_analysis.holdings_snapshot_count} intermediate Holdings snapshot(s); "
+        "the nearest valuation anchor was at most "
+        f"{range_analysis.max_boundary_anchor_distance_days} day(s) from a selected boundary."
+    )
+    for warning in range_analysis.valuation_warnings:
+        st.warning(warning)
+
+    st.markdown("##### Realized components")
     primary = st.columns(3)
     primary[0].metric("Realized P/L", _money(range_analysis.realized_profit_loss, currency))
     primary[1].metric("Closed P/L", _money(range_analysis.closed_positions_profit_loss, currency))
     primary[2].metric("Dividends", _money(range_analysis.dividends, currency))
     secondary = st.columns(3)
     secondary[0].metric("Fees", _money(range_analysis.fees, currency))
-    secondary[1].metric("Other realized", _money(range_analysis.other_performance, currency))
+    secondary[1].metric(
+        "Other / reconciliation",
+        _money(range_analysis.other_performance, currency),
+    )
     secondary[2].metric("Net external flows", _money(range_analysis.net_external_flows, currency))
     st.plotly_chart(_realized_performance_chart(range_analysis, currency), width="stretch")
 
@@ -287,16 +318,23 @@ def _realized_performance_chart(
     figure = go.Figure(
         go.Scatter(
             x=[point.day for point in analysis.daily_performance],
+            y=[point.estimated_cumulative_profit_loss for point in analysis.daily_performance],
+            mode="lines",
+            name="Estimated total P/L",
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=[point.day for point in analysis.daily_performance],
             y=[point.cumulative_profit_loss for point in analysis.daily_performance],
             mode="lines",
-            fill="tozeroy",
             name="Cumulative realized P/L",
         )
     )
     figure.update_layout(
         xaxis_title=None,
-        yaxis_title=f"Cumulative realized P/L ({currency})",
-        showlegend=False,
+        yaxis_title=f"Cumulative P/L ({currency})",
+        showlegend=True,
         margin={"l": 20, "r": 20, "t": 20, "b": 20},
     )
     return figure

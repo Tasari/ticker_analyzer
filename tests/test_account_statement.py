@@ -38,7 +38,7 @@ def statement_workbook(*, include_summary: bool = True) -> bytes:
     return output.getvalue()
 
 
-def analysis_workbook(*, dated_deposit: bool = True) -> bytes:
+def analysis_workbook(*, dated_deposit: bool = True, holdings_snapshot: bool = False) -> bytes:
     workbook = Workbook()
     summary = workbook.active
     summary.title = "Account Summary"
@@ -61,18 +61,25 @@ def analysis_workbook(*, dated_deposit: bool = True) -> bytes:
         summary.append(row)
 
     activity = workbook.create_sheet("Account Activity")
-    activity.append(["Date", "Type", "Amount", "Realized Equity Change"])
+    activity.append(["Date", "Type", "Amount", "Realized Equity Change", "Realized Equity"])
     if dated_deposit:
-        activity.append(["06/01/2024 00:00:00", "Deposit", 50, 50])
-    activity.append(["07/01/2024 12:00:00", "Position closed", 25, 5])
-    activity.append(["08/01/2024 12:00:00", "Dividend", 2, 2])
-    activity.append(["09/01/2024 12:00:00", "Overnight fee", -1, -1])
-    activity.append(["10/01/2024 12:00:00", "Open Position", 20, 0])
+        activity.append(["06/01/2024 00:00:00", "Deposit", 50, 50, 150])
+    activity.append(["07/01/2024 12:00:00", "Position closed", 25, 5, 155])
+    activity.append(["08/01/2024 12:00:00", "Dividend", 2, 2, 157])
+    activity.append(["09/01/2024 12:00:00", "Overnight fee", -1, -1, 156])
+    activity.append(["10/01/2024 12:00:00", "Open Position", 20, 0, 156])
 
     holdings = workbook.create_sheet("Holdings")
-    holdings.append(["Direction", "Value in USD", "Type"])
-    holdings.append(["Long", 80, "Stocks"])
-    holdings.append(["Short", -20, "CFD"])
+    if holdings_snapshot:
+        holdings.append(
+            ["Snapshot Date", "Direction", "Value in USD", "Type", "Open Rate", "Current Rate"]
+        )
+        holdings.append([datetime(2024, 1, 6), "Long", 120, "Stocks", 100, 120])
+        holdings.append([datetime(2024, 1, 6), "Short", -60, "CFD", 120, 100])
+    else:
+        holdings.append(["Direction", "Value in USD", "Type"])
+        holdings.append(["Long", 80, "Stocks"])
+        holdings.append(["Short", -20, "CFD"])
     output = BytesIO()
     workbook.save(output)
     workbook.close()
@@ -127,9 +134,34 @@ class AccountStatementTest(unittest.TestCase):
         self.assertEqual(analysis.dividends, 2)
         self.assertEqual(analysis.fees, -1)
         self.assertEqual(analysis.net_external_flows, 0)
+        self.assertEqual(analysis.estimated_beginning_equity, 150)
+        self.assertEqual(analysis.estimated_ending_equity, 156)
+        self.assertEqual(analysis.estimated_total_profit_loss, 6)
+        self.assertAlmostEqual(analysis.estimated_roi, 0.04)
+        self.assertAlmostEqual(analysis.estimated_modified_dietz_return, 0.04)
+        self.assertEqual(analysis.holdings_snapshot_count, 0)
+        self.assertTrue(analysis.valuation_warnings)
         self.assertEqual(
             [(point.day.day, point.cumulative_profit_loss) for point in analysis.daily_performance],
             [(7, 5), (8, 7), (9, 6)],
+        )
+
+    def test_date_range_estimates_unrealized_performance_from_holdings_snapshot(self):
+        analysis = analyze_statement_range(
+            analysis_workbook(holdings_snapshot=True),
+            datetime(2024, 1, 7).date(),
+            datetime(2024, 1, 9).date(),
+        )
+
+        self.assertAlmostEqual(analysis.estimated_beginning_equity, 175.6)
+        self.assertAlmostEqual(analysis.estimated_ending_equity, 168.8)
+        self.assertAlmostEqual(analysis.estimated_total_profit_loss, -6.8)
+        self.assertAlmostEqual(analysis.estimated_roi, -6.8 / 175.6)
+        self.assertEqual(analysis.holdings_snapshot_count, 1)
+        self.assertEqual(analysis.max_boundary_anchor_distance_days, 2)
+        self.assertEqual(
+            [round(point.estimated_cumulative_profit_loss or 0, 2) for point in analysis.daily_performance],
+            [5.0, 0.6, -6.8],
         )
 
     def test_date_range_validates_order_and_statement_boundaries(self):
