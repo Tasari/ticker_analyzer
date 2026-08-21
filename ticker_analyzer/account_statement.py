@@ -111,6 +111,7 @@ class StatementAnalysis:
 class DailyPerformancePoint:
     day: date
     cumulative_profit_loss: float
+    estimated_cumulative_profit_loss: float | None = None
 
 
 @dataclass(frozen=True)
@@ -123,7 +124,24 @@ class StatementRangeAnalysis:
     fees: float
     other_performance: float
     net_external_flows: float
+    positive_contributions: float
+    estimated_beginning_equity: float
+    estimated_ending_equity: float
+    estimated_total_profit_loss: float
+    estimated_roi: float | None
+    estimated_annualized_roi: float | None
+    estimated_modified_dietz_return: float | None
+    holdings_snapshot_count: int
+    max_boundary_anchor_distance_days: int
+    valuation_warnings: tuple[str, ...]
     daily_performance: tuple[DailyPerformancePoint, ...]
+
+
+@dataclass(frozen=True)
+class _UnrealizedEquityAnchor:
+    day: date
+    unrealized_profit_loss: float
+    exact: bool
 
 
 def inspect_account_statement(payload: bytes) -> StatementOverview:
@@ -346,9 +364,11 @@ def analyze_statement_range(
         raise AccountStatementError("The uploaded file is not a readable XLSX workbook.") from exc
 
     try:
-        if "Account Activity" not in workbook.sheetnames:
+        missing_range_sheets = {"Account Activity", "Holdings"}.difference(workbook.sheetnames)
+        if missing_range_sheets:
             raise AccountStatementError(
-                "Date-range analysis is unavailable: missing sheet Account Activity."
+                "Date-range analysis is unavailable: missing sheet "
+                f"{', '.join(sorted(missing_range_sheets))}."
             )
         summary = _key_value_rows(workbook["Account Summary"])
         statement_start = _required_datetime(summary, "Start Date").date()
@@ -357,7 +377,98 @@ def analyze_statement_range(
             raise AccountStatementError(
                 "The selected dates must stay within the account statement period."
             )
-        return _range_activity_analysis(workbook["Account Activity"], start_date, end_date)
+        activity = workbook["Account Activity"]
+        range_analysis = _range_activity_analysis(activity, start_date, end_date)
+        statement_start_at = _required_datetime(summary, "Start Date")
+        statement_end_at = _required_datetime(summary, "End Date")
+        beginning_realized = _required_number(summary, "Beginning Realized Equity")
+        ending_realized = _required_number(summary, "Ending Realized Equity")
+        beginning_unrealized = _required_number(summary, "Beginning Unrealized Equity")
+        ending_unrealized = _required_number(summary, "Ending Unrealized Equity")
+        anchors, snapshot_count, valuation_warnings = _unrealized_equity_anchors(
+            workbook["Holdings"],
+            statement_start_at.date(),
+            statement_end_at.date(),
+            beginning_unrealized - beginning_realized,
+            ending_unrealized - ending_realized,
+        )
+        start_unrealized, start_distance = _interpolate_unrealized(start_date, anchors)
+        end_unrealized, end_distance = _interpolate_unrealized(end_date, anchors)
+        start_realized = _realized_equity_at(
+            activity,
+            start_date,
+            inclusive=False,
+            fallback=beginning_realized,
+        )
+        end_realized = _realized_equity_at(
+            activity,
+            end_date,
+            inclusive=True,
+            fallback=beginning_realized,
+        )
+        if start_date == statement_start_at.date():
+            start_realized = beginning_realized
+        if end_date == statement_end_at.date():
+            end_realized = ending_realized
+        estimated_beginning_equity = start_realized + start_unrealized
+        estimated_ending_equity = end_realized + end_unrealized
+        cash_flows = tuple(
+            flow
+            for flow in _external_cash_flows(activity)
+            if start_date <= flow.occurred_at.date() <= end_date
+        )
+        positive_contributions = sum(max(flow.amount, 0.0) for flow in cash_flows)
+        estimated_profit_loss = (
+            estimated_ending_equity
+            - estimated_beginning_equity
+            - range_analysis.net_external_flows
+        )
+        invested_capital = estimated_beginning_equity + positive_contributions
+        estimated_roi = estimated_profit_loss / invested_capital if invested_capital > 0 else None
+        period_start_at = datetime.combine(start_date, datetime.min.time())
+        period_end_at = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+        estimated_annualized_roi = annualize_return(
+            estimated_roi,
+            period_start_at,
+            period_end_at,
+        )
+        estimated_dietz = modified_dietz_return(
+            estimated_beginning_equity,
+            estimated_ending_equity,
+            cash_flows,
+            period_start_at,
+            period_end_at,
+        )
+        daily_performance = _estimated_daily_performance(
+            activity,
+            start_date,
+            end_date,
+            start_realized,
+            estimated_beginning_equity,
+            anchors,
+            range_analysis.daily_performance,
+        )
+        return StatementRangeAnalysis(
+            start_date=range_analysis.start_date,
+            end_date=range_analysis.end_date,
+            realized_profit_loss=range_analysis.realized_profit_loss,
+            closed_positions_profit_loss=range_analysis.closed_positions_profit_loss,
+            dividends=range_analysis.dividends,
+            fees=range_analysis.fees,
+            other_performance=range_analysis.other_performance,
+            net_external_flows=range_analysis.net_external_flows,
+            positive_contributions=positive_contributions,
+            estimated_beginning_equity=estimated_beginning_equity,
+            estimated_ending_equity=estimated_ending_equity,
+            estimated_total_profit_loss=estimated_profit_loss,
+            estimated_roi=estimated_roi,
+            estimated_annualized_roi=estimated_annualized_roi,
+            estimated_modified_dietz_return=estimated_dietz,
+            holdings_snapshot_count=snapshot_count,
+            max_boundary_anchor_distance_days=max(start_distance, end_distance),
+            valuation_warnings=valuation_warnings,
+            daily_performance=daily_performance,
+        )
     finally:
         workbook.close()
 
@@ -498,8 +609,179 @@ def _range_activity_analysis(
         fees=fees,
         other_performance=other_performance,
         net_external_flows=net_external_flows,
+        positive_contributions=0.0,
+        estimated_beginning_equity=0.0,
+        estimated_ending_equity=0.0,
+        estimated_total_profit_loss=0.0,
+        estimated_roi=None,
+        estimated_annualized_roi=None,
+        estimated_modified_dietz_return=None,
+        holdings_snapshot_count=0,
+        max_boundary_anchor_distance_days=0,
+        valuation_warnings=(),
         daily_performance=tuple(daily_performance),
     )
+
+
+def _unrealized_equity_anchors(
+    worksheet: Any,
+    statement_start: date,
+    statement_end: date,
+    beginning_unrealized_profit_loss: float,
+    ending_unrealized_profit_loss: float,
+) -> tuple[tuple[_UnrealizedEquityAnchor, ...], int, tuple[str, ...]]:
+    rows = worksheet.iter_rows(values_only=True)
+    header = next(rows, ())
+    columns = {_optional_text(value): index for index, value in enumerate(header)}
+    required = {"Snapshot Date", "Direction", "Open Rate", "Current Rate", "Value in USD"}
+    snapshot_totals: dict[date, float] = {}
+    snapshot_exposure: dict[date, float] = {}
+    covered_exposure: dict[date, float] = {}
+    if required.issubset(columns):
+        for row in rows:
+            snapshot_at = _parse_statement_datetime(_row_value(row, columns["Snapshot Date"]))
+            if snapshot_at is None:
+                continue
+            day = snapshot_at.date()
+            value = abs(_number(_row_value(row, columns["Value in USD"])))
+            snapshot_exposure[day] = snapshot_exposure.get(day, 0.0) + value
+            open_rate = _number(_row_value(row, columns["Open Rate"]))
+            current_rate = _number(_row_value(row, columns["Current Rate"]))
+            if value <= 0 or open_rate <= 0 or current_rate <= 0:
+                continue
+            direction = (
+                _optional_text(_row_value(row, columns["Direction"])) or "Long"
+            ).casefold()
+            if direction == "short":
+                profit_loss = value * (open_rate / current_rate - 1)
+            else:
+                profit_loss = value * (1 - open_rate / current_rate)
+            snapshot_totals[day] = snapshot_totals.get(day, 0.0) + profit_loss
+            covered_exposure[day] = covered_exposure.get(day, 0.0) + value
+
+    anchors_by_day = {
+        day: _UnrealizedEquityAnchor(day, value, exact=False)
+        for day, value in snapshot_totals.items()
+    }
+    anchors_by_day[statement_start] = _UnrealizedEquityAnchor(
+        statement_start,
+        beginning_unrealized_profit_loss,
+        exact=True,
+    )
+    anchors_by_day[statement_end] = _UnrealizedEquityAnchor(
+        statement_end,
+        ending_unrealized_profit_loss,
+        exact=True,
+    )
+    warnings: list[str] = []
+    for day, exposure in snapshot_exposure.items():
+        coverage = covered_exposure.get(day, 0.0) / exposure if exposure > 0 else 1.0
+        if coverage < 0.9:
+            warnings.append(
+                f"Holdings valuation coverage on {day:%Y-%m-%d} was {coverage:.0%}."
+            )
+    intermediate_snapshot_count = sum(
+        day not in {statement_start, statement_end} for day in snapshot_totals
+    )
+    if not intermediate_snapshot_count:
+        warnings.append(
+            "No usable intermediate Holdings snapshots were found; valuation is interpolated "
+            "between the statement boundaries."
+        )
+    return (
+        tuple(sorted(anchors_by_day.values(), key=lambda anchor: anchor.day)),
+        intermediate_snapshot_count,
+        tuple(warnings),
+    )
+
+
+def _interpolate_unrealized(
+    target: date,
+    anchors: tuple[_UnrealizedEquityAnchor, ...],
+) -> tuple[float, int]:
+    before = max((anchor for anchor in anchors if anchor.day <= target), key=lambda item: item.day)
+    after = min((anchor for anchor in anchors if anchor.day >= target), key=lambda item: item.day)
+    nearest_distance = min(abs((target - before.day).days), abs((after.day - target).days))
+    duration = (after.day - before.day).days
+    if duration <= 0:
+        return before.unrealized_profit_loss, nearest_distance
+    elapsed = (target - before.day).days
+    weight = elapsed / duration
+    value = before.unrealized_profit_loss + weight * (
+        after.unrealized_profit_loss - before.unrealized_profit_loss
+    )
+    return value, nearest_distance
+
+
+def _realized_equity_at(
+    worksheet: Any,
+    target: date,
+    *,
+    inclusive: bool,
+    fallback: float,
+) -> float:
+    rows = worksheet.iter_rows(values_only=True)
+    header = next(rows, ())
+    columns = {_optional_text(value): index for index, value in enumerate(header)}
+    if not {"Date", "Realized Equity"}.issubset(columns):
+        return fallback
+    result = fallback
+    for row in rows:
+        occurred_at = _parse_statement_datetime(_row_value(row, columns["Date"]))
+        if occurred_at is None:
+            continue
+        in_boundary = occurred_at.date() <= target if inclusive else occurred_at.date() < target
+        if in_boundary:
+            result = _number(_row_value(row, columns["Realized Equity"]))
+    return result
+
+
+def _estimated_daily_performance(
+    worksheet: Any,
+    start_date: date,
+    end_date: date,
+    starting_realized_equity: float,
+    starting_total_equity: float,
+    anchors: tuple[_UnrealizedEquityAnchor, ...],
+    realized_points: tuple[DailyPerformancePoint, ...],
+) -> tuple[DailyPerformancePoint, ...]:
+    rows = worksheet.iter_rows(values_only=True)
+    header = next(rows, ())
+    columns = {_optional_text(value): index for index, value in enumerate(header)}
+    realized_by_day: dict[date, float] = {}
+    external_flows_by_day: dict[date, float] = {}
+    if {"Date", "Type", "Amount", "Realized Equity", "Realized Equity Change"}.issubset(columns):
+        for row in rows:
+            occurred_at = _parse_statement_datetime(_row_value(row, columns["Date"]))
+            if occurred_at is None or not start_date <= occurred_at.date() <= end_date:
+                continue
+            day = occurred_at.date()
+            realized_by_day[day] = _number(_row_value(row, columns["Realized Equity"]))
+            kind = _optional_text(_row_value(row, columns["Type"])) or ""
+            if _is_external_flow(kind):
+                equity_change = _number(_row_value(row, columns["Realized Equity Change"]))
+                amount = _number(_row_value(row, columns["Amount"]))
+                external_flows_by_day[day] = external_flows_by_day.get(day, 0.0) + (
+                    equity_change if abs(equity_change) >= 0.005 else amount
+                )
+    current_realized = starting_realized_equity
+    cumulative_flows = 0.0
+    points: list[DailyPerformancePoint] = []
+    for point in realized_points:
+        current_realized = realized_by_day.get(point.day, current_realized)
+        cumulative_flows += external_flows_by_day.get(point.day, 0.0)
+        unrealized, _ = _interpolate_unrealized(point.day, anchors)
+        estimated_total_profit_loss = (
+            current_realized + unrealized - starting_total_equity - cumulative_flows
+        )
+        points.append(
+            DailyPerformancePoint(
+                day=point.day,
+                cumulative_profit_loss=point.cumulative_profit_loss,
+                estimated_cumulative_profit_loss=estimated_total_profit_loss,
+            )
+        )
+    return tuple(points)
 
 
 def _is_external_flow(kind: str) -> bool:
