@@ -19,6 +19,8 @@ app.py
 
 Compatibility facades (`ticker_analyzer.engine`, `ticker_analyzer.providers`, `ticker_analyzer.ranking`, `ticker_analyzer.ui.views`, and `ticker_analyzer.ui.actions`) keep existing imports working while resolving their implementations lazily.
 
+`persistence.py` bridges validated session preferences to browser `localStorage` through an inline Streamlit v2 component. The browser snapshot is user-local, versioned, limited to 50 tickers, and expires after 30 days. Analysis results and provider data remain session-only.
+
 ## Module boundaries
 
 - `analysis/` orchestrates a single-company analysis and owns profile selection, aggregation, provenance, and quality evaluation.
