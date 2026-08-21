@@ -107,6 +107,25 @@ class StatementAnalysis:
     warnings: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class DailyPerformancePoint:
+    day: date
+    cumulative_profit_loss: float
+
+
+@dataclass(frozen=True)
+class StatementRangeAnalysis:
+    start_date: date
+    end_date: date
+    realized_profit_loss: float
+    closed_positions_profit_loss: float
+    dividends: float
+    fees: float
+    other_performance: float
+    net_external_flows: float
+    daily_performance: tuple[DailyPerformancePoint, ...]
+
+
 def inspect_account_statement(payload: bytes) -> StatementOverview:
     validate_xlsx_payload(payload)
     try:
@@ -308,6 +327,41 @@ def modified_dietz_return(
     return (ending_value - beginning_value - total_flows) / denominator
 
 
+def analyze_statement_range(
+    payload: bytes,
+    start_date: date,
+    end_date: date,
+) -> StatementRangeAnalysis:
+    validate_xlsx_payload(payload)
+    if end_date < start_date:
+        raise AccountStatementError("The selected end date must not be before the start date.")
+    try:
+        workbook = load_workbook(
+            BytesIO(payload),
+            read_only=True,
+            data_only=True,
+            keep_links=False,
+        )
+    except (BadZipFile, InvalidFileException, KeyError, OSError, ValueError) as exc:
+        raise AccountStatementError("The uploaded file is not a readable XLSX workbook.") from exc
+
+    try:
+        if "Account Activity" not in workbook.sheetnames:
+            raise AccountStatementError(
+                "Date-range analysis is unavailable: missing sheet Account Activity."
+            )
+        summary = _key_value_rows(workbook["Account Summary"])
+        statement_start = _required_datetime(summary, "Start Date").date()
+        statement_end = _required_datetime(summary, "End Date").date()
+        if start_date < statement_start or end_date > statement_end:
+            raise AccountStatementError(
+                "The selected dates must stay within the account statement period."
+            )
+        return _range_activity_analysis(workbook["Account Activity"], start_date, end_date)
+    finally:
+        workbook.close()
+
+
 def annualize_return(
     period_return: float | None,
     start_date: datetime,
@@ -374,6 +428,80 @@ def _external_cash_flows(worksheet: Any) -> tuple[ExternalCashFlow, ...]:
     return tuple(flows)
 
 
+def _range_activity_analysis(
+    worksheet: Any,
+    start_date: date,
+    end_date: date,
+) -> StatementRangeAnalysis:
+    rows = worksheet.iter_rows(values_only=True)
+    header = next(rows, ())
+    columns = {_optional_text(value): index for index, value in enumerate(header)}
+    required = {"Date", "Type", "Amount", "Realized Equity Change"}
+    if not required.issubset(columns):
+        raise AccountStatementError(
+            "Date-range analysis is unavailable: Account Activity has unsupported columns."
+        )
+
+    closed_profit_loss = 0.0
+    dividends = 0.0
+    fees = 0.0
+    other_performance = 0.0
+    net_external_flows = 0.0
+    realized_profit_loss = 0.0
+    daily_changes: dict[date, float] = {}
+    for row in rows:
+        occurred_at = _parse_statement_datetime(_row_value(row, columns["Date"]))
+        if occurred_at is None or not start_date <= occurred_at.date() <= end_date:
+            continue
+        kind = _optional_text(_row_value(row, columns["Type"])) or "Unknown"
+        amount = _number(_row_value(row, columns["Amount"]))
+        equity_change = _number(_row_value(row, columns["Realized Equity Change"]))
+        normalized = kind.casefold()
+        performance_change = 0.0
+        if _is_external_flow(kind):
+            net_external_flows += equity_change if abs(equity_change) >= 0.005 else amount
+        elif normalized == "position closed":
+            closed_profit_loss += equity_change
+            performance_change = equity_change
+        elif normalized == "dividend":
+            dividends += equity_change
+            performance_change = equity_change
+        elif _is_fee_activity(kind):
+            fee_change = amount if abs(amount) >= 0.005 else equity_change
+            fees += fee_change
+            performance_change = equity_change
+        elif not _is_non_performance_activity(kind):
+            other_performance += equity_change
+            performance_change = equity_change
+        if not _is_external_flow(kind) and not _is_non_performance_activity(kind):
+            realized_profit_loss += equity_change
+        if abs(performance_change) >= 0.005:
+            day = occurred_at.date()
+            daily_changes[day] = daily_changes.get(day, 0.0) + performance_change
+
+    cumulative = 0.0
+    daily_performance: list[DailyPerformancePoint] = []
+    current_day = start_date
+    while current_day <= end_date:
+        cumulative += daily_changes.get(current_day, 0.0)
+        daily_performance.append(
+            DailyPerformancePoint(day=current_day, cumulative_profit_loss=cumulative)
+        )
+        current_day += timedelta(days=1)
+    other_performance = realized_profit_loss - closed_profit_loss - dividends - fees
+    return StatementRangeAnalysis(
+        start_date=start_date,
+        end_date=end_date,
+        realized_profit_loss=realized_profit_loss,
+        closed_positions_profit_loss=closed_profit_loss,
+        dividends=dividends,
+        fees=fees,
+        other_performance=other_performance,
+        net_external_flows=net_external_flows,
+        daily_performance=tuple(daily_performance),
+    )
+
+
 def _is_external_flow(kind: str) -> bool:
     normalized = kind.casefold()
     if "fee" in normalized or "mirror" in normalized or "copy" in normalized:
@@ -381,6 +509,21 @@ def _is_external_flow(kind: str) -> bool:
     return (
         normalized in {"deposit", "withdrawal", "transfer in", "transfer out", "internal transfer"}
         or "etoro money" in normalized
+    )
+
+
+def _is_fee_activity(kind: str) -> bool:
+    normalized = kind.casefold()
+    return "fee" in normalized or normalized in {"sdrt", "admin fee"}
+
+
+def _is_non_performance_activity(kind: str) -> bool:
+    normalized = kind.casefold()
+    return (
+        normalized == "open position"
+        or "mirror" in normalized
+        or "copy" in normalized
+        or normalized.startswith("corp action")
     )
 
 

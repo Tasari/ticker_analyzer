@@ -8,7 +8,9 @@ from ticker_analyzer.account_statement import (
     AccountStatementError,
     StatementAnalysis,
     StatementOverview,
+    StatementRangeAnalysis,
     analyze_account_statement,
+    analyze_statement_range,
     inspect_account_statement,
     read_statement_sheet,
 )
@@ -52,91 +54,136 @@ def _render_analysis(payload: bytes) -> None:
         st.error(str(exc))
         return
 
-    st.caption(
-        f"Portfolio snapshot as of {analysis.end_date:%Y-%m-%d}. "
-        "Values come from the statement and are not refreshed with live prices."
+    selected = st.date_input(
+        "Analysis period",
+        value=(analysis.start_date.date(), analysis.end_date.date()),
+        min_value=analysis.start_date.date(),
+        max_value=analysis.end_date.date(),
+        help="Both dates are inclusive and must stay within the uploaded statement.",
     )
+    if not isinstance(selected, tuple) or len(selected) != 2:
+        st.info("Select both a start date and an end date.")
+        return
+    selected_start, selected_end = selected
+    try:
+        range_analysis = analyze_statement_range(payload, selected_start, selected_end)
+    except AccountStatementError as exc:
+        st.error(str(exc))
+        return
+    full_period = (
+        selected_start == analysis.start_date.date()
+        and selected_end == analysis.end_date.date()
+    )
+
+    st.markdown("#### Selected-period performance")
+    if full_period:
+        _render_full_period_performance(analysis)
+    else:
+        _render_partial_period_performance(range_analysis, analysis.currency)
+
+    st.markdown("#### Portfolio snapshot")
+    st.caption(
+        f"Snapshot as of {analysis.end_date:%Y-%m-%d}; it does not move with the selected range "
+        "and is not refreshed with live prices."
+    )
+    snapshot = st.columns(3)
+    snapshot[0].metric("Portfolio value", _money(analysis.ending_unrealized_equity, analysis.currency))
+    snapshot[1].metric("Open positions", f"{analysis.open_positions:,}")
+    snapshot[2].metric(
+        "Gross exposure",
+        _money(analysis.long_exposure + analysis.short_exposure, analysis.currency),
+        help="Absolute exposure from Holdings; this is not the portfolio equity value.",
+    )
+    _render_exposure_and_cash_flows(analysis, selected_start, selected_end)
+
+
+def _render_full_period_performance(analysis: StatementAnalysis) -> None:
     currency = analysis.currency
     primary = st.columns(4)
-    primary[0].metric(
-        "Portfolio value",
-        _money(analysis.ending_unrealized_equity, currency),
-        delta=_money(analysis.total_profit_loss, currency),
-        help="Ending Unrealized Equity. The delta is total P/L after external cash flows.",
-    )
+    primary[0].metric("Total P/L", _money(analysis.total_profit_loss, currency))
     primary[1].metric(
-        "Total P/L",
-        _money(analysis.total_profit_loss, currency),
-        help="Ending equity minus beginning equity and net external cash flows.",
-    )
-    primary[2].metric(
         "ROI",
         _percent(analysis.simple_roi),
         help="Total P/L divided by beginning equity plus positive contributions.",
     )
-    primary[3].metric(
-        "Estimated TWR",
-        _percent(analysis.modified_dietz_return),
-        help=(
-            "Modified Dietz estimate using the exact timing of dated external cash flows. "
-            "It is not a true daily-valued TWR."
-        ),
-    )
-
-    secondary = st.columns(4)
-    secondary[0].metric(
+    primary[2].metric(
         "Annualized ROI",
         _percent(analysis.annualized_roi),
         help="ROI annualized over the exact statement duration (CAGR-style).",
     )
-    secondary[1].metric("Net external flows", _money(analysis.net_external_flows, currency))
-    secondary[2].metric("Open positions", f"{analysis.open_positions:,}")
-    secondary[3].metric(
-        "Gross exposure",
-        _money(analysis.long_exposure + analysis.short_exposure, currency),
-        help="Absolute exposure from Holdings; this is not the portfolio equity value.",
+    primary[3].metric(
+        "Estimated TWR",
+        _percent(analysis.modified_dietz_return),
+        help="Modified Dietz estimate using dated external cash flows; not a true daily-valued TWR.",
     )
-
+    secondary = st.columns(4)
+    secondary[0].metric("Net external flows", _money(analysis.net_external_flows, currency))
+    secondary[1].metric("Closed P/L", _money(analysis.closed_positions_profit_loss, currency))
+    secondary[2].metric("Dividends", _money(analysis.dividends, currency))
+    secondary[3].metric("Fees", _money(analysis.fees, currency))
     for warning in analysis.warnings:
         st.warning(warning)
-
-    st.markdown("#### P/L bridge")
     st.plotly_chart(_profit_loss_waterfall(analysis), width="stretch")
+    st.caption(
+        "Modified Dietz weights each external cash flow by how long it remained invested. "
+        "A true TWR requires portfolio valuations at cash-flow boundaries."
+    )
 
+
+def _render_partial_period_performance(
+    range_analysis: StatementRangeAnalysis,
+    currency: str,
+) -> None:
+    st.warning(
+        "The statement has no historical open-position valuations for these boundaries. "
+        "This range therefore shows realized performance only; total portfolio ROI, CAGR, and TWR are unavailable."
+    )
+    primary = st.columns(3)
+    primary[0].metric("Realized P/L", _money(range_analysis.realized_profit_loss, currency))
+    primary[1].metric("Closed P/L", _money(range_analysis.closed_positions_profit_loss, currency))
+    primary[2].metric("Dividends", _money(range_analysis.dividends, currency))
+    secondary = st.columns(3)
+    secondary[0].metric("Fees", _money(range_analysis.fees, currency))
+    secondary[1].metric("Other realized", _money(range_analysis.other_performance, currency))
+    secondary[2].metric("Net external flows", _money(range_analysis.net_external_flows, currency))
+    st.plotly_chart(_realized_performance_chart(range_analysis, currency), width="stretch")
+
+
+def _render_exposure_and_cash_flows(analysis: StatementAnalysis, selected_start: object, selected_end: object) -> None:
     exposure_col, cash_flow_col = st.columns(2)
     with exposure_col:
-        st.markdown("#### Exposure by asset type")
+        st.markdown("##### Exposure by asset type")
         if analysis.exposure_by_type:
             st.plotly_chart(_exposure_chart(analysis), width="stretch")
             st.caption(
-                f"Long {_money(analysis.long_exposure, currency)} · "
-                f"Short {_money(analysis.short_exposure, currency)}. "
+                f"Long {_money(analysis.long_exposure, analysis.currency)} · "
+                f"Short {_money(analysis.short_exposure, analysis.currency)}. "
                 "Exposure may exceed equity because positions can be leveraged or copied."
             )
         else:
             st.info("No holdings exposure was available in this statement.")
     with cash_flow_col:
-        st.markdown("#### External cash flows")
-        if analysis.cash_flows:
+        st.markdown("##### External cash flows in selected period")
+        flows = [
+            flow
+            for flow in analysis.cash_flows
+            if selected_start <= flow.occurred_at.date() <= selected_end
+        ]
+        if flows:
             cash_flow_frame = pd.DataFrame(
                 [
                     {
                         "Date": flow.occurred_at,
                         "Type": flow.kind,
-                        f"Amount ({currency})": flow.amount,
+                        f"Amount ({analysis.currency})": flow.amount,
                         "Date estimated": flow.estimated_date,
                     }
-                    for flow in analysis.cash_flows
+                    for flow in flows
                 ]
             )
             st.dataframe(cash_flow_frame, width="stretch", hide_index=True)
         else:
-            st.info("No external cash flows occurred during this statement period.")
-
-    st.caption(
-        "Modified Dietz weights each external cash flow by how long it remained invested. "
-        "A true TWR requires portfolio valuations at cash-flow boundaries, which this export does not provide."
-    )
+            st.info("No external cash flows occurred during the selected period.")
 
 
 def _render_data_preview(payload: bytes, overview: StatementOverview) -> None:
@@ -227,6 +274,28 @@ def _exposure_chart(analysis: StatementAnalysis) -> go.Figure:
     figure.update_layout(
         xaxis_title=f"Gross exposure ({analysis.currency})",
         yaxis_title=None,
+        showlegend=False,
+        margin={"l": 20, "r": 20, "t": 20, "b": 20},
+    )
+    return figure
+
+
+def _realized_performance_chart(
+    analysis: StatementRangeAnalysis,
+    currency: str,
+) -> go.Figure:
+    figure = go.Figure(
+        go.Scatter(
+            x=[point.day for point in analysis.daily_performance],
+            y=[point.cumulative_profit_loss for point in analysis.daily_performance],
+            mode="lines",
+            fill="tozeroy",
+            name="Cumulative realized P/L",
+        )
+    )
+    figure.update_layout(
+        xaxis_title=None,
+        yaxis_title=f"Cumulative realized P/L ({currency})",
         showlegend=False,
         margin={"l": 20, "r": 20, "t": 20, "b": 20},
     )
