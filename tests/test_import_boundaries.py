@@ -55,6 +55,16 @@ class ImportBoundaryTest(unittest.TestCase):
         self.assertNotIn("ticker_analyzer.ranking_builder", modules)
         self.assertNotIn("ticker_analyzer.ranking_universe", modules)
 
+    def test_account_statement_view_does_not_load_analysis_or_ranking(self):
+        modules = self.imported_modules(
+            "from ticker_analyzer.ui import views\n"
+            "views.render_account_statement"
+        )
+
+        self.assertNotIn("ticker_analyzer.analysis.engine", modules)
+        self.assertNotIn("ticker_analyzer.ranking_builder", modules)
+        self.assertNotIn("yfinance", modules)
+
 
 if __name__ == "__main__":
     unittest.main()
