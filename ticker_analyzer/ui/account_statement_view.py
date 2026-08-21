@@ -52,7 +52,7 @@ def render_account_statement() -> None:
         st.error(str(exc))
         return
 
-    frame = pd.DataFrame(preview.rows, columns=preview.columns)
+    frame = _arrow_safe_frame(preview.rows, preview.columns)
     st.dataframe(frame, width="stretch", hide_index=True)
     if preview.truncated:
         st.info(
@@ -67,3 +67,15 @@ def _format_period(start: object, end: object) -> str:
     start_text = start.strftime("%Y-%m-%d") if hasattr(start, "strftime") else "?"
     end_text = end.strftime("%Y-%m-%d") if hasattr(end, "strftime") else "?"
     return f"{start_text} – {end_text}"
+
+
+def _arrow_safe_frame(rows: object, columns: object) -> pd.DataFrame:
+    frame = pd.DataFrame(rows, columns=columns)
+    for column in frame.columns:
+        populated = frame[column].dropna()
+        inferred = pd.api.types.infer_dtype(populated, skipna=True)
+        if inferred.startswith("mixed"):
+            frame[column] = frame[column].map(
+                lambda value: "" if value is None else str(value)
+            )
+    return frame

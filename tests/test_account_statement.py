@@ -24,6 +24,9 @@ def statement_workbook(*, include_summary: bool = True) -> bytes:
     holdings.append(["Asset", "Position ID", "Value in USD"])
     holdings.append(["Apple", 123, 10.5])
     holdings.append(["Bitcoin", 456, 20.25])
+    glossary = workbook.create_sheet("Glossary")
+    glossary.append(["Account Statement Glossary"])
+    glossary.append(["Term", "Meaning"])
     output = BytesIO()
     workbook.save(output)
     workbook.close()
@@ -39,7 +42,11 @@ class AccountStatementTest(unittest.TestCase):
         self.assertEqual(overview.end_date, datetime(2023, 8, 31, 23, 59, 59))
         self.assertEqual(
             [(sheet.name, sheet.data_rows, sheet.columns) for sheet in overview.sheets],
-            [("Account Summary", 3, 2), ("Holdings", 2, 3)],
+            [
+                ("Account Summary", 3, 2),
+                ("Holdings", 2, 3),
+                ("Glossary", 1, 2),
+            ],
         )
 
     def test_reads_bounded_sheet_preview(self):
@@ -49,6 +56,12 @@ class AccountStatementTest(unittest.TestCase):
         self.assertEqual(preview.rows, (("Apple", 123, 10.5),))
         self.assertEqual(preview.total_rows, 2)
         self.assertTrue(preview.truncated)
+
+    def test_preview_keeps_columns_missing_from_the_first_row(self):
+        preview = read_statement_sheet(statement_workbook(), "Glossary")
+
+        self.assertEqual(preview.columns, ("Account Statement Glossary", "Column 2"))
+        self.assertEqual(preview.rows, (("Term", "Meaning"),))
 
     def test_rejects_non_xlsx_and_workbook_without_account_summary(self):
         with self.assertRaisesRegex(AccountStatementError, "not an XLSX"):
