@@ -105,17 +105,15 @@ def read_statement_sheet(
         if sheet_name not in workbook.sheetnames:
             raise AccountStatementError(f"Sheet {sheet_name!r} is not present in the workbook.")
         worksheet = workbook[sheet_name]
+        total_rows, column_count = _worksheet_shape(worksheet)
         iterator = worksheet.iter_rows(values_only=True)
         first_row = next(iterator, ())
-        columns = _unique_headers(first_row)
+        padded_header = tuple(first_row) + (None,) * max(column_count - len(first_row), 0)
+        columns = _unique_headers(padded_header)
         rows = tuple(
             tuple(row[index] if index < len(row) else None for index in range(len(columns)))
             for row in islice(iterator, max_rows)
         )
-        if worksheet.max_row:
-            total_rows = max(worksheet.max_row - 1, 0)
-        else:
-            total_rows = len(rows) + sum(1 for _ in iterator)
         return SheetPreview(
             columns=columns,
             rows=rows,
