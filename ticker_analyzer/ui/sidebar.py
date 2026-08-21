@@ -23,6 +23,16 @@ def render_sidebar(config: dict) -> tuple[dict[str, str], bool]:
             width="stretch",
             disabled=not st.session_state.selected_tickers,
         )
+        overwrite_preferences = st.button(
+            "Save / overwrite remembered setup",
+            width="stretch",
+            help=(
+                "Replace the setup remembered in this browser with the current "
+                "companies, active company, page, and analysis ranges."
+            ),
+        )
+        if overwrite_preferences:
+            st.success("Remembered setup overwritten with the current settings.")
         st.divider()
         render_config_editor(config)
     return {

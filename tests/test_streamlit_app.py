@@ -47,6 +47,16 @@ class StreamlitAppTest(unittest.TestCase):
 
         self.assertFalse(app.exception)
         self.assertTrue(any(element.value == "Add a ticker to start the analysis." for element in app.info))
+        overwrite = next(
+            button
+            for button in app.sidebar.button
+            if button.label == "Save / overwrite remembered setup"
+        )
+        overwrite.click().run()
+        self.assertFalse(app.exception)
+        self.assertTrue(
+            any("Remembered setup overwritten" in element.value for element in app.sidebar.success)
+        )
 
     def test_bulk_removes_checked_tickers_and_their_analysis_state(self):
         app = AppTest.from_string(
