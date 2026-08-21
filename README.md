@@ -39,7 +39,7 @@ The suite contains formula-level tests and network-free integration tests for th
 - Industrial, bank, broker, lender, insurance, asset-manager, REIT, and Generic Financial profiles with explicit overrides.
 - Basic charts for adjusted price history, financial trends, assets, and debt.
 - A precomputed multi-market Large Cap Ranking covering 1,000 US companies plus up to 100 companies per configured international market, ordered by scoring-v5 Overall Score.
-- A separate Account Statement tab imports eToro XLSX statements in memory, validates their structure, summarizes the statement period, and previews individual worksheets without persisting the uploaded file.
+- A separate Account Statement area imports eToro XLSX statements in memory without persisting the uploaded file. Its Analysis tab reports the period-end portfolio snapshot, cash-flow-adjusted P/L, ROI, annualized ROI, an explicitly estimated Modified Dietz TWR, a reconciled P/L waterfall, and holdings exposure. Its Data preview tab retains the bounded worksheet viewer.
 
 ## Large Cap Ranking
 

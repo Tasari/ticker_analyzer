@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from itertools import islice
 from typing import Any
@@ -15,6 +15,24 @@ MAX_UNCOMPRESSED_BYTES = 75 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 250
 DEFAULT_PREVIEW_ROWS = 500
 REQUIRED_SHEETS = {"Account Summary"}
+ANALYSIS_SHEETS = {"Account Summary", "Account Activity", "Holdings"}
+EXTERNAL_FLOW_SUMMARY_KEYS = (
+    "Deposits",
+    "Internal Transfer",
+    "Transfer to Trading (from eToro Money)",
+    "Transfer in",
+    "Transfer out",
+    "Withdrawals",
+    "Transfer to eToro Money (from Trading)",
+)
+FEE_SUMMARY_KEYS = (
+    "Overnight Fees",
+    "Opening and Closing Spread",
+    "Admin Fees",
+    "SDRT Charge",
+    "Withdrawal Fees",
+    "Deposit/Withdrawal FX Conversion Fee",
+)
 
 
 class AccountStatementError(ValueError):
@@ -45,6 +63,48 @@ class SheetPreview:
     @property
     def truncated(self) -> bool:
         return self.total_rows > len(self.rows)
+
+
+@dataclass(frozen=True)
+class ExternalCashFlow:
+    occurred_at: datetime
+    amount: float
+    kind: str
+    estimated_date: bool = False
+
+
+@dataclass(frozen=True)
+class ExposureGroup:
+    name: str
+    value: float
+
+
+@dataclass(frozen=True)
+class StatementAnalysis:
+    currency: str
+    start_date: datetime
+    end_date: datetime
+    beginning_realized_equity: float
+    ending_realized_equity: float
+    beginning_unrealized_equity: float
+    ending_unrealized_equity: float
+    net_external_flows: float
+    positive_contributions: float
+    total_profit_loss: float
+    closed_positions_profit_loss: float
+    dividends: float
+    fees: float
+    other_performance: float
+    unrealized_profit_loss_change: float
+    simple_roi: float | None
+    annualized_roi: float | None
+    modified_dietz_return: float | None
+    cash_flows: tuple[ExternalCashFlow, ...]
+    open_positions: int
+    long_exposure: float
+    short_exposure: float
+    exposure_by_type: tuple[ExposureGroup, ...]
+    warnings: tuple[str, ...]
 
 
 def inspect_account_statement(payload: bytes) -> StatementOverview:
@@ -123,6 +183,144 @@ def read_statement_sheet(
         workbook.close()
 
 
+def analyze_account_statement(payload: bytes) -> StatementAnalysis:
+    validate_xlsx_payload(payload)
+    try:
+        workbook = load_workbook(
+            BytesIO(payload),
+            read_only=True,
+            data_only=True,
+            keep_links=False,
+        )
+    except (BadZipFile, InvalidFileException, KeyError, OSError, ValueError) as exc:
+        raise AccountStatementError("The uploaded file is not a readable XLSX workbook.") from exc
+
+    try:
+        missing_sheets = ANALYSIS_SHEETS.difference(workbook.sheetnames)
+        if missing_sheets:
+            raise AccountStatementError(
+                "Portfolio analysis is unavailable: missing sheet "
+                f"{', '.join(sorted(missing_sheets))}."
+            )
+        summary = _key_value_rows(workbook["Account Summary"])
+        start_date = _required_datetime(summary, "Start Date")
+        end_date = _required_datetime(summary, "End Date")
+        if end_date <= start_date:
+            raise AccountStatementError("The statement end date must be after its start date.")
+
+        beginning_realized = _required_number(summary, "Beginning Realized Equity")
+        ending_realized = _required_number(summary, "Ending Realized Equity")
+        beginning_unrealized = _required_number(summary, "Beginning Unrealized Equity")
+        ending_unrealized = _required_number(summary, "Ending Unrealized Equity")
+        summary_external_flows = sum(_number(summary.get(key)) for key in EXTERNAL_FLOW_SUMMARY_KEYS)
+        cash_flows = list(_external_cash_flows(workbook["Account Activity"]))
+        warnings: list[str] = []
+        dated_total = sum(flow.amount for flow in cash_flows)
+        undated_flow = summary_external_flows - dated_total
+        if abs(undated_flow) >= 0.005:
+            cash_flows.append(
+                ExternalCashFlow(
+                    occurred_at=start_date + (end_date - start_date) / 2,
+                    amount=undated_flow,
+                    kind="Undated statement cash flow",
+                    estimated_date=True,
+                )
+            )
+            warnings.append(
+                "Some external cash flows had no matching activity date and were weighted at the period midpoint."
+            )
+
+        cash_flows.sort(key=lambda flow: flow.occurred_at)
+        net_external_flows = sum(flow.amount for flow in cash_flows)
+        positive_contributions = sum(max(flow.amount, 0.0) for flow in cash_flows)
+        total_profit_loss = ending_unrealized - beginning_unrealized - net_external_flows
+        closed_profit_loss = _number(summary.get("Profit or Loss (Closed positions only)"))
+        dividends = _number(summary.get("Dividends")) + _number(summary.get("Dividend CFD"))
+        fees = sum(_number(summary.get(key)) for key in FEE_SUMMARY_KEYS)
+        unrealized_change = (
+            ending_unrealized - ending_realized
+        ) - (beginning_unrealized - beginning_realized)
+        other_performance = total_profit_loss - closed_profit_loss - dividends - fees - unrealized_change
+
+        invested_capital = beginning_unrealized + positive_contributions
+        simple_roi = total_profit_loss / invested_capital if invested_capital > 0 else None
+        annualized_roi = annualize_return(simple_roi, start_date, end_date)
+        dietz = modified_dietz_return(
+            beginning_unrealized,
+            ending_unrealized,
+            cash_flows,
+            start_date,
+            end_date,
+        )
+        open_positions, long_exposure, short_exposure, exposure_by_type = _holdings_exposure(
+            workbook["Holdings"]
+        )
+        return StatementAnalysis(
+            currency=_optional_text(summary.get("Currency")) or "USD",
+            start_date=start_date,
+            end_date=end_date,
+            beginning_realized_equity=beginning_realized,
+            ending_realized_equity=ending_realized,
+            beginning_unrealized_equity=beginning_unrealized,
+            ending_unrealized_equity=ending_unrealized,
+            net_external_flows=net_external_flows,
+            positive_contributions=positive_contributions,
+            total_profit_loss=total_profit_loss,
+            closed_positions_profit_loss=closed_profit_loss,
+            dividends=dividends,
+            fees=fees,
+            other_performance=other_performance,
+            unrealized_profit_loss_change=unrealized_change,
+            simple_roi=simple_roi,
+            annualized_roi=annualized_roi,
+            modified_dietz_return=dietz,
+            cash_flows=tuple(cash_flows),
+            open_positions=open_positions,
+            long_exposure=long_exposure,
+            short_exposure=short_exposure,
+            exposure_by_type=exposure_by_type,
+            warnings=tuple(warnings),
+        )
+    finally:
+        workbook.close()
+
+
+def modified_dietz_return(
+    beginning_value: float,
+    ending_value: float,
+    cash_flows: list[ExternalCashFlow] | tuple[ExternalCashFlow, ...],
+    start_date: datetime,
+    end_date: datetime,
+) -> float | None:
+    duration = (end_date - start_date).total_seconds()
+    if duration <= 0:
+        return None
+    weighted_flows = 0.0
+    total_flows = 0.0
+    for flow in cash_flows:
+        remaining = (end_date - flow.occurred_at).total_seconds()
+        weight = min(max(remaining / duration, 0.0), 1.0)
+        weighted_flows += weight * flow.amount
+        total_flows += flow.amount
+    denominator = beginning_value + weighted_flows
+    if denominator <= 0:
+        return None
+    return (ending_value - beginning_value - total_flows) / denominator
+
+
+def annualize_return(
+    period_return: float | None,
+    start_date: datetime,
+    end_date: datetime,
+) -> float | None:
+    if period_return is None or period_return <= -1:
+        return None
+    years = (end_date - start_date).total_seconds() / timedelta(days=365.2425).total_seconds()
+    if years <= 0:
+        return None
+    return (1 + period_return) ** (1 / years) - 1
+
+
 def validate_xlsx_payload(payload: bytes) -> None:
     if not payload:
         raise AccountStatementError("The uploaded file is empty.")
@@ -148,6 +346,110 @@ def _key_value_rows(worksheet: Any) -> dict[str, Any]:
         if key:
             values[key] = row[1]
     return values
+
+
+def _external_cash_flows(worksheet: Any) -> tuple[ExternalCashFlow, ...]:
+    rows = worksheet.iter_rows(values_only=True)
+    header = next(rows, ())
+    columns = {_optional_text(value): index for index, value in enumerate(header)}
+    required = {"Date", "Type", "Amount"}
+    if not required.issubset(columns):
+        return ()
+    flows: list[ExternalCashFlow] = []
+    equity_change_index = columns.get("Realized Equity Change")
+    for row in rows:
+        kind = _optional_text(_row_value(row, columns["Type"]))
+        if not kind or not _is_external_flow(kind):
+            continue
+        occurred_at = _parse_statement_datetime(_row_value(row, columns["Date"]))
+        if occurred_at is None:
+            continue
+        amount = _number(_row_value(row, columns["Amount"]))
+        if equity_change_index is not None:
+            equity_change = _number(_row_value(row, equity_change_index))
+            if abs(equity_change) >= 0.005:
+                amount = equity_change
+        if abs(amount) >= 0.005:
+            flows.append(ExternalCashFlow(occurred_at=occurred_at, amount=amount, kind=kind))
+    return tuple(flows)
+
+
+def _is_external_flow(kind: str) -> bool:
+    normalized = kind.casefold()
+    if "fee" in normalized or "mirror" in normalized or "copy" in normalized:
+        return False
+    return (
+        normalized in {"deposit", "withdrawal", "transfer in", "transfer out", "internal transfer"}
+        or "etoro money" in normalized
+    )
+
+
+def _holdings_exposure(
+    worksheet: Any,
+) -> tuple[int, float, float, tuple[ExposureGroup, ...]]:
+    rows = worksheet.iter_rows(values_only=True)
+    header = next(rows, ())
+    columns = {_optional_text(value): index for index, value in enumerate(header)}
+    required = {"Direction", "Value in USD"}
+    if not required.issubset(columns):
+        return 0, 0.0, 0.0, ()
+    positions = 0
+    long_exposure = 0.0
+    short_exposure = 0.0
+    by_type: dict[str, float] = {}
+    type_index = columns.get("Type")
+    for row in rows:
+        raw_value = _row_value(row, columns["Value in USD"])
+        if raw_value is None:
+            continue
+        exposure = abs(_number(raw_value))
+        direction = (_optional_text(_row_value(row, columns["Direction"])) or "Long").casefold()
+        asset_type = (
+            _optional_text(_row_value(row, type_index)) if type_index is not None else None
+        ) or "Unknown"
+        positions += 1
+        if direction == "short":
+            short_exposure += exposure
+        else:
+            long_exposure += exposure
+        by_type[asset_type] = by_type.get(asset_type, 0.0) + exposure
+    groups = tuple(
+        ExposureGroup(name=name, value=value)
+        for name, value in sorted(by_type.items(), key=lambda item: item[1], reverse=True)
+    )
+    return positions, long_exposure, short_exposure, groups
+
+
+def _row_value(row: tuple[Any, ...], index: int) -> Any:
+    return row[index] if index < len(row) else None
+
+
+def _required_datetime(summary: dict[str, Any], key: str) -> datetime:
+    value = _parse_statement_datetime(summary.get(key))
+    if value is None:
+        raise AccountStatementError(f"Portfolio analysis is unavailable: missing {key}.")
+    return value
+
+
+def _required_number(summary: dict[str, Any], key: str) -> float:
+    if summary.get(key) is None:
+        raise AccountStatementError(f"Portfolio analysis is unavailable: missing {key}.")
+    return _number(summary[key])
+
+
+def _number(value: Any) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = _optional_text(value)
+    if not text or text == "-":
+        return 0.0
+    negative = text.startswith("(") and text.endswith(")")
+    normalized = text.strip("()").replace(",", "").replace("$", "")
+    try:
+        parsed = float(normalized)
+    except ValueError:
+        return 0.0
+    return -parsed if negative else parsed
 
 
 def _worksheet_shape(worksheet: Any) -> tuple[int, int]:

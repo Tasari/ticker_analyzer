@@ -67,7 +67,7 @@ class StreamlitAppTest(unittest.TestCase):
         app.run()
 
         self.assertFalse(app.exception)
-        self.assertEqual(app.subheader[0].value, "Account Statement Import")
+        self.assertEqual(app.subheader[0].value, "Account Statement")
         self.assertEqual(app.file_uploader[0].label, "Account statement")
         self.assertTrue(any("Choose an eToro" in element.value for element in app.info))
 
