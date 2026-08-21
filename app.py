@@ -12,9 +12,9 @@ def main() -> None:
     st.title("Stock Analyzer")
     st.caption("Rule-based stock analysis with source provenance and point-in-time safeguards. This is not financial advice.")
 
-    if not hydrate_browser_state(st.session_state):
-        st.caption("Restoring your saved companies and preferences...")
-        st.stop()
+    browser_state_ready = hydrate_browser_state(st.session_state)
+    if not browser_state_ready:
+        st.caption("Restoring your saved companies and preferences in the background...")
     initialize_state()
 
     try:
@@ -30,7 +30,7 @@ def main() -> None:
         config = load_config()
         ranges, analyze_clicked = views.render_sidebar(config)
 
-        if analyze_clicked or not st.session_state.analysis_results:
+        if analyze_clicked or (browser_state_ready and not st.session_state.analysis_results):
             with st.spinner("Fetching market and financial data..."):
                 st.session_state.analysis_results, st.session_state.analysis_errors = analyze_selected_tickers(
                     st.session_state.selected_tickers,
@@ -44,7 +44,9 @@ def main() -> None:
         views.render_analysis_errors(st.session_state.analysis_errors)
         results = st.session_state.analysis_results
         if not results:
-            if st.session_state.selected_tickers:
+            if not browser_state_ready and st.session_state.selected_tickers:
+                st.info("Saved preferences are still loading. You can continue or click Analyze now.")
+            elif st.session_state.selected_tickers:
                 st.error("No selected ticker could be analyzed.")
             else:
                 st.info("Add a ticker to start the analysis.")
