@@ -12,7 +12,7 @@ import streamlit as st
 PERSISTENCE_VERSION = 1
 PERSISTENCE_TTL = timedelta(days=30)
 STORAGE_KEY = "ticker_analyzer.preferences.v1"
-VALID_PAGES = {"Stock Analyzer", "Large Cap Ranking"}
+VALID_PAGES = {"Stock Analyzer", "Large Cap Ranking", "Account Statement"}
 VALID_RANGES = {"1Y", "2Y", "3Y"}
 RANGE_STATE_KEYS = {
     "Growth": "growth_range",

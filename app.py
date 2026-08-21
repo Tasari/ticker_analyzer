@@ -18,10 +18,17 @@ def main() -> None:
     initialize_state()
 
     try:
-        page = st.sidebar.radio("View", ["Stock Analyzer", "Large Cap Ranking"], key="page")
+        page = st.sidebar.radio(
+            "View",
+            ["Stock Analyzer", "Large Cap Ranking", "Account Statement"],
+            key="page",
+        )
         st.sidebar.caption("This browser remembers your companies and ranges for 30 days.")
         if page == "Large Cap Ranking":
             views.render_large_cap_ranking()
+            return
+        if page == "Account Statement":
+            views.render_account_statement()
             return
 
         from ticker_analyzer.config import load_config

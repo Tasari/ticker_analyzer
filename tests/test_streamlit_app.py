@@ -60,6 +60,17 @@ class StreamlitAppTest(unittest.TestCase):
             any("Remembered setup overwritten" in element.value for element in app.sidebar.success)
         )
 
+    def test_account_statement_page_renders_uploader_without_market_fetch(self):
+        app = AppTest.from_file("app.py", default_timeout=10)
+        app.session_state["page"] = "Account Statement"
+
+        app.run()
+
+        self.assertFalse(app.exception)
+        self.assertEqual(app.subheader[0].value, "Account Statement Import")
+        self.assertEqual(app.file_uploader[0].label, "Account statement")
+        self.assertTrue(any("Choose an eToro" in element.value for element in app.info))
+
     def test_bulk_removes_checked_tickers_and_their_analysis_state(self):
         app = AppTest.from_string(
             textwrap.dedent(
