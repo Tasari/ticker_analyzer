@@ -19,7 +19,7 @@ class StreamlitAppTest(unittest.TestCase):
     def tearDown(self):
         self.browser_storage.stop()
 
-    def test_first_render_waits_for_browser_storage_without_error(self):
+    def test_first_render_does_not_block_on_browser_storage(self):
         imported_persistence = sys.modules.pop("ticker_analyzer.persistence", None)
         try:
             with patch.dict("os.environ", {"TICKER_ANALYZER_DISABLE_BROWSER_STORAGE": ""}):
@@ -30,6 +30,8 @@ class StreamlitAppTest(unittest.TestCase):
 
         self.assertFalse(app.exception)
         self.assertTrue(any("Restoring your saved" in element.value for element in app.caption))
+        self.assertTrue(any(button.label == "Analyze" for button in app.sidebar.button))
+        self.assertTrue(any("click Analyze now" in element.value for element in app.info))
 
     def test_switches_from_ranking_to_empty_analyzer_without_fetching(self):
         app = AppTest.from_file("app.py", default_timeout=10)

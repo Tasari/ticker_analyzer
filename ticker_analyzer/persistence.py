@@ -25,10 +25,14 @@ DISABLE_ENV = "TICKER_ANALYZER_DISABLE_BROWSER_STORAGE"
 _BROWSER_STORAGE = st.components.v2.component(
     "ticker_analyzer_browser_storage",
     html='<span aria-hidden="true"></span>',
-    css=":host { display: none; }",
+    # Keep the host mounted so browsers execute the storage bridge. A display:none
+    # host can be skipped by Streamlit's frontend and leave hydration pending.
+    css=(
+        ":host { display: block; width: 1px; height: 1px; overflow: hidden; "
+        "opacity: 0; pointer-events: none; }"
+    ),
     js="""
         export default function({ parentElement, data, setStateValue }) {
-            parentElement.style.display = "none";
             try {
                 if (data.operation === "load") {
                     const raw = window.localStorage.getItem(data.storageKey);
