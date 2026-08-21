@@ -1,12 +1,36 @@
 from __future__ import annotations
 
+import sys
 import textwrap
 import unittest
+from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
 
 class StreamlitAppTest(unittest.TestCase):
+    def setUp(self):
+        self.browser_storage = patch.dict(
+            "os.environ",
+            {"TICKER_ANALYZER_DISABLE_BROWSER_STORAGE": "1"},
+        )
+        self.browser_storage.start()
+
+    def tearDown(self):
+        self.browser_storage.stop()
+
+    def test_first_render_waits_for_browser_storage_without_error(self):
+        imported_persistence = sys.modules.pop("ticker_analyzer.persistence", None)
+        try:
+            with patch.dict("os.environ", {"TICKER_ANALYZER_DISABLE_BROWSER_STORAGE": ""}):
+                app = AppTest.from_file("app.py", default_timeout=10).run()
+        finally:
+            if imported_persistence is not None:
+                sys.modules["ticker_analyzer.persistence"] = imported_persistence
+
+        self.assertFalse(app.exception)
+        self.assertTrue(any("Restoring your saved" in element.value for element in app.caption))
+
     def test_switches_from_ranking_to_empty_analyzer_without_fetching(self):
         app = AppTest.from_file("app.py", default_timeout=10)
         app.session_state["page"] = "Large Cap Ranking"
@@ -23,6 +47,16 @@ class StreamlitAppTest(unittest.TestCase):
 
         self.assertFalse(app.exception)
         self.assertTrue(any(element.value == "Add a ticker to start the analysis." for element in app.info))
+        overwrite = next(
+            button
+            for button in app.sidebar.button
+            if button.label == "Save / overwrite remembered setup"
+        )
+        overwrite.click().run()
+        self.assertFalse(app.exception)
+        self.assertTrue(
+            any("Remembered setup overwritten" in element.value for element in app.sidebar.success)
+        )
 
     def test_bulk_removes_checked_tickers_and_their_analysis_state(self):
         app = AppTest.from_string(

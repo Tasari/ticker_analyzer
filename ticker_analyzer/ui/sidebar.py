@@ -14,15 +14,25 @@ def render_sidebar(config: dict) -> tuple[dict[str, str], bool]:
         render_ticker_search()
         render_selected_tickers()
         range_options = ["1Y", "2Y", "3Y"]
-        growth_range = st.selectbox("Growth range", range_options, index=1)
-        fundamentals_range = st.selectbox("Fundamentals range", range_options, index=1)
-        value_range = st.selectbox("Value range", range_options, index=1)
+        growth_range = st.selectbox("Growth range", range_options, key="growth_range")
+        fundamentals_range = st.selectbox("Fundamentals range", range_options, key="fundamentals_range")
+        value_range = st.selectbox("Value range", range_options, key="value_range")
         analyze_clicked = st.button(
             "Analyze",
             type="primary",
             width="stretch",
             disabled=not st.session_state.selected_tickers,
         )
+        overwrite_preferences = st.button(
+            "Save / overwrite remembered setup",
+            width="stretch",
+            help=(
+                "Replace the setup remembered in this browser with the current "
+                "companies, active company, page, and analysis ranges."
+            ),
+        )
+        if overwrite_preferences:
+            st.success("Remembered setup overwritten with the current settings.")
         st.divider()
         render_config_editor(config)
     return {
