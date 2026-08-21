@@ -8,13 +8,19 @@ import streamlit as st
 
 def initialize_state() -> None:
     if "selected_tickers" not in st.session_state:
-        st.session_state.selected_tickers = ["AFRM"]
+        st.session_state["selected_tickers"] = ["AFRM"]
     if "analysis_results" not in st.session_state:
-        st.session_state.analysis_results = {}
+        st.session_state["analysis_results"] = {}
     if "analysis_errors" not in st.session_state:
-        st.session_state.analysis_errors = {}
+        st.session_state["analysis_errors"] = {}
     if "active_ticker" not in st.session_state:
-        st.session_state.active_ticker = "AFRM"
+        st.session_state["active_ticker"] = "AFRM"
+    if "growth_range" not in st.session_state:
+        st.session_state["growth_range"] = "2Y"
+    if "fundamentals_range" not in st.session_state:
+        st.session_state["fundamentals_range"] = "2Y"
+    if "value_range" not in st.session_state:
+        st.session_state["value_range"] = "2Y"
 
 
 def remove_tickers_from_state(state: MutableMapping[str, Any], tickers: list[str]) -> None:

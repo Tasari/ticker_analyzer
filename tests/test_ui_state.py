@@ -1,9 +1,20 @@
 import unittest
+from unittest.mock import patch
 
-from ticker_analyzer.ui.state import remove_tickers_from_state
+from ticker_analyzer.ui.state import initialize_state, remove_tickers_from_state
 
 
 class UiStateTest(unittest.TestCase):
+    def test_initialize_state_includes_persisted_range_defaults(self):
+        state = {}
+        with patch("ticker_analyzer.ui.state.st.session_state", state):
+            initialize_state()
+
+        self.assertEqual(state["selected_tickers"], ["AFRM"])
+        self.assertEqual(state["growth_range"], "2Y")
+        self.assertEqual(state["fundamentals_range"], "2Y")
+        self.assertEqual(state["value_range"], "2Y")
+
     def test_removes_multiple_tickers_and_related_session_data(self):
         state = {
             "selected_tickers": ["A", "B", "C"],
