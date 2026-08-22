@@ -14,19 +14,33 @@ from ticker_analyzer.account_statement import (
     inspect_account_statement,
     read_statement_sheet,
 )
+from ticker_analyzer.returns_table import (
+    GrowthPoint,
+    ReturnsRangeAnalysis,
+    ReturnsTable,
+    ReturnsTableError,
+    analyze_returns_range,
+    parse_returns_table,
+)
 
 
 def render_account_statement() -> None:
     st.subheader("Account Statement")
     st.caption(
-        "Upload an eToro XLSX account statement to analyze its period-end portfolio snapshot. "
-        "The file is processed in memory for this session and is not added to the repository."
+        "Upload an eToro XLSX account statement and, optionally, its monthly returns CSV. "
+        "Files are processed in memory for this session and are not added to the repository."
     )
     uploaded = st.file_uploader(
         "Account statement",
         type=["xlsx"],
         accept_multiple_files=False,
         help="Current importer supports eToro account statements up to 10 MB.",
+    )
+    returns_upload = st.file_uploader(
+        "Returns table (optional)",
+        type=["csv"],
+        accept_multiple_files=False,
+        help="Optional eToro monthly returns CSV with Year and Jan through Dec columns.",
     )
     if uploaded is None:
         st.info("Choose an eToro account statement in XLSX format to begin.")
@@ -39,15 +53,27 @@ def render_account_statement() -> None:
         st.error(str(exc))
         return
 
+    returns_table: ReturnsTable | None = None
+    if returns_upload is not None:
+        try:
+            returns_table = parse_returns_table(returns_upload.getvalue())
+        except ReturnsTableError as exc:
+            st.warning(f"Returns table could not be used: {exc} Falling back to statement estimates.")
+        else:
+            st.success(
+                f"Loaded {returns_upload.name}: "
+                f"{returns_table.first_month:%Y-%m} through {returns_table.last_month:%Y-%m}"
+            )
+
     st.success(f"Loaded {uploaded.name}")
     analysis_tab, preview_tab = st.tabs(["Analysis", "Data preview"])
     with analysis_tab:
-        _render_analysis(payload)
+        _render_analysis(payload, returns_table)
     with preview_tab:
         _render_data_preview(payload, overview)
 
 
-def _render_analysis(payload: bytes) -> None:
+def _render_analysis(payload: bytes, returns_table: ReturnsTable | None = None) -> None:
     try:
         analysis = analyze_account_statement(payload)
     except AccountStatementError as exc:
@@ -82,6 +108,16 @@ def _render_analysis(payload: bytes) -> None:
     except AccountStatementError as exc:
         st.error(str(exc))
         return
+    returns_analysis: ReturnsRangeAnalysis | None = None
+    if returns_table is not None:
+        try:
+            returns_analysis = analyze_returns_range(
+                returns_table,
+                selected_start,
+                selected_end,
+            )
+        except ReturnsTableError as exc:
+            st.warning(f"Returns table does not cover this range: {exc} Using statement estimates.")
     full_period = (
         selected_start == statement_start
         and selected_end == statement_end
@@ -89,9 +125,34 @@ def _render_analysis(payload: bytes) -> None:
 
     st.markdown("#### Selected-period performance")
     if full_period:
-        _render_full_period_performance(analysis)
+        _render_full_period_performance(analysis, returns_analysis)
     else:
-        _render_partial_period_performance(range_analysis, analysis.currency)
+        _render_partial_period_performance(
+            range_analysis,
+            analysis.currency,
+            returns_analysis,
+        )
+
+    st.markdown("#### Growth of 10,000")
+    if returns_analysis is not None:
+        st.plotly_chart(_growth_chart(returns_analysis.growth), width="stretch")
+        detail = (
+            "Partial boundary months are geometrically prorated from their monthly return."
+            if returns_analysis.partial_months_estimated
+            else "All selected months use their complete eToro monthly return."
+        )
+        st.caption(
+            f"Based on {returns_analysis.covered_months} monthly return(s) from the imported "
+            f"returns table. {detail}"
+        )
+    else:
+        fallback_growth = _statement_growth(range_analysis)
+        if fallback_growth:
+            st.plotly_chart(_growth_chart(fallback_growth), width="stretch")
+            st.caption(
+                "Based on the statement-derived estimated P/L path, normalized to its Modified "
+                "Dietz return, because no usable returns table covers the selected range."
+            )
 
     st.markdown("#### Portfolio snapshot")
     st.caption(
@@ -109,7 +170,10 @@ def _render_analysis(payload: bytes) -> None:
     _render_exposure_and_cash_flows(analysis, selected_start, selected_end)
 
 
-def _render_full_period_performance(analysis: StatementAnalysis) -> None:
+def _render_full_period_performance(
+    analysis: StatementAnalysis,
+    returns_analysis: ReturnsRangeAnalysis | None = None,
+) -> None:
     currency = analysis.currency
     primary = st.columns(4)
     primary[0].metric("Total P/L", _money(analysis.total_profit_loss, currency))
@@ -118,16 +182,28 @@ def _render_full_period_performance(analysis: StatementAnalysis) -> None:
         _percent(analysis.simple_roi),
         help="Total P/L divided by beginning equity plus positive contributions.",
     )
-    primary[2].metric(
-        "Annualized ROI",
-        _percent(analysis.annualized_roi),
-        help="ROI annualized over the exact statement duration (CAGR-style).",
-    )
-    primary[3].metric(
-        "Estimated TWR",
-        _percent(analysis.modified_dietz_return),
-        help="Modified Dietz estimate using dated external cash flows; not a true daily-valued TWR.",
-    )
+    if returns_analysis is not None:
+        primary[2].metric(
+            "Returns-table CAGR",
+            _percent(returns_analysis.annualized_return),
+            help="The imported time-weighted return annualized over the selected period.",
+        )
+        primary[3].metric(
+            "Returns-table TWR",
+            _percent(returns_analysis.period_return),
+            help="Geometrically compounded monthly eToro returns.",
+        )
+    else:
+        primary[2].metric(
+            "Annualized ROI",
+            _percent(analysis.annualized_roi),
+            help="ROI annualized over the exact statement duration (CAGR-style).",
+        )
+        primary[3].metric(
+            "Estimated TWR",
+            _percent(analysis.modified_dietz_return),
+            help="Modified Dietz estimate using dated external cash flows; not a true daily-valued TWR.",
+        )
     secondary = st.columns(4)
     secondary[0].metric("Net external flows", _money(analysis.net_external_flows, currency))
     secondary[1].metric("Closed P/L", _money(analysis.closed_positions_profit_loss, currency))
@@ -136,37 +212,62 @@ def _render_full_period_performance(analysis: StatementAnalysis) -> None:
     for warning in analysis.warnings:
         st.warning(warning)
     st.plotly_chart(_profit_loss_waterfall(analysis), width="stretch")
-    st.caption(
-        "Modified Dietz weights each external cash flow by how long it remained invested. "
-        "A true TWR requires portfolio valuations at cash-flow boundaries."
-    )
+    if returns_analysis is not None:
+        st.caption(
+            "The imported TWR geometrically compounds eToro monthly returns and supersedes "
+            "the statement-only Modified Dietz estimate for this range."
+        )
+    else:
+        st.caption(
+            "Modified Dietz weights each external cash flow by how long it remained invested. "
+            "A true TWR requires portfolio valuations at cash-flow boundaries."
+        )
 
 
 def _render_partial_period_performance(
     range_analysis: StatementRangeAnalysis,
     currency: str,
+    returns_analysis: ReturnsRangeAnalysis | None = None,
 ) -> None:
-    st.info(
-        "Estimated total-return metrics combine exact Account Activity with interpolated "
-        "unrealized P/L from eToro Holdings snapshots. They are directional estimates, "
-        "not exact historical portfolio valuations."
-    )
+    if returns_analysis is not None:
+        st.info(
+            "TWR and CAGR use the imported eToro monthly returns. P/L, ROI, and boundary equity "
+            "still combine exact Account Activity with interpolated Holdings valuations."
+        )
+    else:
+        st.info(
+            "Estimated total-return metrics combine exact Account Activity with interpolated "
+            "unrealized P/L from eToro Holdings snapshots. They are directional estimates, "
+            "not exact historical portfolio valuations."
+        )
     estimated = st.columns(4)
     estimated[0].metric(
         "Estimated total P/L",
         _money(range_analysis.estimated_total_profit_loss, currency),
     )
     estimated[1].metric("Estimated ROI", _percent(range_analysis.estimated_roi))
-    estimated[2].metric(
-        "Estimated annualized ROI",
-        _percent(range_analysis.estimated_annualized_roi),
-        help="Estimated ROI annualized over the inclusive selected period (CAGR-style).",
-    )
-    estimated[3].metric(
-        "Estimated TWR",
-        _percent(range_analysis.estimated_modified_dietz_return),
-        help="Modified Dietz estimate using exact dated external cash flows.",
-    )
+    if returns_analysis is not None:
+        estimated[2].metric(
+            "Returns-table CAGR",
+            _percent(returns_analysis.annualized_return),
+            help="The imported time-weighted return annualized over the selected period.",
+        )
+        estimated[3].metric(
+            "Returns-table TWR",
+            _percent(returns_analysis.period_return),
+            help="Geometrically compounded monthly eToro returns.",
+        )
+    else:
+        estimated[2].metric(
+            "Estimated annualized ROI",
+            _percent(range_analysis.estimated_annualized_roi),
+            help="Estimated ROI annualized over the inclusive selected period (CAGR-style).",
+        )
+        estimated[3].metric(
+            "Estimated TWR",
+            _percent(range_analysis.estimated_modified_dietz_return),
+            help="Modified Dietz estimate using exact dated external cash flows.",
+        )
     st.caption(
         f"Estimated equity: {_money(range_analysis.estimated_beginning_equity, currency)} "
         f"→ {_money(range_analysis.estimated_ending_equity, currency)}. "
@@ -347,6 +448,42 @@ def _realized_performance_chart(
         xaxis_title=None,
         yaxis_title=f"Cumulative P/L ({currency})",
         showlegend=True,
+        margin={"l": 20, "r": 20, "t": 20, "b": 20},
+    )
+    return figure
+
+
+def _statement_growth(analysis: StatementRangeAnalysis) -> tuple[GrowthPoint, ...]:
+    target_return = analysis.estimated_modified_dietz_return
+    if target_return is None:
+        return ()
+    final_profit_loss = analysis.estimated_total_profit_loss
+    scale = target_return / final_profit_loss if abs(final_profit_loss) >= 0.005 else 0.0
+    growth = [GrowthPoint(day=analysis.start_date, value=10_000.0)]
+    growth.extend(
+        GrowthPoint(
+            day=point.day,
+            value=10_000 * (1 + (point.estimated_cumulative_profit_loss or 0) * scale),
+        )
+        for point in analysis.daily_performance
+    )
+    return tuple(growth)
+
+
+def _growth_chart(points: tuple[GrowthPoint, ...]) -> go.Figure:
+    figure = go.Figure(
+        go.Scatter(
+            x=[point.day for point in points],
+            y=[point.value for point in points],
+            mode="lines+markers",
+            name="Portfolio value",
+            hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.2f}<extra></extra>",
+        )
+    )
+    figure.update_layout(
+        xaxis_title=None,
+        yaxis_title="Value of initial 10,000",
+        showlegend=False,
         margin={"l": 20, "r": 20, "t": 20, "b": 20},
     )
     return figure
