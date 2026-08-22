@@ -68,7 +68,10 @@ class StreamlitAppTest(unittest.TestCase):
 
         self.assertFalse(app.exception)
         self.assertEqual(app.subheader[0].value, "Account Statement")
-        self.assertEqual(app.file_uploader[0].label, "Account statement")
+        self.assertEqual(
+            [uploader.label for uploader in app.file_uploader],
+            ["Account statement", "Returns table (optional)"],
+        )
         self.assertTrue(any("Choose an eToro" in element.value for element in app.info))
 
     def test_bulk_removes_checked_tickers_and_their_analysis_state(self):
