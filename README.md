@@ -123,4 +123,15 @@ Metric IDs referring to a historical median use `selected_median`, because the c
 
 See `docs/ARCHITECTURE.md` for runtime boundaries, lazy-loading rules, and resource invariants.
 
+## Scoring Robustness Audit
+
+Run the deterministic metric-dropout audit to measure how sensitive scores and ranks are to missing data. It removes the rounded metric count corresponding to 10% and 20% of each company's available metrics from positive-weight groups, recomputes tab coverage, Data Quality, overall score, and rating gates, then reports Spearman rank correlation, rating flips, unavailable scores, and rank movement for the whole sample and Industrial/Financial segments. The optional sample output makes later runs network-free:
+
+```powershell
+python scripts/audit_scoring_robustness.py --live --trials 100 --output robustness_report.json --sample-output robustness_sample.json
+python scripts/audit_scoring_robustness.py robustness_sample.json --trials 500 --seed 20260822
+```
+
+The compact production ranking does not contain metric-level results and is intentionally rejected by this audit; retaining all metrics for thousands of companies would materially increase its storage and memory footprint.
+
 Production deployments are read-only by default. Set `APP_MODE=production`; only administrators should opt in to `ALLOW_CONFIG_WRITE=true` or `ALLOW_RANKING_REFRESH=true`. Local mode keeps both controls available for development.
