@@ -134,6 +134,8 @@ python scripts/audit_scoring_robustness.py robustness_sample.json --trials 500 -
 
 The audit compares the production renormalization baseline against two explicitly experimental policies using identical dropout samples: a bounded coverage penalty and coverage-based rating caps. Their parameters, results, monotonicity diagnostics, and deltas from baseline are recorded in the JSON report and never modify the production scoring configuration. The baseline remains available under the original `dropout_rates.<rate>.segments` path for compatibility; the complete comparison is under `dropout_rates.<rate>.policy_comparison`.
 
+The latest committed 500-trial comparison is summarized in [docs/audits/missing_data_policy_benchmark_2026-08-22.md](docs/audits/missing_data_policy_benchmark_2026-08-22.md).
+
 The compact production ranking does not contain metric-level results and is intentionally rejected by this audit; retaining all metrics for thousands of companies would materially increase its storage and memory footprint.
 
 Production deployments are read-only by default. Set `APP_MODE=production`; only administrators should opt in to `ALLOW_CONFIG_WRITE=true` or `ALLOW_RANKING_REFRESH=true`. Local mode keeps both controls available for development.
