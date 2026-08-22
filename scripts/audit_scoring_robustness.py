@@ -8,7 +8,11 @@ from typing import Any
 
 import yfinance as yf
 from ticker_analyzer import analyze_ticker, load_config
-from ticker_analyzer.robustness import audit_scoring_robustness, compact_analysis_result
+from ticker_analyzer.robustness import (
+    EXPERIMENTAL_MISSING_DATA_POLICIES,
+    audit_scoring_robustness,
+    compact_analysis_result,
+)
 
 DEFAULT_TICKERS = [
     "AAPL", "MSFT", "GOOGL", "META", "NVDA", "IBM", "CVX", "XOM", "T", "VZ",
@@ -34,7 +38,14 @@ def main() -> None:
     )
     parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--trials", type=int, default=100)
-    parser.add_argument("--rates", type=float, nargs="+", default=[0.10, 0.20])
+    parser.add_argument("--rates", type=float, nargs="+", default=[0.05, 0.10, 0.15, 0.20, 0.30])
+    parser.add_argument(
+        "--policies",
+        nargs="+",
+        choices=tuple(EXPERIMENTAL_MISSING_DATA_POLICIES),
+        default=list(EXPERIMENTAL_MISSING_DATA_POLICIES),
+        help="Experimental policies to compare; baseline is always required",
+    )
     parser.add_argument("--seed", type=int, default=20260822)
     parser.add_argument("--output", type=Path, default=Path("robustness_report.json"))
     parser.add_argument(
@@ -47,6 +58,8 @@ def main() -> None:
         parser.error("provide exactly one input JSON file or --live")
     if args.workers < 1:
         parser.error("--workers must be positive")
+    if "baseline" not in args.policies:
+        parser.error("--policies must include baseline")
 
     config = load_config()
     failures: list[dict[str, str]] = []
@@ -66,6 +79,7 @@ def main() -> None:
         dropout_rates=tuple(args.rates),
         trials=args.trials,
         seed=args.seed,
+        policies=tuple(args.policies),
     )
     report["run"] = {
         "mode": "live" if args.live else "offline",
@@ -132,13 +146,19 @@ def _write_json(path: Path, payload: Any) -> None:
 def _console_summary(report: dict[str, Any]) -> dict[str, Any]:
     return {
         rate: {
-            segment: {
-                "spearman_mean": values.get("spearman_mean"),
-                "rating_flip_pct_mean": values.get("rating_flip_pct_mean"),
-                "score_unavailable_pct_mean": values.get("score_unavailable_pct_mean"),
+            policy: {
+                segment: {
+                    "spearman_mean": values.get("spearman_mean"),
+                    "rating_flip_pct_mean": values.get("rating_flip_pct_mean"),
+                    "proper_rating_upgrade_pct_mean": values.get(
+                        "proper_rating_upgrade_pct_mean"
+                    ),
+                    "insufficient_data_pct_mean": values.get("insufficient_data_pct_mean"),
+                }
+                for segment, values in policy_report.get("segments", {}).items()
+                if segment in {"All", "Industrial", "Financial"}
             }
-            for segment, values in rate_report.get("segments", {}).items()
-            if segment in {"All", "Industrial", "Financial"}
+            for policy, policy_report in rate_report.get("policy_comparison", {}).items()
         }
         for rate, rate_report in report.get("dropout_rates", {}).items()
     }

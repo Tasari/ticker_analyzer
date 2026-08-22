@@ -125,12 +125,14 @@ See `docs/ARCHITECTURE.md` for runtime boundaries, lazy-loading rules, and resou
 
 ## Scoring Robustness Audit
 
-Run the deterministic metric-dropout audit to measure how sensitive scores and ranks are to missing data. It removes the rounded metric count corresponding to 10% and 20% of each company's available metrics from positive-weight groups, recomputes tab coverage, Data Quality, overall score, and rating gates, then reports Spearman rank correlation, rating flips, unavailable scores, and rank movement for the whole sample and Industrial/Financial segments. The optional sample output makes later runs network-free:
+Run the deterministic metric-dropout audit to measure how sensitive scores and ranks are to missing data. By default it removes 5%, 10%, 15%, 20%, and 30% of each company's available metrics from positive-weight groups, recomputes tab coverage, Data Quality, overall score, and rating gates, then reports Spearman rank correlation, rating upgrades/downgrades, unavailable scores, score increases, and rank movement for the whole sample and Industrial/Financial segments. The optional sample output makes later runs network-free:
 
 ```powershell
 python scripts/audit_scoring_robustness.py --live --trials 100 --output robustness_report.json --sample-output robustness_sample.json
 python scripts/audit_scoring_robustness.py robustness_sample.json --trials 500 --seed 20260822
 ```
+
+The audit compares the production renormalization baseline against two explicitly experimental policies using identical dropout samples: a bounded coverage penalty and coverage-based rating caps. Their parameters, results, monotonicity diagnostics, and deltas from baseline are recorded in the JSON report and never modify the production scoring configuration. The baseline remains available under the original `dropout_rates.<rate>.segments` path for compatibility; the complete comparison is under `dropout_rates.<rate>.policy_comparison`.
 
 The compact production ranking does not contain metric-level results and is intentionally rejected by this audit; retaining all metrics for thousands of companies would materially increase its storage and memory footprint.
 

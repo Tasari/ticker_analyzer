@@ -13,6 +13,7 @@ from ticker_analyzer.data_quality import calculate_data_quality
 from ticker_analyzer.domain import MetricResult
 from ticker_analyzer.ratings import calculate_rating_decision
 from ticker_analyzer.robustness import (
+    EXPERIMENTAL_MISSING_DATA_POLICIES,
     RobustnessAuditError,
     audit_scoring_robustness,
     compact_analysis_result,
@@ -95,6 +96,16 @@ class RobustnessAuditTest(unittest.TestCase):
         sensitive = first["dropout_rates"]["20%"]["most_sensitive_dropped_metrics"][0]
         self.assertIn("score_unavailable_pct", sensitive)
         self.assertIn("rating_flip_pct", sensitive)
+        comparison = first["dropout_rates"]["10%"]["policy_comparison"]
+        self.assertEqual(set(comparison), set(EXPERIMENTAL_MISSING_DATA_POLICIES))
+        self.assertEqual(segments, comparison["baseline"]["segments"])
+        diagnostics = comparison["baseline"]["segments"]["All"]["monotonicity"]
+        self.assertIn("score_increase_events", diagnostics)
+        self.assertIn("proper_rating_upgrade_events", diagnostics)
+        self.assertIn("proper_rating_upgrade_share_pct", diagnostics)
+        deltas = first["dropout_rates"]["10%"]["policy_deltas_vs_baseline"]
+        self.assertEqual(set(deltas), {"coverage_penalty", "coverage_caps"})
+        self.assertIn("proper_rating_upgrade_pct_mean", deltas["coverage_penalty"]["All"])
 
     def test_perturbation_removes_exact_number_and_recomputes_quality(self):
         config = load_config()
@@ -105,6 +116,24 @@ class RobustnessAuditTest(unittest.TestCase):
 
         self.assertEqual(len(changed.dropped_metrics), round(available * 0.2))
         self.assertLess(changed.data_quality, result["data_quality"])
+
+    def test_experimental_policies_use_the_same_dropout_without_changing_production(self):
+        config = load_config()
+        result = analysis("AAA", "Industrial", 30)
+
+        baseline = perturb_analysis(result, config, dropout_rate=0.2, seed=7)
+        penalty = perturb_analysis(
+            result, config, dropout_rate=0.2, seed=7, policy="coverage_penalty"
+        )
+        capped = perturb_analysis(
+            result, config, dropout_rate=0.2, seed=7, policy="coverage_caps"
+        )
+
+        self.assertEqual(baseline.dropped_metrics, penalty.dropped_metrics)
+        self.assertEqual(baseline.dropped_metrics, capped.dropped_metrics)
+        self.assertEqual(baseline.coverage_percentage, penalty.coverage_percentage)
+        self.assertLessEqual(penalty.overall_score, baseline.overall_score)
+        self.assertEqual(capped.overall_score, baseline.overall_score)
 
     def test_compact_result_is_json_safe_and_preserves_metrics(self):
         compact = compact_analysis_result(analysis("AAA", "Industrial"))
@@ -126,6 +155,20 @@ class RobustnessAuditTest(unittest.TestCase):
             audit_scoring_robustness(rows, config, trials=0)
         with self.assertRaisesRegex(ValueError, "dropout"):
             audit_scoring_robustness(rows, config, dropout_rates=(1.0,))
+        with self.assertRaisesRegex(ValueError, "must include baseline"):
+            audit_scoring_robustness(
+                [analysis("AAA", "Industrial"), analysis("BBB", "Industrial")],
+                config,
+                policies=("coverage_penalty",),
+            )
+        with self.assertRaisesRegex(ValueError, "unknown missing-data policy"):
+            perturb_analysis(
+                analysis("AAA", "Industrial"),
+                config,
+                dropout_rate=0.1,
+                seed=1,
+                policy="imaginary",
+            )
 
 
 if __name__ == "__main__":
