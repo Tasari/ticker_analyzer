@@ -19,11 +19,21 @@ class StreamlitAppTest(unittest.TestCase):
     def tearDown(self):
         self.browser_storage.stop()
 
+    def test_site_is_locked_before_application_state_is_loaded(self):
+        app = AppTest.from_file("app.py", default_timeout=10).run()
+
+        self.assertFalse(app.exception)
+        self.assertEqual([field.label for field in app.text_input], ["Password"])
+        self.assertTrue(any(button.label == "Unlock" for button in app.button))
+        self.assertFalse(app.sidebar.radio)
+
     def test_first_render_does_not_block_on_browser_storage(self):
         imported_persistence = sys.modules.pop("ticker_analyzer.persistence", None)
         try:
             with patch.dict("os.environ", {"TICKER_ANALYZER_DISABLE_BROWSER_STORAGE": ""}):
-                app = AppTest.from_file("app.py", default_timeout=10).run()
+                app = AppTest.from_file("app.py", default_timeout=10)
+                app.session_state["_site_access_authenticated"] = True
+                app.run()
         finally:
             if imported_persistence is not None:
                 sys.modules["ticker_analyzer.persistence"] = imported_persistence
@@ -35,6 +45,7 @@ class StreamlitAppTest(unittest.TestCase):
 
     def test_switches_from_ranking_to_empty_analyzer_without_fetching(self):
         app = AppTest.from_file("app.py", default_timeout=10)
+        app.session_state["_site_access_authenticated"] = True
         app.session_state["page"] = "Large Cap Ranking"
 
         app.run()
@@ -62,6 +73,7 @@ class StreamlitAppTest(unittest.TestCase):
 
     def test_account_statement_page_renders_uploader_without_market_fetch(self):
         app = AppTest.from_file("app.py", default_timeout=10)
+        app.session_state["_site_access_authenticated"] = True
         app.session_state["page"] = "Account Statement"
 
         app.run()

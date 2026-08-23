@@ -11,6 +11,14 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+The entire Streamlit UI is protected by a local password gate. No environment variables or Streamlit Secrets are required: `site_access.json` contains only a salted PBKDF2-SHA256 hash, never the plaintext password. To replace the password later, run:
+
+```powershell
+python scripts/set_site_password.py
+```
+
+Use `--generate` to create a strong random password automatically. Authentication lasts for the current Streamlit session, and the sidebar `Lock app` button ends it immediately. This is a lightweight single-password gate for a private app, not a multi-user identity system.
+
 Set `SEC_USER_AGENT` to an application name and contact email (for example `TickerAnalyzer contact@example.com`) to enable SEC company facts as the primary source for US issuers. Without it, the app uses the yfinance fallback and Data Quality records that limitation.
 
 ## Tests
@@ -26,6 +34,7 @@ The suite contains formula-level tests and network-free integration tests for th
 
 ## Features
 
+- Password protection is evaluated before browser preferences or application views are loaded. The repository stores only a salted password hash, and changing it requires no deployment secrets.
 - Search and select any number of tickers supported by `yfinance`; data fetching remains capped at five concurrent workers to avoid provider overload. Successful per-ticker analyses are cached for 15 minutes with a bounded 32-entry cache, so adding companies does not refetch an unchanged comparison without allowing long-lived Streamlit sessions to retain hundreds of full analyses.
 - Selected tickers, the active ticker, analysis ranges, and the last open page are stored in that browser for 30 days. Returning sessions restore those preferences and fetch fresh analysis data; full results are never written to browser storage. Restoration runs in the background and never blocks the analyzer if browser storage is unavailable. The sidebar also provides a one-click action to explicitly overwrite the remembered setup with the current one.
 - Compare selected companies in a Summary view, then inspect each company in detail. Multi-ticker analysis runs ticker fetches concurrently.

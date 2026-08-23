@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "algorithm": "pbkdf2_sha256",
+  "iterations": 310000,
+  "salt": "LUY/TFx1QMKoQoWZjgo5Zw==",
+  "password_hash": "T+K/BZhjQY+jUUn5ySJb0MJtu3u6iaV2bT32r94ZMZ8="
+}

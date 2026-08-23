@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import streamlit as st
-from ticker_analyzer.persistence import hydrate_browser_state, persist_browser_state
-from ticker_analyzer.ui import views
-from ticker_analyzer.ui.state import initialize_state
+from ticker_analyzer.access_control import render_access_gate, render_logout_control
 
 st.set_page_config(page_title="Stock Analyzer", page_icon="chart_with_upwards_trend", layout="wide")
 
 
 def main() -> None:
+    if not render_access_gate():
+        return
+
+    from ticker_analyzer.persistence import hydrate_browser_state, persist_browser_state
+    from ticker_analyzer.ui import views
+    from ticker_analyzer.ui.state import initialize_state
+
     st.title("Stock Analyzer")
     st.caption("Rule-based stock analysis with source provenance and point-in-time safeguards. This is not financial advice.")
 
@@ -16,6 +21,7 @@ def main() -> None:
     if not browser_state_ready:
         st.caption("Restoring your saved companies and preferences in the background...")
     initialize_state()
+    render_logout_control()
 
     try:
         page = st.sidebar.radio(
