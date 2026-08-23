@@ -1,5 +1,8 @@
 # Stock Analyzer
 
+> [!WARNING]
+> **Important disclaimer:** This is a private, experimental research tool—not investment advice or a personalized recommendation. Automated scores and labels such as “Buy” or “Strong Buy” may be incomplete, delayed, inaccurate, or wrong. Investing involves risk, including the possible loss of all capital. Independently verify all information and remain solely responsible for every decision. Read the full [DISCLAIMER.md](DISCLAIMER.md) before using, copying, or distributing the application.
+
 Local Streamlit app for rule-based stock analysis with primary-source provenance and a `yfinance` fallback.
 
 The app is a screening tool, not financial advice. Scores depend on available Yahoo Finance data and the editable local configuration in `metrics_config.json`. Before using, copying, or distributing it, read the full [disclaimer](DISCLAIMER.md).

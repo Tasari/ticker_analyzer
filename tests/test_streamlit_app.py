@@ -46,6 +46,9 @@ class StreamlitAppTest(unittest.TestCase):
 
         self.assertFalse(app.exception)
         self.assertTrue(any("Restoring your saved" in element.value for element in app.caption))
+        self.assertTrue(
+            any("solely responsible" in element.value for element in app.sidebar.warning)
+        )
         self.assertTrue(any(button.label == "Analyze" for button in app.sidebar.button))
         self.assertTrue(any("click Analyze now" in element.value for element in app.info))
 

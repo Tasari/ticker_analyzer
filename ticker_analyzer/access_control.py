@@ -142,11 +142,12 @@ def render_logout_control(state: MutableMapping[str, Any] | None = None) -> None
 
 
 def render_runtime_disclaimer() -> None:
-    with st.sidebar.expander("Important disclaimer"):
-        st.caption(
-            "Automated research tool only — not investment advice or a recommendation. "
-            "Data and calculations may be incomplete or wrong. Investing can result in total loss."
-        )
+    st.sidebar.warning(
+        "**Important disclaimer**\n\n"
+        "Automated research tool only — not investment advice or a recommendation. "
+        "Data and calculations may be incomplete or wrong. Investing can result in total loss. "
+        "You are solely responsible for every decision."
+    )
 
 
 def _derive_password_hash(password: str, salt: bytes, iterations: int) -> bytes:
