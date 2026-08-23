@@ -20,4 +20,6 @@ To calibrate an exported list of API results:
 python scripts/calibrate_scoring.py results.json --output calibration_report_v3.json
 ```
 
+Calibration reports are reproducible generated artifacts and are intentionally ignored rather than committed.
+
 The report includes count, mean, median, standard deviation, percentiles, extrema, percentages at 90/95/100, and every Strong Buy, score ≥90, or confidence ≥90 case.

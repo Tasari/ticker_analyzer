@@ -11,6 +11,8 @@ venv/
 
 .yfinance_cache/
 data/large_cap_ranking_smoke.json
+data/large_cap_ranking_v*.json
 docs/audits/
+calibration_report*.json
 robustness_report*.json
 robustness_sample*.json

@@ -57,7 +57,7 @@ The suite contains formula-level tests and network-free integration tests for th
 
 The ranking universe contains 1,000 US companies, up to 100 China/Hong Kong ADRs, and up to 100 companies from each configured European market available through XTB: Poland, the United Kingdom, Germany, France, Spain, Italy, Portugal, the Netherlands, Belgium, Austria, Switzerland, Denmark, Finland, Norway, and Sweden. Market quotas are selected independently by local market capitalization, avoiding invalid comparisons between unconverted currencies. Nasdaq classifies some Chinese issuers, including FUTU, under Hong Kong, so both country labels belong to the ADR bucket. European market discovery uses the TradingView stock screener because shared Streamlit Cloud IPs are frequently rate-limited by Yahoo; the resulting symbols are mapped to Yahoo tickers for the existing analysis engine. A snapshot or checkpoint missing any configured market is rejected. Each company is analyzed with the same scoring-v5 engine as the single-stock view. Missing data remains `Insufficient Data` and is not replaced with a neutral score. The UI can filter results by country and exchange.
 
-The snapshot is stored in `data/large_cap_ranking_v5.json`. Refresh or resume it with:
+The locally generated snapshot is stored in the ignored `data/large_cap_ranking_v5.json` file. Generated rankings contain real-company model outputs and are intentionally not committed to the public source repository. Refresh or resume it with:
 
 ```powershell
 python scripts/build_large_cap_ranking.py --limit 1000 --market-limit 100 --workers 8 --ranges 3Y --public-fallback
