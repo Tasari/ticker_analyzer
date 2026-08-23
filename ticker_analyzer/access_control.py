@@ -17,6 +17,27 @@ AUTHENTICATED_STATE_KEY = "_site_access_authenticated"
 ALGORITHM = "pbkdf2_sha256"
 DEFAULT_ITERATIONS = 310_000
 MINIMUM_PASSWORD_LENGTH = 12
+DISCLAIMER_ACKNOWLEDGED_STATE_KEY = "_site_access_disclaimer_acknowledged"
+
+DISCLAIMER_TEXT = """
+**Important — read before continuing**
+
+This is a private, experimental research and analytics tool. It is not intended for public
+distribution and does not provide investment, financial, legal, tax, or other professional advice.
+
+- Scores, rankings, labels such as “Buy” or “Strong Buy”, charts, estimates, and other outputs are
+  automated model results for informational and educational use. They are not personalized
+  recommendations, offers, solicitations, or instructions to buy, sell, or hold any instrument.
+- The application does not consider your objectives, financial situation, knowledge, experience,
+  risk tolerance, investment horizon, or ability to bear losses.
+- Data may be incomplete, delayed, inaccurate, or unavailable. Calculations may contain errors and
+  no output is guaranteed to be correct, current, or suitable for any purpose.
+- Past performance and simulated or estimated returns do not predict future results. Investing
+  involves risk, including the possible loss of all invested capital.
+
+Independently verify all information and seek appropriately licensed professional advice where
+needed. You remain solely responsible for your decisions and for the consequences of using this tool.
+"""
 
 
 class AccessConfigError(ValueError):
@@ -89,6 +110,11 @@ def render_access_gate(state: MutableMapping[str, Any] | None = None) -> bool:
 
     st.title("Stock Analyzer")
     st.caption("This application is private. Enter the password to continue.")
+    st.warning(DISCLAIMER_TEXT, icon="⚠️")
+    acknowledged = st.checkbox(
+        "I have read and understand the disclaimer.",
+        key=DISCLAIMER_ACKNOWLEDGED_STATE_KEY,
+    )
     try:
         config = load_access_config()
     except AccessConfigError:
@@ -97,7 +123,7 @@ def render_access_gate(state: MutableMapping[str, Any] | None = None) -> bool:
 
     with st.form("site_access_form"):
         password = st.text_input("Password", type="password", autocomplete="current-password")
-        submitted = st.form_submit_button("Unlock")
+        submitted = st.form_submit_button("Unlock", disabled=not acknowledged)
     if not submitted:
         return False
     if not verify_password(password, config):
@@ -113,6 +139,14 @@ def render_logout_control(state: MutableMapping[str, Any] | None = None) -> None
     if st.sidebar.button("Lock app", key="lock_site_access", use_container_width=True):
         session.pop(AUTHENTICATED_STATE_KEY, None)
         st.rerun()
+
+
+def render_runtime_disclaimer() -> None:
+    with st.sidebar.expander("Important disclaimer"):
+        st.caption(
+            "Automated research tool only — not investment advice or a recommendation. "
+            "Data and calculations may be incomplete or wrong. Investing can result in total loss."
+        )
 
 
 def _derive_password_hash(password: str, salt: bytes, iterations: int) -> bytes:

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import streamlit as st
-from ticker_analyzer.access_control import render_access_gate, render_logout_control
+from ticker_analyzer.access_control import (
+    render_access_gate,
+    render_logout_control,
+    render_runtime_disclaimer,
+)
 
 st.set_page_config(page_title="Stock Analyzer", page_icon="chart_with_upwards_trend", layout="wide")
 
@@ -22,6 +26,7 @@ def main() -> None:
         st.caption("Restoring your saved companies and preferences in the background...")
     initialize_state()
     render_logout_control()
+    render_runtime_disclaimer()
 
     try:
         page = st.sidebar.radio(

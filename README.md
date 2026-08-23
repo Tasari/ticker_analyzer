@@ -2,7 +2,7 @@
 
 Local Streamlit app for rule-based stock analysis with primary-source provenance and a `yfinance` fallback.
 
-The app is a screening tool, not financial advice. Scores depend on available Yahoo Finance data and the editable local configuration in `metrics_config.json`.
+The app is a screening tool, not financial advice. Scores depend on available Yahoo Finance data and the editable local configuration in `metrics_config.json`. Before using, copying, or distributing it, read the full [disclaimer](DISCLAIMER.md).
 
 ## Setup
 

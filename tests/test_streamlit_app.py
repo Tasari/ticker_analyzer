@@ -25,6 +25,12 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertEqual([field.label for field in app.text_input], ["Password"])
         self.assertTrue(any(button.label == "Unlock" for button in app.button))
+        self.assertTrue(any("not personalized" in element.value for element in app.warning))
+        self.assertEqual(
+            [checkbox.label for checkbox in app.checkbox],
+            ["I have read and understand the disclaimer."],
+        )
+        self.assertTrue(next(button for button in app.button if button.label == "Unlock").disabled)
         self.assertFalse(app.sidebar.radio)
 
     def test_first_render_does_not_block_on_browser_storage(self):
