@@ -34,6 +34,7 @@ from ticker_analyzer.ranking import (
     yahoo_ticker_from_tradingview,
 )
 from ticker_analyzer.ranking_quality import build_ranking_quality_report
+from ticker_analyzer.ui.ranking_view import ranking_export_filename
 
 
 def analysis(ticker: str, score: float | None, confidence: float = 80) -> dict:
@@ -383,6 +384,16 @@ class RankingTest(unittest.TestCase):
         self.assertEqual(report["comparison"]["added"], 1)
         self.assertEqual(report["comparison"]["removed"], 1)
         self.assertEqual(report["comparison"]["large_score_changes"], 1)
+
+    def test_export_filename_contains_readable_snapshot_date_and_time(self):
+        self.assertEqual(
+            ranking_export_filename({"generated_at": "2026-08-24T21:15:30.123456+00:00"}),
+            "large_cap_ranking_2026-08-24_21-15-30_UTC.json",
+        )
+        self.assertEqual(
+            ranking_export_filename({"generated_at": "invalid"}),
+            "large_cap_ranking_snapshot.json",
+        )
 
 
 if __name__ == "__main__":

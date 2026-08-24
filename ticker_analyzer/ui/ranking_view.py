@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pandas as pd
 import streamlit as st
 
@@ -159,11 +161,10 @@ def _render_snapshot_transfer(payload: dict) -> None:
         columns = st.columns(2)
         has_snapshot = bool(payload.get("companies"))
         export_bytes = export_ranking(payload) if has_snapshot else b""
-        generated = str(payload.get("metadata", {}).get("generated_at", "snapshot"))[:10]
         columns[0].download_button(
             "Export ranking JSON",
             data=export_bytes,
-            file_name=f"large_cap_ranking_{generated}.json",
+            file_name=ranking_export_filename(payload.get("metadata", {})),
             mime="application/json",
             disabled=not has_snapshot,
             width="stretch",
@@ -242,6 +243,18 @@ def _render_quality_report(payload: dict) -> None:
         categories = report.get("error_categories", {})
         if categories:
             st.caption("Failure categories: " + ", ".join(f"{name}: {count}" for name, count in categories.items()))
+
+
+def ranking_export_filename(metadata: dict) -> str:
+    raw_timestamp = str(metadata.get("generated_at") or "").strip()
+    try:
+        generated_at = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return "large_cap_ranking_snapshot.json"
+    if generated_at.tzinfo is None:
+        generated_at = generated_at.replace(tzinfo=UTC)
+    generated_at = generated_at.astimezone(UTC)
+    return f"large_cap_ranking_{generated_at:%Y-%m-%d_%H-%M-%S}_UTC.json"
 
 
 def add_ranking_tickers_to_analyzer(tickers: list[str]) -> None:
