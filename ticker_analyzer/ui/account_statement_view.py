@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from hashlib import sha256
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -14,6 +16,7 @@ from ticker_analyzer.account_statement import (
     analyze_position_contributions,
     analyze_statement_range,
     inspect_account_statement,
+    list_statement_assets,
     read_statement_sheet,
 )
 from ticker_analyzer.portfolio_performance import (
@@ -112,13 +115,38 @@ def _render_analysis(payload: bytes, returns_table: ReturnsTable | None = None) 
     if selected_end < selected_start:
         st.error("End date must not be before start date.")
         return
+    available_assets = list_statement_assets(payload)
+    statement_key = sha256(payload).hexdigest()[:12]
+    excluded_assets = tuple(
+        st.multiselect(
+            "Exclude instruments",
+            options=available_assets,
+            help=(
+                "Removes Position-ID-linked activity and holdings for selected instruments. "
+                "For example, select GOLD to estimate the portfolio without Gold transactions."
+            ),
+            key=f"account_statement_excluded_assets_{period_key}_{statement_key}",
+        )
+    )
+    if excluded_assets:
+        st.info(
+            "Filtered mode: selected instruments are removed from linked realized transactions, fees, dividends, "
+            "holdings exposure, and contribution tables. Historical unrealized values are aggregated by eToro, "
+            "so filtered total returns remain estimates."
+        )
+        analysis = analyze_account_statement(payload, excluded_assets=excluded_assets)
     try:
-        range_analysis = analyze_statement_range(payload, selected_start, selected_end)
+        range_analysis = analyze_statement_range(
+            payload,
+            selected_start,
+            selected_end,
+            excluded_assets=excluded_assets,
+        )
     except AccountStatementError as exc:
         st.error(str(exc))
         return
     returns_analysis: ReturnsRangeAnalysis | None = None
-    if returns_table is not None:
+    if returns_table is not None and not excluded_assets:
         try:
             returns_analysis = analyze_returns_range(
                 returns_table,
@@ -127,13 +155,15 @@ def _render_analysis(payload: bytes, returns_table: ReturnsTable | None = None) 
             )
         except ReturnsTableError as exc:
             st.warning(f"Returns table does not cover this range: {exc} Using statement estimates.")
+    elif returns_table is not None:
+        st.caption("The returns table covers the complete portfolio, so filtered mode uses statement estimates.")
     full_period = (
         selected_start == statement_start
         and selected_end == statement_end
     )
 
     st.markdown("#### Selected-period performance")
-    if full_period:
+    if full_period and not excluded_assets:
         _render_full_period_performance(analysis, returns_analysis)
     else:
         _render_partial_period_performance(
@@ -194,17 +224,23 @@ def _render_analysis(payload: bytes, returns_table: ReturnsTable | None = None) 
         _render_performance_comparison(portfolio_growth, comparison_growth)
         _render_monthly_performance(portfolio_growth)
 
-    contributions = analyze_position_contributions(payload, selected_start, selected_end)
+    contributions = analyze_position_contributions(
+        payload,
+        selected_start,
+        selected_end,
+        excluded_assets=excluded_assets,
+    )
     _render_position_contributions(contributions)
 
     st.markdown("#### Portfolio snapshot")
+    snapshot_date = analysis.holdings_snapshot_date or analysis.end_date.date()
     st.caption(
-        f"Snapshot as of {analysis.end_date:%Y-%m-%d}; it does not move with the selected range "
+        f"Holdings snapshot as of {snapshot_date:%Y-%m-%d}; it does not move with the selected range "
         "and is not refreshed with live prices."
     )
     snapshot = st.columns(3)
     snapshot[0].metric("Portfolio value", _money(analysis.ending_unrealized_equity, analysis.currency))
-    snapshot[1].metric("Open positions", f"{analysis.open_positions:,}")
+    snapshot[1].metric("Included open positions", f"{analysis.open_positions:,}")
     snapshot[2].metric(
         "Gross exposure",
         _money(analysis.long_exposure + analysis.short_exposure, analysis.currency),

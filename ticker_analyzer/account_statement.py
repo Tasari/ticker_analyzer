@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from io import BytesIO
@@ -114,6 +115,7 @@ class StatementAnalysis:
     short_exposure: float
     exposure_by_type: tuple[ExposureGroup, ...]
     warnings: tuple[str, ...]
+    holdings_snapshot_date: date | None = None
 
 
 @dataclass(frozen=True)
@@ -151,6 +153,25 @@ class _UnrealizedEquityAnchor:
     day: date
     unrealized_profit_loss: float
     exact: bool
+
+
+def list_statement_assets(payload: bytes) -> tuple[str, ...]:
+    """Return stable instrument labels that can be excluded from statement analysis."""
+    validate_xlsx_payload(payload)
+    try:
+        workbook = load_workbook(
+            BytesIO(payload),
+            read_only=True,
+            data_only=True,
+            keep_links=False,
+        )
+    except (BadZipFile, InvalidFileException, KeyError, OSError, ValueError) as exc:
+        raise AccountStatementError("The uploaded file is not a readable XLSX workbook.") from exc
+    try:
+        _, assets = _position_asset_index(workbook)
+        return tuple(sorted(assets))
+    finally:
+        workbook.close()
 
 
 def inspect_account_statement(payload: bytes) -> StatementOverview:
@@ -229,7 +250,11 @@ def read_statement_sheet(
         workbook.close()
 
 
-def analyze_account_statement(payload: bytes) -> StatementAnalysis:
+def analyze_account_statement(
+    payload: bytes,
+    *,
+    excluded_assets: tuple[str, ...] = (),
+) -> StatementAnalysis:
     validate_xlsx_payload(payload)
     try:
         workbook = load_workbook(
@@ -298,8 +323,18 @@ def analyze_account_statement(payload: bytes) -> StatementAnalysis:
             start_date,
             end_date,
         )
-        open_positions, long_exposure, short_exposure, exposure_by_type = _holdings_exposure(
-            workbook["Holdings"]
+        position_assets, _ = _position_asset_index(workbook)
+        excluded = {_normalize_asset(value) for value in excluded_assets}
+        (
+            open_positions,
+            long_exposure,
+            short_exposure,
+            exposure_by_type,
+            holdings_snapshot_date,
+        ) = _holdings_exposure(
+            workbook["Holdings"],
+            position_assets=position_assets,
+            excluded_assets=excluded,
         )
         return StatementAnalysis(
             currency=_optional_text(summary.get("Currency")) or "USD",
@@ -326,6 +361,7 @@ def analyze_account_statement(payload: bytes) -> StatementAnalysis:
             short_exposure=short_exposure,
             exposure_by_type=exposure_by_type,
             warnings=tuple(warnings),
+            holdings_snapshot_date=holdings_snapshot_date,
         )
     finally:
         workbook.close()
@@ -358,6 +394,8 @@ def analyze_statement_range(
     payload: bytes,
     start_date: date,
     end_date: date,
+    *,
+    excluded_assets: tuple[str, ...] = (),
 ) -> StatementRangeAnalysis:
     validate_xlsx_payload(payload)
     if end_date < start_date:
@@ -387,7 +425,15 @@ def analyze_statement_range(
                 "The selected dates must stay within the account statement period."
             )
         activity = workbook["Account Activity"]
-        range_analysis = _range_activity_analysis(activity, start_date, end_date)
+        position_assets, _ = _position_asset_index(workbook)
+        excluded = {_normalize_asset(value) for value in excluded_assets}
+        range_analysis = _range_activity_analysis(
+            activity,
+            start_date,
+            end_date,
+            position_assets=position_assets,
+            excluded_assets=excluded,
+        )
         statement_start_at = _required_datetime(summary, "Start Date")
         statement_end_at = _required_datetime(summary, "End Date")
         beginning_realized = _required_number(summary, "Beginning Realized Equity")
@@ -427,11 +473,24 @@ def analyze_statement_range(
             if start_date <= flow.occurred_at.date() <= end_date
         )
         positive_contributions = sum(max(flow.amount, 0.0) for flow in cash_flows)
-        estimated_profit_loss = (
-            estimated_ending_equity
-            - estimated_beginning_equity
-            - range_analysis.net_external_flows
-        )
+        if excluded:
+            estimated_profit_loss = range_analysis.realized_profit_loss + end_unrealized - start_unrealized
+            estimated_ending_equity = (
+                estimated_beginning_equity
+                + range_analysis.net_external_flows
+                + estimated_profit_loss
+            )
+            valuation_warnings = (
+                *valuation_warnings,
+                "Excluded instruments are removed from Position-ID-linked realized activity. "
+                "Historical aggregate unrealized valuations cannot be separated by instrument and remain estimated.",
+            )
+        else:
+            estimated_profit_loss = (
+                estimated_ending_equity
+                - estimated_beginning_equity
+                - range_analysis.net_external_flows
+            )
         invested_capital = estimated_beginning_equity + positive_contributions
         estimated_roi = estimated_profit_loss / invested_capital if invested_capital > 0 else None
         period_start_at = datetime.combine(start_date, datetime.min.time())
@@ -456,6 +515,7 @@ def analyze_statement_range(
             estimated_beginning_equity,
             anchors,
             range_analysis.daily_performance,
+            filtered=bool(excluded),
         )
         return StatementRangeAnalysis(
             start_date=range_analysis.start_date,
@@ -486,6 +546,8 @@ def analyze_position_contributions(
     payload: bytes,
     start_date: date,
     end_date: date,
+    *,
+    excluded_assets: tuple[str, ...] = (),
 ) -> tuple[PositionContribution, ...]:
     """Aggregate exact closed-position results by asset for the selected close-date range."""
     validate_xlsx_payload(payload)
@@ -509,6 +571,7 @@ def analyze_position_contributions(
         required = {"Action", "Close Date", "Profit(USD)"}
         if not required.issubset(columns):
             return ()
+        excluded = {_normalize_asset(value) for value in excluded_assets}
         totals: dict[str, list[float]] = {}
         extra_index = columns.get("Overnight Fees and Dividends")
         for row in rows:
@@ -516,6 +579,8 @@ def analyze_position_contributions(
             if closed_at is None or not start_date <= closed_at.date() <= end_date:
                 continue
             asset = _optional_text(_row_value(row, columns["Action"])) or "Unknown"
+            if _normalize_asset(_asset_label(asset)) in excluded:
+                continue
             profit = _number(_row_value(row, columns["Profit(USD)"]))
             extras = _number(_row_value(row, extra_index)) if extra_index is not None else 0.0
             aggregate = totals.setdefault(asset, [0.0, 0.0, 0.0])
@@ -613,6 +678,9 @@ def _range_activity_analysis(
     worksheet: Any,
     start_date: date,
     end_date: date,
+    *,
+    position_assets: dict[str, str] | None = None,
+    excluded_assets: set[str] | None = None,
 ) -> StatementRangeAnalysis:
     rows = worksheet.iter_rows(values_only=True)
     header = next(rows, ())
@@ -630,11 +698,17 @@ def _range_activity_analysis(
     net_external_flows = 0.0
     realized_profit_loss = 0.0
     daily_changes: dict[date, float] = {}
+    position_index = columns.get("Position ID")
     for row in rows:
         occurred_at = _parse_statement_datetime(_row_value(row, columns["Date"]))
         if occurred_at is None or not start_date <= occurred_at.date() <= end_date:
             continue
         kind = _optional_text(_row_value(row, columns["Type"])) or "Unknown"
+        if position_index is not None and excluded_assets:
+            position_id = _position_id(_row_value(row, position_index))
+            asset = (position_assets or {}).get(position_id)
+            if asset and _normalize_asset(asset) in excluded_assets:
+                continue
         amount = _number(_row_value(row, columns["Amount"]))
         equity_change = _number(_row_value(row, columns["Realized Equity Change"]))
         normalized = kind.casefold()
@@ -814,6 +888,8 @@ def _estimated_daily_performance(
     starting_total_equity: float,
     anchors: tuple[_UnrealizedEquityAnchor, ...],
     realized_points: tuple[DailyPerformancePoint, ...],
+    *,
+    filtered: bool = False,
 ) -> tuple[DailyPerformancePoint, ...]:
     rows = worksheet.iter_rows(values_only=True)
     header = next(rows, ())
@@ -836,14 +912,18 @@ def _estimated_daily_performance(
                 )
     current_realized = starting_realized_equity
     cumulative_flows = 0.0
+    starting_unrealized, _ = _interpolate_unrealized(start_date, anchors)
     points: list[DailyPerformancePoint] = []
     for point in realized_points:
         current_realized = realized_by_day.get(point.day, current_realized)
         cumulative_flows += external_flows_by_day.get(point.day, 0.0)
         unrealized, _ = _interpolate_unrealized(point.day, anchors)
-        estimated_total_profit_loss = (
-            current_realized + unrealized - starting_total_equity - cumulative_flows
-        )
+        if filtered:
+            estimated_total_profit_loss = point.cumulative_profit_loss + unrealized - starting_unrealized
+        else:
+            estimated_total_profit_loss = (
+                current_realized + unrealized - starting_total_equity - cumulative_flows
+            )
         points.append(
             DailyPerformancePoint(
                 day=point.day,
@@ -881,19 +961,41 @@ def _is_non_performance_activity(kind: str) -> bool:
 
 def _holdings_exposure(
     worksheet: Any,
-) -> tuple[int, float, float, tuple[ExposureGroup, ...]]:
+    *,
+    position_assets: dict[str, str] | None = None,
+    excluded_assets: set[str] | None = None,
+) -> tuple[int, float, float, tuple[ExposureGroup, ...], date | None]:
     rows = worksheet.iter_rows(values_only=True)
     header = next(rows, ())
     columns = {_optional_text(value): index for index, value in enumerate(header)}
     required = {"Direction", "Value in USD"}
     if not required.issubset(columns):
-        return 0, 0.0, 0.0, ()
+        return 0, 0.0, 0.0, (), None
+    data_rows = list(rows)
+    snapshot_date: date | None = None
+    snapshot_index = columns.get("Snapshot Date")
+    if snapshot_index is not None:
+        dated_rows = [
+            (parsed.date(), row)
+            for row in data_rows
+            for parsed in (_parse_statement_datetime(_row_value(row, snapshot_index)),)
+            if parsed is not None
+        ]
+        if dated_rows:
+            snapshot_date = max(day for day, _ in dated_rows)
+            data_rows = [row for day, row in dated_rows if day == snapshot_date]
     positions = 0
     long_exposure = 0.0
     short_exposure = 0.0
     by_type: dict[str, float] = {}
     type_index = columns.get("Type")
-    for row in rows:
+    position_index = columns.get("Position ID")
+    for row in data_rows:
+        if position_index is not None and excluded_assets:
+            position_id = _position_id(_row_value(row, position_index))
+            asset = (position_assets or {}).get(position_id)
+            if asset and _normalize_asset(asset) in excluded_assets:
+                continue
         raw_value = _row_value(row, columns["Value in USD"])
         if raw_value is None:
             continue
@@ -912,7 +1014,65 @@ def _holdings_exposure(
         ExposureGroup(name=name, value=value)
         for name, value in sorted(by_type.items(), key=lambda item: item[1], reverse=True)
     )
-    return positions, long_exposure, short_exposure, groups
+    return positions, long_exposure, short_exposure, groups, snapshot_date
+
+
+def _position_asset_index(workbook: Any) -> tuple[dict[str, str], set[str]]:
+    position_assets: dict[str, str] = {}
+    assets: set[str] = set()
+    name_aliases: dict[str, str] = {}
+    if "Closed Positions" in workbook.sheetnames:
+        rows = workbook["Closed Positions"].iter_rows(values_only=True)
+        columns = {_optional_text(value): index for index, value in enumerate(next(rows, ()))}
+        if "Action" in columns:
+            for row in rows:
+                action = _optional_text(_row_value(row, columns["Action"]))
+                if not action:
+                    continue
+                label = _asset_label(action)
+                assets.add(label)
+                name_aliases[_normalize_asset(_asset_name(action))] = label
+                if "Position ID" in columns:
+                    position_assets[_position_id(_row_value(row, columns["Position ID"]))] = label
+    if "Holdings" in workbook.sheetnames:
+        rows = workbook["Holdings"].iter_rows(values_only=True)
+        columns = {_optional_text(value): index for index, value in enumerate(next(rows, ()))}
+        if "Asset" in columns:
+            for row in rows:
+                asset = _optional_text(_row_value(row, columns["Asset"]))
+                if not asset:
+                    continue
+                label = name_aliases.get(_normalize_asset(asset), _asset_label(asset))
+                assets.add(label)
+                if "Position ID" in columns:
+                    position_assets.setdefault(
+                        _position_id(_row_value(row, columns["Position ID"])),
+                        label,
+                    )
+    position_assets.pop("", None)
+    return position_assets, assets
+
+
+_TICKER_SUFFIX = re.compile(r"\(([A-Z0-9.^=\-]{1,20})\)\s*$")
+
+
+def _asset_label(value: str) -> str:
+    match = _TICKER_SUFFIX.search(value.strip())
+    return match.group(1) if match else value.strip()
+
+
+def _asset_name(value: str) -> str:
+    return _TICKER_SUFFIX.sub("", value).strip()
+
+
+def _normalize_asset(value: str) -> str:
+    return value.strip().casefold()
+
+
+def _position_id(value: Any) -> str:
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip() if value is not None else ""
 
 
 def _row_value(row: tuple[Any, ...], index: int) -> Any:

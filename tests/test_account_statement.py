@@ -13,6 +13,7 @@ from ticker_analyzer.account_statement import (
     analyze_statement_range,
     annualize_return,
     inspect_account_statement,
+    list_statement_assets,
     modified_dietz_return,
     read_statement_sheet,
 )
@@ -39,7 +40,12 @@ def statement_workbook(*, include_summary: bool = True) -> bytes:
     return output.getvalue()
 
 
-def analysis_workbook(*, dated_deposit: bool = True, holdings_snapshot: bool = False) -> bytes:
+def analysis_workbook(
+    *,
+    dated_deposit: bool = True,
+    holdings_snapshot: bool = False,
+    include_gold: bool = False,
+) -> bytes:
     workbook = Workbook()
     summary = workbook.active
     summary.title = "Account Summary"
@@ -62,30 +68,44 @@ def analysis_workbook(*, dated_deposit: bool = True, holdings_snapshot: bool = F
         summary.append(row)
 
     activity = workbook.create_sheet("Account Activity")
-    activity.append(["Date", "Type", "Amount", "Realized Equity Change", "Realized Equity"])
+    activity.append(["Date", "Type", "Amount", "Realized Equity Change", "Realized Equity", "Position ID"])
     if dated_deposit:
-        activity.append(["06/01/2024 00:00:00", "Deposit", 50, 50, 150])
-    activity.append(["07/01/2024 12:00:00", "Position closed", 25, 5, 155])
-    activity.append(["08/01/2024 12:00:00", "Dividend", 2, 2, 157])
-    activity.append(["09/01/2024 12:00:00", "Overnight fee", -1, -1, 156])
-    activity.append(["10/01/2024 12:00:00", "Open Position", 20, 0, 156])
+        activity.append(["06/01/2024 00:00:00", "Deposit", 50, 50, 150, None])
+    activity.append(["07/01/2024 12:00:00", "Position closed", 25, 5, 155, 101])
+    activity.append(["08/01/2024 12:00:00", "Dividend", 2, 2, 157, 101])
+    activity.append(["09/01/2024 12:00:00", "Overnight fee", -1, -1, 156, 101])
+    if include_gold:
+        activity.append(["09/01/2024 15:00:00", "Position closed", 10, 10, 166, 202])
+    activity.append(["10/01/2024 12:00:00", "Open Position", 20, 0, 156, 101])
 
     holdings = workbook.create_sheet("Holdings")
     if holdings_snapshot:
         holdings.append(
-            ["Snapshot Date", "Direction", "Value in USD", "Type", "Open Rate", "Current Rate"]
+            [
+                "Snapshot Date", "Asset", "Position ID", "Direction", "Value in USD", "Type",
+                "Open Rate", "Current Rate",
+            ]
         )
-        holdings.append([datetime(2024, 1, 6), "Long", 120, "Stocks", 100, 120])
-        holdings.append([datetime(2024, 1, 6), "Short", -60, "CFD", 120, 100])
+        holdings.append([datetime(2024, 1, 6), "Alpha", 101, "Long", 120, "Stocks", 100, 120])
+        holdings.append([datetime(2024, 1, 6), "Beta", 102, "Short", -60, "CFD", 120, 100])
     else:
-        holdings.append(["Direction", "Value in USD", "Type"])
-        holdings.append(["Long", 80, "Stocks"])
-        holdings.append(["Short", -20, "CFD"])
+        holdings.append(["Asset", "Position ID", "Direction", "Value in USD", "Type"])
+        holdings.append(["Alpha", 101, "Long", 80, "Stocks"])
+        holdings.append(["Beta", 102, "Short", -20, "CFD"])
+    if include_gold:
+        if holdings_snapshot:
+            holdings.append(
+                [datetime(2024, 1, 6), "Gold (Non Expiry)", 202, "Long", 40, "Commodities", 100, 110]
+            )
+        else:
+            holdings.append(["Gold (Non Expiry)", 202, "Long", 40, "Commodities"])
     closed = workbook.create_sheet("Closed Positions")
-    closed.append(["Action", "Close Date", "Profit(USD)", "Overnight Fees and Dividends"])
-    closed.append(["Alpha (AAA)", "08/01/2024 12:00:00", 5, -0.5])
-    closed.append(["Alpha (AAA)", "10/01/2024 12:00:00", -1, 0.1])
-    closed.append(["Outside (OLD)", "12/01/2024 12:00:00", 20, 0])
+    closed.append(["Action", "Close Date", "Profit(USD)", "Overnight Fees and Dividends", "Position ID"])
+    closed.append(["Alpha (AAA)", "08/01/2024 12:00:00", 5, -0.5, 101])
+    closed.append(["Alpha (AAA)", "10/01/2024 12:00:00", -1, 0.1, 101])
+    closed.append(["Outside (OLD)", "12/01/2024 12:00:00", 20, 0, 303])
+    if include_gold:
+        closed.append(["Gold (Non Expiry) (GOLD)", "09/01/2024 15:00:00", 10, 0, 202])
     output = BytesIO()
     workbook.save(output)
     workbook.close()
@@ -209,6 +229,28 @@ class AccountStatementTest(unittest.TestCase):
         self.assertAlmostEqual(contributions[0].realized_profit_loss, 4)
         self.assertAlmostEqual(contributions[0].fees_and_dividends, -0.4)
         self.assertAlmostEqual(contributions[0].total_contribution, 4)
+
+    def test_lists_tickers_and_excludes_linked_instrument_activity(self):
+        payload = analysis_workbook(include_gold=True)
+
+        self.assertIn("GOLD", list_statement_assets(payload))
+        analysis = analyze_statement_range(
+            payload,
+            datetime(2024, 1, 7).date(),
+            datetime(2024, 1, 9).date(),
+            excluded_assets=("GOLD",),
+        )
+        contributions = analyze_position_contributions(
+            payload,
+            datetime(2024, 1, 7).date(),
+            datetime(2024, 1, 10).date(),
+            excluded_assets=("GOLD",),
+        )
+
+        self.assertEqual(analysis.realized_profit_loss, 6)
+        self.assertEqual(analysis.closed_positions_profit_loss, 5)
+        self.assertTrue(any("Excluded instruments" in warning for warning in analysis.valuation_warnings))
+        self.assertEqual([item.asset for item in contributions], ["Alpha (AAA)"])
 
     def test_inspects_etoro_workbook_metadata_and_sheet_sizes(self):
         overview = inspect_account_statement(statement_workbook())
