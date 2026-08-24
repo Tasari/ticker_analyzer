@@ -21,6 +21,7 @@ from ticker_analyzer.portfolio_performance import (
     calculate_drawdown,
     fetch_benchmark_growth,
     monthly_performance,
+    parse_comparison_symbols,
 )
 from ticker_analyzer.returns_table import (
     GrowthPoint,
@@ -161,28 +162,36 @@ def _render_analysis(payload: bytes, returns_table: ReturnsTable | None = None) 
                 "Based on the statement-derived estimated P/L path, normalized to its Modified "
                 "Dietz return, because no usable returns table covers the selected range."
             )
-    benchmark_symbol = st.text_input(
-        "Benchmark ticker",
-        value="SPY",
-        help="Yahoo Finance ticker used only for a normalized total-return comparison.",
-        key="account_statement_benchmark",
-    ).strip().upper()
-    benchmark_growth: tuple[GrowthPoint, ...] = ()
-    if benchmark_symbol:
+    comparison_input = st.text_input(
+        "Comparison tickers",
+        value="SPY, QQQ",
+        help=(
+            "Enter up to 10 Yahoo Finance tickers separated by commas or spaces. "
+            "Your Account Statement portfolio is included automatically."
+        ),
+        key="account_statement_benchmarks",
+    )
+    comparison_growth: dict[str, tuple[GrowthPoint, ...]] = {}
+    try:
+        comparison_symbols = parse_comparison_symbols(comparison_input)
+    except BenchmarkError as exc:
+        st.warning(str(exc))
+        comparison_symbols = ()
+    for symbol in comparison_symbols:
         try:
-            benchmark_growth = _cached_benchmark_growth(
-                benchmark_symbol,
+            comparison_growth[symbol] = _cached_benchmark_growth(
+                symbol,
                 selected_start,
                 selected_end,
             )
         except BenchmarkError as exc:
-            st.warning(str(exc))
+            st.warning(f"{symbol}: {exc}")
     if portfolio_growth:
         st.plotly_chart(
-            _growth_chart(portfolio_growth, benchmark_growth, benchmark_symbol),
+            _growth_chart(portfolio_growth, comparison_growth),
             width="stretch",
         )
-        _render_drawdown_and_relative_return(portfolio_growth, benchmark_growth, benchmark_symbol)
+        _render_performance_comparison(portfolio_growth, comparison_growth)
         _render_monthly_performance(portfolio_growth)
 
     contributions = analyze_position_contributions(payload, selected_start, selected_end)
@@ -506,32 +515,31 @@ def _statement_growth(analysis: StatementRangeAnalysis) -> tuple[GrowthPoint, ..
 
 def _growth_chart(
     points: tuple[GrowthPoint, ...],
-    benchmark: tuple[GrowthPoint, ...] = (),
-    benchmark_symbol: str = "",
+    comparisons: dict[str, tuple[GrowthPoint, ...]] | None = None,
 ) -> go.Figure:
     figure = go.Figure(
         go.Scatter(
             x=[point.day for point in points],
             y=[point.value for point in points],
             mode="lines+markers",
-            name="Portfolio",
+            name="Account Statement",
             hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.2f}<extra></extra>",
         )
     )
-    if benchmark:
+    for symbol, comparison in (comparisons or {}).items():
         figure.add_trace(
             go.Scatter(
-                x=[point.day for point in benchmark],
-                y=[point.value for point in benchmark],
+                x=[point.day for point in comparison],
+                y=[point.value for point in comparison],
                 mode="lines",
-                name=benchmark_symbol or "Benchmark",
+                name=symbol,
                 hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.2f}<extra></extra>",
             )
         )
     figure.update_layout(
         xaxis_title=None,
         yaxis_title="Value of initial 10,000",
-        showlegend=bool(benchmark),
+        showlegend=bool(comparisons),
         margin={"l": 20, "r": 20, "t": 20, "b": 20},
     )
     return figure
@@ -546,34 +554,39 @@ def _cached_benchmark_growth(
     return fetch_benchmark_growth(symbol, start_date, end_date)
 
 
-def _render_drawdown_and_relative_return(
+def _render_performance_comparison(
     portfolio: tuple[GrowthPoint, ...],
-    benchmark: tuple[GrowthPoint, ...],
-    benchmark_symbol: str,
+    comparisons: dict[str, tuple[GrowthPoint, ...]],
 ) -> None:
-    portfolio_drawdown = calculate_drawdown(portfolio)
-    columns = st.columns(3)
     portfolio_return = portfolio[-1].value / portfolio[0].value - 1
-    columns[0].metric("Portfolio return", _percent(portfolio_return))
-    columns[1].metric(
-        "Maximum drawdown",
-        _percent(portfolio_drawdown.value if portfolio_drawdown else None),
-        help=(
-            f"Peak {portfolio_drawdown.peak_date:%Y-%m-%d} to trough "
-            f"{portfolio_drawdown.trough_date:%Y-%m-%d}."
-            if portfolio_drawdown
-            else None
-        ),
-    )
-    if benchmark:
-        benchmark_return = benchmark[-1].value / benchmark[0].value - 1
-        columns[2].metric(
-            f"vs {benchmark_symbol}",
-            _percent(portfolio_return - benchmark_return),
-            help=f"Portfolio return minus {benchmark_symbol} return ({benchmark_return:.2%}).",
+    series = {"Account Statement": portfolio, **comparisons}
+    rows = []
+    for name, points in series.items():
+        total_return = points[-1].value / points[0].value - 1
+        drawdown = calculate_drawdown(points)
+        rows.append(
+            {
+                "Series": name,
+                "Total return": total_return * 100,
+                "Final value": points[-1].value,
+                "Maximum drawdown": drawdown.value * 100 if drawdown else None,
+                "Account Statement minus series": (
+                    None if name == "Account Statement" else (portfolio_return - total_return) * 100
+                ),
+            }
         )
-    else:
-        columns[2].metric("vs benchmark", "N/A")
+    frame = pd.DataFrame(rows)
+    st.dataframe(
+        frame,
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Total return": st.column_config.NumberColumn(format="%.2f%%"),
+            "Final value": st.column_config.NumberColumn(format="%.2f"),
+            "Maximum drawdown": st.column_config.NumberColumn(format="%.2f%%"),
+            "Account Statement minus series": st.column_config.NumberColumn(format="%.2f%%"),
+        },
+    )
 
 
 def _render_monthly_performance(points: tuple[GrowthPoint, ...]) -> None:

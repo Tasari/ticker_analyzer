@@ -9,6 +9,7 @@ from ticker_analyzer.portfolio_performance import (
     benchmark_growth_from_history,
     calculate_drawdown,
     monthly_performance,
+    parse_comparison_symbols,
 )
 from ticker_analyzer.returns_table import GrowthPoint
 
@@ -45,6 +46,16 @@ class PortfolioPerformanceTest(unittest.TestCase):
     def test_empty_benchmark_is_rejected(self):
         with self.assertRaises(BenchmarkError):
             benchmark_growth_from_history(pd.DataFrame(), date(2024, 1, 1), date(2024, 2, 1))
+
+    def test_comparison_symbols_are_normalized_and_deduplicated(self):
+        self.assertEqual(
+            parse_comparison_symbols(" spy, QQQ;spy  vwce.de "),
+            ("SPY", "QQQ", "VWCE.DE"),
+        )
+
+    def test_comparison_symbols_have_a_bounded_limit(self):
+        with self.assertRaisesRegex(BenchmarkError, "no more than 2"):
+            parse_comparison_symbols("SPY QQQ DIA", maximum=2)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,8 @@ import pandas as pd
 
 from ticker_analyzer.returns_table import GrowthPoint
 
+MAX_COMPARISON_SYMBOLS = 10
+
 
 class BenchmarkError(RuntimeError):
     pass
@@ -26,6 +28,19 @@ class MonthlyPerformance:
     month: date
     return_value: float
     ending_value: float
+
+
+def parse_comparison_symbols(
+    value: str,
+    *,
+    maximum: int = MAX_COMPARISON_SYMBOLS,
+) -> tuple[str, ...]:
+    """Normalize a comma, semicolon, or whitespace separated Yahoo ticker list."""
+    normalized = value.replace(",", " ").replace(";", " ")
+    symbols = tuple(dict.fromkeys(part.strip().upper() for part in normalized.split() if part.strip()))
+    if len(symbols) > maximum:
+        raise BenchmarkError(f"Enter no more than {maximum} comparison tickers.")
+    return symbols
 
 
 def fetch_benchmark_growth(
