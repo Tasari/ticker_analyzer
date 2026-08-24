@@ -80,6 +80,15 @@ class ExposureGroup:
 
 
 @dataclass(frozen=True)
+class PositionContribution:
+    asset: str
+    realized_profit_loss: float
+    fees_and_dividends: float
+    total_contribution: float
+    closed_positions: int
+
+
+@dataclass(frozen=True)
 class StatementAnalysis:
     currency: str
     start_date: datetime
@@ -468,6 +477,67 @@ def analyze_statement_range(
             max_boundary_anchor_distance_days=max(start_distance, end_distance),
             valuation_warnings=valuation_warnings,
             daily_performance=daily_performance,
+        )
+    finally:
+        workbook.close()
+
+
+def analyze_position_contributions(
+    payload: bytes,
+    start_date: date,
+    end_date: date,
+) -> tuple[PositionContribution, ...]:
+    """Aggregate exact closed-position results by asset for the selected close-date range."""
+    validate_xlsx_payload(payload)
+    if end_date < start_date:
+        raise AccountStatementError("The selected end date must not be before the start date.")
+    try:
+        workbook = load_workbook(
+            BytesIO(payload),
+            read_only=True,
+            data_only=True,
+            keep_links=False,
+        )
+    except (BadZipFile, InvalidFileException, KeyError, OSError, ValueError) as exc:
+        raise AccountStatementError("The uploaded file is not a readable XLSX workbook.") from exc
+    try:
+        if "Closed Positions" not in workbook.sheetnames:
+            return ()
+        rows = workbook["Closed Positions"].iter_rows(values_only=True)
+        header = next(rows, ())
+        columns = {_optional_text(value): index for index, value in enumerate(header)}
+        required = {"Action", "Close Date", "Profit(USD)"}
+        if not required.issubset(columns):
+            return ()
+        totals: dict[str, list[float]] = {}
+        extra_index = columns.get("Overnight Fees and Dividends")
+        for row in rows:
+            closed_at = _parse_statement_datetime(_row_value(row, columns["Close Date"]))
+            if closed_at is None or not start_date <= closed_at.date() <= end_date:
+                continue
+            asset = _optional_text(_row_value(row, columns["Action"])) or "Unknown"
+            profit = _number(_row_value(row, columns["Profit(USD)"]))
+            extras = _number(_row_value(row, extra_index)) if extra_index is not None else 0.0
+            aggregate = totals.setdefault(asset, [0.0, 0.0, 0.0])
+            aggregate[0] += profit
+            aggregate[1] += extras
+            aggregate[2] += 1
+        return tuple(
+            PositionContribution(
+                asset=asset,
+                realized_profit_loss=values[0],
+                fees_and_dividends=values[1],
+                # eToro's Profit(USD) already reconciles to the statement's
+                # closed-position P/L. The fee/dividend column is a component,
+                # not an additional amount.
+                total_contribution=values[0],
+                closed_positions=int(values[2]),
+            )
+            for asset, values in sorted(
+                totals.items(),
+                key=lambda item: abs(item[1][0]),
+                reverse=True,
+            )
         )
     finally:
         workbook.close()

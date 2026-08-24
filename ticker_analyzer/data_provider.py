@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -102,7 +103,7 @@ def safe_frame(
     diagnostics: list[dict[str, str]] | None = None,
 ) -> pd.DataFrame:
     try:
-        value = callback()
+        value = retry_transient(callback)
     except Exception as exc:
         record_fetch_failure(label, exc, diagnostics)
         return pd.DataFrame()
@@ -131,11 +132,50 @@ def safe_dict(
     diagnostics: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     try:
-        value = callback()
+        value = retry_transient(callback)
     except Exception as exc:
         record_fetch_failure(label, exc, diagnostics)
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def retry_transient(
+    callback: Callable[[], Any],
+    *,
+    attempts: int = 2,
+    initial_delay: float = 0.25,
+) -> Any:
+    last_error: Exception | None = None
+    for attempt in range(max(1, attempts)):
+        try:
+            return callback()
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 >= attempts or not is_transient_provider_error(exc):
+                raise
+            time.sleep(initial_delay * (2**attempt))
+    raise last_error or RuntimeError("provider request failed")
+
+
+def is_transient_provider_error(exc: Exception) -> bool:
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    text = f"{type(exc).__name__} {exc}".casefold()
+    return any(
+        marker in text
+        for marker in (
+            "timeout",
+            "connection",
+            "network",
+            "too many requests",
+            "rate limit",
+            "status code 429",
+            "status code 500",
+            "status code 502",
+            "status code 503",
+            "status code 504",
+        )
+    )
 
 
 def record_fetch_failure(

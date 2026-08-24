@@ -165,14 +165,31 @@ def fetch_tradingview_market_universe(
     raise RuntimeError(f"TradingView {market} universe unavailable after {attempts} attempts: {last_error}")
 
 
-def fetch_large_cap_universe_nasdaq(limit: int = 10000) -> list[dict[str, Any]]:
-    response = requests.get(
-        "https://api.nasdaq.com/api/screener/stocks",
-        params={"tableonly": "true", "limit": 10000, "offset": 0, "download": "true"},
-        headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
-        timeout=30,
-    )
-    response.raise_for_status()
+def fetch_large_cap_universe_nasdaq(
+    limit: int = 10000,
+    *,
+    attempts: int = 3,
+    retry_delay: float = 1.0,
+) -> list[dict[str, Any]]:
+    response = None
+    last_error: Exception | None = None
+    for attempt in range(max(1, attempts)):
+        try:
+            response = requests.get(
+                "https://api.nasdaq.com/api/screener/stocks",
+                params={"tableonly": "true", "limit": 10000, "offset": 0, "download": "true"},
+                headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            break
+        except Exception as exc:
+            last_error = exc
+            response = None
+            if attempt + 1 < attempts:
+                time.sleep(retry_delay * (2**attempt))
+    if response is None:
+        raise RuntimeError(f"Nasdaq universe unavailable after {attempts} attempts: {last_error}") from last_error
     rows = response.json().get("data", {}).get("rows", []) or []
     universe = []
     for row in rows:

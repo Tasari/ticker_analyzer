@@ -7,6 +7,10 @@ Local Streamlit app for rule-based stock analysis with primary-source provenance
 
 The app is a screening tool, not financial advice. Scores depend on available Yahoo Finance data and the editable local configuration in `metrics_config.json`. Before using, copying, or distributing it, read the full [disclaimer](DISCLAIMER.md).
 
+Copyright (c) 2026 Patryk. All rights reserved. This repository is publicly visible
+for portfolio and development-history purposes; no permission is granted to use,
+copy, modify, redistribute, or deploy the software. See [COPYRIGHT.md](COPYRIGHT.md).
+
 ## Setup
 
 ```powershell
@@ -51,7 +55,8 @@ The suite contains formula-level tests and network-free integration tests for th
 - Industrial, bank, broker, lender, insurance, asset-manager, REIT, and Generic Financial profiles with explicit overrides.
 - Basic charts for adjusted price history, financial trends, assets, and debt.
 - A precomputed multi-market Large Cap Ranking covering 1,000 US companies plus up to 100 companies per configured international market, ordered by scoring-v5 Overall Score.
-- A separate Account Statement area imports eToro XLSX statements in memory without persisting the uploaded file. Its Analysis tab reports the period-end portfolio snapshot, cash-flow-adjusted P/L, ROI, annualized ROI, an explicitly estimated Modified Dietz TWR, a reconciled P/L waterfall, and holdings exposure. Separate inclusive start- and end-date controls provide exact realized activity and estimate total P/L, ROI, annualized ROI, and Modified Dietz return for subperiods by combining Account Activity with interpolated unrealized P/L from periodic Holdings snapshots. An optional eToro returns-table CSV replaces estimated TWR/CAGR with compounded monthly returns when it covers the selected range; partial boundary months are geometrically prorated. A normalized growth chart shows the value of an initial 10,000 using the returns table or the statement estimate as fallback. The UI reports valuation-anchor distance and coverage warnings so estimates are not presented as exact historical valuations. Its Data preview tab retains the bounded worksheet viewer.
+- Ranking snapshots can be exported as validated JSON backups and restored through the UI. Each completed refresh stores a quality report with market coverage, failure categories, rating distribution, and score/rank/rating changes from the previous snapshot.
+- A separate Account Statement area imports eToro XLSX statements in memory without persisting the uploaded file. Its Analysis tab reports the period-end portfolio snapshot, cash-flow-adjusted P/L, ROI, annualized ROI, an explicitly estimated Modified Dietz TWR, a reconciled P/L waterfall, and holdings exposure. Separate inclusive start- and end-date controls provide exact realized activity and estimate total P/L, ROI, annualized ROI, and Modified Dietz return for subperiods by combining Account Activity with interpolated unrealized P/L from periodic Holdings snapshots. An optional eToro returns-table CSV replaces estimated TWR/CAGR with compounded monthly returns when it covers the selected range; partial boundary months are geometrically prorated. A normalized growth chart shows the value of an initial 10,000 using the returns table or the statement estimate as fallback, supports a cached Yahoo benchmark comparison, and reports maximum drawdown and monthly returns. Closed Positions provides an exact per-asset realized contribution table for the selected period. The UI reports valuation-anchor distance and coverage warnings so estimates are not presented as exact historical valuations. Its Data preview tab retains the bounded worksheet viewer.
 
 ## Large Cap Ranking
 
@@ -64,6 +69,8 @@ python scripts/build_large_cap_ranking.py --limit 1000 --market-limit 100 --work
 ```
 
 The job checkpoints every 25 completed companies, and the Streamlit refresh view reports progress only when the checkpoint file changes. A checkpoint is resumed only when its universe contains every configured market and its scoring, config, and calibration versions match. Ranking work is scheduled with a bounded in-flight queue, and refreshes started from the UI use three workers to stay within small hosted-container memory limits. The public fallback uses Yahoo annual fundamentals and price history when the normal crumb-based yfinance client is rate limited.
+
+Use the Ranking backup expander to download the current ignored snapshot before a hosted-container rebuild and import it afterward. Imports are bounded, schema-validated, duplicate-checked, and atomically replace the active snapshot. In production mode, enable this explicitly with `ALLOW_RANKING_IMPORT=true`.
 
 Before a full refresh, run a non-destructive multi-market smoke build. It scans at most 20 US companies plus five each from China ADR, Poland, the United Kingdom, and Germany, uses three workers, disables long analysis retries, and writes to the ignored `data/large_cap_ranking_smoke.json` file. Runtime and peak traced Python memory are included in its metadata:
 
@@ -147,3 +154,5 @@ python scripts/audit_scoring_robustness.py robustness_sample.json --trials 500 -
 The compact production ranking does not contain metric-level results and is intentionally rejected by this audit; retaining all metrics for thousands of companies would materially increase its storage and memory footprint.
 
 Production deployments are read-only by default. Set `APP_MODE=production`; only administrators should opt in to `ALLOW_CONFIG_WRITE=true` or `ALLOW_RANKING_REFRESH=true`. Local mode keeps both controls available for development.
+
+Transient yfinance, Nasdaq, and public-Yahoo failures are retried with bounded exponential backoff. HTTP clients honor `Retry-After`, reuse connection pools per worker, and bound their ETag cache to avoid unbounded long-session memory growth.

@@ -3,7 +3,14 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from ticker_analyzer.ranking import load_ranking
+from ticker_analyzer.ranking import (
+    RankingSnapshotError,
+    export_ranking,
+    import_ranking,
+    load_ranking,
+    save_ranking,
+)
+from ticker_analyzer.ranking_quality import build_ranking_quality_report
 from ticker_analyzer.ui.config_view import mutation_allowed
 from ticker_analyzer.ui.ranking_actions import refresh_large_cap_ranking
 
@@ -52,6 +59,7 @@ def render_large_cap_ranking() -> None:
         else:
             st.error(message)
     payload = load_ranking()
+    _render_snapshot_transfer(payload)
     metadata = payload.get("metadata", {})
     companies = payload.get("companies", [])
     errors = payload.get("errors", [])
@@ -90,6 +98,7 @@ def render_large_cap_ranking() -> None:
     table = pd.DataFrame(filtered)
     if table.empty:
         st.info("No companies match the selected country, exchange, profile, rating, and quality filters.")
+        _render_quality_report(payload)
         return
     columns = {
         "rank": "Rank",
@@ -138,6 +147,101 @@ def render_large_cap_ranking() -> None:
         args=(selected_tickers,),
     )
     st.caption("Ranking is a model-based screening tool, not investment advice. Missing tabs are never treated as neutral scores.")
+    _render_quality_report(payload)
+
+
+def _render_snapshot_transfer(payload: dict) -> None:
+    with st.expander("Ranking backup: export / import", expanded=False):
+        st.caption(
+            "Export the current ignored snapshot before a Streamlit restart, then import it later "
+            "without rebuilding the full universe. Imported JSON is validated before replacement."
+        )
+        columns = st.columns(2)
+        has_snapshot = bool(payload.get("companies"))
+        export_bytes = export_ranking(payload) if has_snapshot else b""
+        generated = str(payload.get("metadata", {}).get("generated_at", "snapshot"))[:10]
+        columns[0].download_button(
+            "Export ranking JSON",
+            data=export_bytes,
+            file_name=f"large_cap_ranking_{generated}.json",
+            mime="application/json",
+            disabled=not has_snapshot,
+            width="stretch",
+        )
+        import_allowed = mutation_allowed("ALLOW_RANKING_IMPORT")
+        uploaded = columns[1].file_uploader(
+            "Import ranking JSON",
+            type=["json"],
+            accept_multiple_files=False,
+            disabled=not import_allowed,
+            key="ranking_snapshot_import",
+        )
+        confirm = st.checkbox(
+            "Replace the current ranking with this validated snapshot",
+            disabled=uploaded is None or not import_allowed,
+            key="ranking_snapshot_import_confirm",
+        )
+        if st.button(
+            "Import snapshot",
+            disabled=uploaded is None or not confirm or not import_allowed,
+            width="stretch",
+        ):
+            try:
+                imported = import_ranking(uploaded.getvalue())
+                imported["metadata"]["quality_report"] = build_ranking_quality_report(imported, payload)
+                save_ranking(imported)
+            except (RankingSnapshotError, OSError, ValueError) as exc:
+                st.error(f"Ranking import failed: {exc}")
+            else:
+                st.success(f"Imported {len(imported.get('companies', [])):,} ranking rows.")
+                st.rerun()
+        if not import_allowed:
+            st.caption("Set ALLOW_RANKING_IMPORT=true to enable imports in production mode.")
+
+
+def _render_quality_report(payload: dict) -> None:
+    metadata = payload.get("metadata", {})
+    report = metadata.get("quality_report") or build_ranking_quality_report(payload)
+    with st.expander("Update quality report", expanded=bool(report.get("warnings"))):
+        summary = report.get("summary", {})
+        metrics = st.columns(4)
+        metrics[0].metric("Processed", f"{summary.get('processed', 0):,}/{summary.get('requested', 0):,}")
+        metrics[1].metric("Scored", f"{summary.get('scored', 0):,}")
+        metrics[2].metric("Failed", f"{summary.get('failed', 0):,}")
+        success_rate = summary.get("success_rate")
+        metrics[3].metric("Success rate", "N/A" if success_rate is None else f"{success_rate:.1%}")
+        for warning in report.get("warnings", []):
+            st.warning(warning)
+        markets = report.get("markets", [])
+        if markets:
+            market_frame = pd.DataFrame(markets).rename(
+                columns={
+                    "market": "Market",
+                    "expected": "Universe",
+                    "analyzed": "Analyzed",
+                    "scored": "Scored",
+                    "coverage": "Coverage",
+                }
+            )
+            market_frame["Coverage"] = market_frame["Coverage"].map(
+                lambda value: "N/A" if pd.isna(value) else f"{value:.1%}"
+            )
+            st.dataframe(market_frame, hide_index=True, width="stretch")
+        comparison = report.get("comparison", {})
+        if comparison.get("previous_available"):
+            mean_change = comparison.get("mean_absolute_score_change")
+            st.caption(
+                f"Versus previous snapshot: {comparison.get('added', 0):,} added, "
+                f"{comparison.get('removed', 0):,} removed, "
+                f"{comparison.get('rating_change_count', len(comparison.get('rating_changes', []))):,} "
+                "rating changes, mean absolute "
+                f"score change {'N/A' if mean_change is None else f'{mean_change:.2f}'}."
+            )
+            if comparison.get("largest_rank_moves"):
+                st.dataframe(pd.DataFrame(comparison["largest_rank_moves"]), hide_index=True, width="stretch")
+        categories = report.get("error_categories", {})
+        if categories:
+            st.caption("Failure categories: " + ", ".join(f"{name}: {count}" for name, count in categories.items()))
 
 
 def add_ranking_tickers_to_analyzer(tickers: list[str]) -> None:

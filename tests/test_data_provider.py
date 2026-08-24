@@ -69,6 +69,24 @@ class DataProviderTest(unittest.TestCase):
         self.assertEqual(result, {})
         self.assertEqual(diagnostics[0]["kind"], "network_error")
 
+    @patch("ticker_analyzer.data_provider.time.sleep")
+    def test_safe_dict_retries_one_transient_failure(self, sleep):
+        attempts = []
+
+        def sometimes_fails():
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise TimeoutError("temporary timeout")
+            return {"symbol": "ABC"}
+
+        diagnostics = []
+        result = safe_dict(sometimes_fails, label="company info", diagnostics=diagnostics)
+
+        self.assertEqual(result, {"symbol": "ABC"})
+        self.assertEqual(len(attempts), 2)
+        sleep.assert_called_once()
+        self.assertEqual(diagnostics, [])
+
     def test_safe_frame_does_not_report_valid_empty_data_as_failure(self):
         diagnostics = []
 

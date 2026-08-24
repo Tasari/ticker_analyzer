@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import time
+from collections import OrderedDict
 from threading import Lock
 from typing import Any
 from urllib.parse import urlparse
@@ -21,11 +22,13 @@ class JsonApiClient:
         session: requests.Session | None = None,
         timeout: float = 20,
         minimum_interval: float = 0.1,
+        max_cache_entries: int = 128,
     ) -> None:
         self.session = session or requests.Session()
         self.timeout = timeout
         self.minimum_interval = max(0.0, minimum_interval)
-        self._cache: dict[str, tuple[str | None, Any]] = {}
+        self.max_cache_entries = max(0, max_cache_entries)
+        self._cache: OrderedDict[str, tuple[str | None, Any]] = OrderedDict()
         retry = Retry(
             total=4,
             backoff_factor=0.5,
@@ -44,6 +47,8 @@ class JsonApiClient:
         params = kwargs.get("params") or {}
         cache_key = f"{url}?{repr(sorted(params.items()))}"
         cached = self._cache.get(cache_key)
+        if cached:
+            self._cache.move_to_end(cache_key)
         if cached and cached[0]:
             headers["If-None-Match"] = cached[0]
         response = self.session.get(url, timeout=self.timeout, headers=headers, **kwargs)
@@ -54,6 +59,9 @@ class JsonApiClient:
         etag = response.headers.get("ETag")
         if etag:
             self._cache[cache_key] = (etag, payload)
+            self._cache.move_to_end(cache_key)
+            while len(self._cache) > self.max_cache_entries:
+                self._cache.popitem(last=False)
         return payload
 
     def _wait_for_host(self, url: str) -> None:

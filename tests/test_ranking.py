@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from concurrent.futures import wait as futures_wait
@@ -16,9 +17,11 @@ from ticker_analyzer.ranking import (
     build_large_cap_ranking,
     checkpoint_universe_is_current,
     combine_market_universes,
+    export_ranking,
     fetch_large_cap_universe,
     fetch_large_cap_universe_nasdaq,
     fetch_tradingview_market_universe,
+    import_ranking,
     load_ranking,
     market_counts,
     merge_large_cap_universes,
@@ -30,6 +33,7 @@ from ticker_analyzer.ranking import (
     validate_market_coverage,
     yahoo_ticker_from_tradingview,
 )
+from ticker_analyzer.ranking_quality import build_ranking_quality_report
 
 
 def analysis(ticker: str, score: float | None, confidence: float = 80) -> dict:
@@ -330,6 +334,55 @@ class RankingTest(unittest.TestCase):
             save_ranking(second_payload, path)
             self.assertEqual(load_ranking(path), second_payload)
             self.assertIsNot(load_ranking(path), first)
+
+    def test_ranking_snapshot_export_import_validates_and_round_trips(self):
+        payload = {
+            "metadata": {"complete": True},
+            "companies": [{"ticker": "AAA", "overall_score": 72}],
+            "errors": [],
+            "universe": [],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ranking.json"
+            imported = import_ranking(export_ranking(payload), path)
+            self.assertEqual(imported, payload)
+            self.assertEqual(load_ranking(path), payload)
+            with self.assertRaisesRegex(ValueError, "duplicate"):
+                import_ranking(
+                    json.dumps({**payload, "companies": [{"ticker": "AAA"}, {"ticker": "aaa"}]}).encode(),
+                    path,
+                )
+
+    def test_quality_report_compares_market_coverage_and_previous_ranking(self):
+        previous = {
+            "metadata": {},
+            "companies": [
+                {"ticker": "AAA", "rank": 1, "overall_score": 80, "rating": "Buy", "market": "USA"},
+                {"ticker": "OLD", "rank": 2, "overall_score": 60, "rating": "Hold", "market": "USA"},
+            ],
+            "errors": [],
+        }
+        current = {
+            "metadata": {
+                "complete": True,
+                "requested": 3,
+                "processed": 3,
+                "market_counts": {"USA": 2, "Poland": 1},
+            },
+            "companies": [
+                {"ticker": "AAA", "rank": 2, "overall_score": 68, "rating": "Hold", "market": "USA"},
+                {"ticker": "NEW", "rank": 1, "overall_score": 90, "rating": "Strong Buy", "market": "USA"},
+            ],
+            "errors": [{"ticker": "PKO.WA", "error": "429 Too Many Requests"}],
+        }
+
+        report = build_ranking_quality_report(current, previous)
+
+        self.assertEqual(report["error_categories"], {"rate_limited": 1})
+        self.assertTrue(any("Poland coverage" in warning for warning in report["warnings"]))
+        self.assertEqual(report["comparison"]["added"], 1)
+        self.assertEqual(report["comparison"]["removed"], 1)
+        self.assertEqual(report["comparison"]["large_score_changes"], 1)
 
 
 if __name__ == "__main__":

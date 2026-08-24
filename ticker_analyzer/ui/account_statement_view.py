@@ -6,13 +6,21 @@ import streamlit as st
 
 from ticker_analyzer.account_statement import (
     AccountStatementError,
+    PositionContribution,
     StatementAnalysis,
     StatementOverview,
     StatementRangeAnalysis,
     analyze_account_statement,
+    analyze_position_contributions,
     analyze_statement_range,
     inspect_account_statement,
     read_statement_sheet,
+)
+from ticker_analyzer.portfolio_performance import (
+    BenchmarkError,
+    calculate_drawdown,
+    fetch_benchmark_growth,
+    monthly_performance,
 )
 from ticker_analyzer.returns_table import (
     GrowthPoint,
@@ -134,8 +142,9 @@ def _render_analysis(payload: bytes, returns_table: ReturnsTable | None = None) 
         )
 
     st.markdown("#### Growth of 10,000")
+    portfolio_growth: tuple[GrowthPoint, ...] = ()
     if returns_analysis is not None:
-        st.plotly_chart(_growth_chart(returns_analysis.growth), width="stretch")
+        portfolio_growth = returns_analysis.growth
         detail = (
             "Partial boundary months are geometrically prorated from their monthly return."
             if returns_analysis.partial_months_estimated
@@ -146,13 +155,38 @@ def _render_analysis(payload: bytes, returns_table: ReturnsTable | None = None) 
             f"returns table. {detail}"
         )
     else:
-        fallback_growth = _statement_growth(range_analysis)
-        if fallback_growth:
-            st.plotly_chart(_growth_chart(fallback_growth), width="stretch")
+        portfolio_growth = _statement_growth(range_analysis)
+        if portfolio_growth:
             st.caption(
                 "Based on the statement-derived estimated P/L path, normalized to its Modified "
                 "Dietz return, because no usable returns table covers the selected range."
             )
+    benchmark_symbol = st.text_input(
+        "Benchmark ticker",
+        value="SPY",
+        help="Yahoo Finance ticker used only for a normalized total-return comparison.",
+        key="account_statement_benchmark",
+    ).strip().upper()
+    benchmark_growth: tuple[GrowthPoint, ...] = ()
+    if benchmark_symbol:
+        try:
+            benchmark_growth = _cached_benchmark_growth(
+                benchmark_symbol,
+                selected_start,
+                selected_end,
+            )
+        except BenchmarkError as exc:
+            st.warning(str(exc))
+    if portfolio_growth:
+        st.plotly_chart(
+            _growth_chart(portfolio_growth, benchmark_growth, benchmark_symbol),
+            width="stretch",
+        )
+        _render_drawdown_and_relative_return(portfolio_growth, benchmark_growth, benchmark_symbol)
+        _render_monthly_performance(portfolio_growth)
+
+    contributions = analyze_position_contributions(payload, selected_start, selected_end)
+    _render_position_contributions(contributions)
 
     st.markdown("#### Portfolio snapshot")
     st.caption(
@@ -470,23 +504,134 @@ def _statement_growth(analysis: StatementRangeAnalysis) -> tuple[GrowthPoint, ..
     return tuple(growth)
 
 
-def _growth_chart(points: tuple[GrowthPoint, ...]) -> go.Figure:
+def _growth_chart(
+    points: tuple[GrowthPoint, ...],
+    benchmark: tuple[GrowthPoint, ...] = (),
+    benchmark_symbol: str = "",
+) -> go.Figure:
     figure = go.Figure(
         go.Scatter(
             x=[point.day for point in points],
             y=[point.value for point in points],
             mode="lines+markers",
-            name="Portfolio value",
+            name="Portfolio",
             hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.2f}<extra></extra>",
         )
     )
+    if benchmark:
+        figure.add_trace(
+            go.Scatter(
+                x=[point.day for point in benchmark],
+                y=[point.value for point in benchmark],
+                mode="lines",
+                name=benchmark_symbol or "Benchmark",
+                hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.2f}<extra></extra>",
+            )
+        )
     figure.update_layout(
         xaxis_title=None,
         yaxis_title="Value of initial 10,000",
-        showlegend=False,
+        showlegend=bool(benchmark),
         margin={"l": 20, "r": 20, "t": 20, "b": 20},
     )
     return figure
+
+
+@st.cache_data(ttl=3600, max_entries=16, show_spinner=False)
+def _cached_benchmark_growth(
+    symbol: str,
+    start_date: object,
+    end_date: object,
+) -> tuple[GrowthPoint, ...]:
+    return fetch_benchmark_growth(symbol, start_date, end_date)
+
+
+def _render_drawdown_and_relative_return(
+    portfolio: tuple[GrowthPoint, ...],
+    benchmark: tuple[GrowthPoint, ...],
+    benchmark_symbol: str,
+) -> None:
+    portfolio_drawdown = calculate_drawdown(portfolio)
+    columns = st.columns(3)
+    portfolio_return = portfolio[-1].value / portfolio[0].value - 1
+    columns[0].metric("Portfolio return", _percent(portfolio_return))
+    columns[1].metric(
+        "Maximum drawdown",
+        _percent(portfolio_drawdown.value if portfolio_drawdown else None),
+        help=(
+            f"Peak {portfolio_drawdown.peak_date:%Y-%m-%d} to trough "
+            f"{portfolio_drawdown.trough_date:%Y-%m-%d}."
+            if portfolio_drawdown
+            else None
+        ),
+    )
+    if benchmark:
+        benchmark_return = benchmark[-1].value / benchmark[0].value - 1
+        columns[2].metric(
+            f"vs {benchmark_symbol}",
+            _percent(portfolio_return - benchmark_return),
+            help=f"Portfolio return minus {benchmark_symbol} return ({benchmark_return:.2%}).",
+        )
+    else:
+        columns[2].metric("vs benchmark", "N/A")
+
+
+def _render_monthly_performance(points: tuple[GrowthPoint, ...]) -> None:
+    monthly = monthly_performance(points)
+    if not monthly:
+        return
+    with st.expander("Monthly performance", expanded=False):
+        frame = pd.DataFrame(
+            {
+                "Month": [point.month.strftime("%Y-%m") for point in monthly],
+                "Return": [point.return_value for point in monthly],
+                "Growth of 10,000": [point.ending_value for point in monthly],
+            }
+        )
+        st.bar_chart(frame.set_index("Month")["Return"])
+        display_frame = frame.copy()
+        display_frame["Return"] = display_frame["Return"].map(lambda value: f"{value:.2%}")
+        st.dataframe(display_frame, hide_index=True, width="stretch")
+
+
+def _render_position_contributions(contributions: tuple[PositionContribution, ...]) -> None:
+    st.markdown("#### Closed-position contribution")
+    if not contributions:
+        st.info("No supported closed-position rows were found in the selected period.")
+        return
+    frame = pd.DataFrame(
+        [
+            {
+                "Asset": item.asset,
+                "Trading P/L": item.realized_profit_loss,
+                "Included overnight fees and dividends": item.fees_and_dividends,
+                "Total contribution": item.total_contribution,
+                "Closed positions": item.closed_positions,
+            }
+            for item in contributions
+        ]
+    )
+    chart_rows = frame.reindex(frame["Total contribution"].abs().sort_values(ascending=False).index).head(20)
+    figure = go.Figure(
+        go.Bar(
+            x=chart_rows["Total contribution"],
+            y=chart_rows["Asset"],
+            orientation="h",
+            marker_color=["#2ca02c" if value >= 0 else "#d62728" for value in chart_rows["Total contribution"]],
+        )
+    )
+    figure.update_layout(
+        xaxis_title="Contribution (USD)",
+        yaxis_title=None,
+        yaxis={"autorange": "reversed"},
+        margin={"l": 20, "r": 20, "t": 10, "b": 20},
+    )
+    st.plotly_chart(figure, width="stretch")
+    st.dataframe(frame, hide_index=True, width="stretch")
+    st.caption(
+        "This breakdown uses exact rows from eToro Closed Positions whose close date is inside "
+        "the selected range. Open-position valuation changes are not assigned to individual assets."
+    )
 
 
 def _format_period(start: object, end: object) -> str:

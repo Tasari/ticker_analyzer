@@ -9,6 +9,7 @@ from ticker_analyzer.account_statement import (
     AccountStatementError,
     ExternalCashFlow,
     analyze_account_statement,
+    analyze_position_contributions,
     analyze_statement_range,
     annualize_return,
     inspect_account_statement,
@@ -80,6 +81,11 @@ def analysis_workbook(*, dated_deposit: bool = True, holdings_snapshot: bool = F
         holdings.append(["Direction", "Value in USD", "Type"])
         holdings.append(["Long", 80, "Stocks"])
         holdings.append(["Short", -20, "CFD"])
+    closed = workbook.create_sheet("Closed Positions")
+    closed.append(["Action", "Close Date", "Profit(USD)", "Overnight Fees and Dividends"])
+    closed.append(["Alpha (AAA)", "08/01/2024 12:00:00", 5, -0.5])
+    closed.append(["Alpha (AAA)", "10/01/2024 12:00:00", -1, 0.1])
+    closed.append(["Outside (OLD)", "12/01/2024 12:00:00", 20, 0])
     output = BytesIO()
     workbook.save(output)
     workbook.close()
@@ -189,6 +195,20 @@ class AccountStatementTest(unittest.TestCase):
         self.assertIsNone(modified_dietz_return(100, 110, [], end, start))
         self.assertIsNone(annualize_return(-1, start, end))
         self.assertIsNone(annualize_return(0.1, end, start))
+
+    def test_closed_position_contributions_are_grouped_by_asset_and_date(self):
+        contributions = analyze_position_contributions(
+            analysis_workbook(),
+            datetime(2024, 1, 7).date(),
+            datetime(2024, 1, 10).date(),
+        )
+
+        self.assertEqual(len(contributions), 1)
+        self.assertEqual(contributions[0].asset, "Alpha (AAA)")
+        self.assertEqual(contributions[0].closed_positions, 2)
+        self.assertAlmostEqual(contributions[0].realized_profit_loss, 4)
+        self.assertAlmostEqual(contributions[0].fees_and_dividends, -0.4)
+        self.assertAlmostEqual(contributions[0].total_contribution, 4)
 
     def test_inspects_etoro_workbook_metadata_and_sheet_sizes(self):
         overview = inspect_account_statement(statement_workbook())

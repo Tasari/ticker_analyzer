@@ -9,7 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from ticker_analyzer.ranking import DEFAULT_RANKING_PATH, load_ranking
+from ticker_analyzer.ranking import DEFAULT_RANKING_PATH, load_ranking, save_ranking
+from ticker_analyzer.ranking_quality import build_ranking_quality_report
 
 
 def refresh_large_cap_ranking(
@@ -53,6 +54,7 @@ def refresh_large_cap_ranking(
     ]
     creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     try:
+        previous_payload = load_ranking(resolved_output)
         with log_path.open("w", encoding="utf-8") as log_handle:
             run_kwargs = {
                 "cwd": project_root,
@@ -93,6 +95,8 @@ def refresh_large_cap_ranking(
             progress_callback(metadata)
         if not ranking_refresh_is_complete(payload, expected_limit=limit):
             return False, "Ranking update stopped before all companies were processed; the checkpoint was preserved.", metadata
+        payload["metadata"]["quality_report"] = build_ranking_quality_report(payload, previous_payload)
+        save_ranking(payload, refresh_path)
         refresh_path.replace(resolved_output)
         return True, (
             f"Ranking updated: {metadata.get('scored', 0)} scored, "

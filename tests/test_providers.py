@@ -102,6 +102,21 @@ class ProvidersTest(unittest.TestCase):
         self.assertTrue({429, 503}.issubset(set(retry.status_forcelist)))
         self.assertTrue(retry.respect_retry_after_header)
 
+    def test_json_client_bounds_etag_cache(self):
+        session = ApiSession(
+            [
+                ApiResponse({"value": 1}, headers={"ETag": "one"}),
+                ApiResponse({"value": 2}, headers={"ETag": "two"}),
+            ]
+        )
+        client = JsonApiClient(session=session, minimum_interval=0, max_cache_entries=1)
+
+        client.get_json("https://example.test/one")
+        client.get_json("https://example.test/two")
+
+        self.assertEqual(len(client._cache), 1)
+        self.assertIn("/two", next(iter(client._cache)))
+
     def test_regulatory_client_methods_build_expected_requests(self):
         for client, method, kwargs, fragment in [
             (NbpClient(minimum_interval=0), "exchange_rate", {"currency": "USD"}, "exchangerates"),
