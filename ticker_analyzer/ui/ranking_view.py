@@ -153,24 +153,24 @@ def render_large_cap_ranking() -> None:
 
 
 def _render_snapshot_transfer(payload: dict) -> None:
-    has_snapshot = bool(payload.get("companies"))
-    export_bytes = export_ranking(payload) if has_snapshot else b""
-    st.download_button(
-        "Download ranking JSON",
-        data=export_bytes,
-        file_name=ranking_export_filename(payload.get("metadata", {})),
-        mime="application/json",
-        disabled=not has_snapshot,
-        help="Download a timestamped backup of the current ranking.",
-    )
-    if not has_snapshot:
-        st.caption("Generate or import a ranking before downloading its backup.")
-
-    with st.expander("Import ranking backup", expanded=False):
+    with st.expander("Ranking backup: download / import", expanded=False):
         st.caption(
-            "Import a previously downloaded snapshot without rebuilding the full universe. "
-            "Imported JSON is validated before replacement."
+            "Download the current snapshot before a Streamlit restart or import it later without rebuilding "
+            "the full universe. Imported JSON is validated before replacement."
         )
+        has_snapshot = bool(payload.get("companies"))
+        export_bytes = export_ranking(payload) if has_snapshot else b""
+        st.download_button(
+            "Download ranking JSON",
+            data=export_bytes,
+            file_name=ranking_export_filename(payload.get("metadata", {})),
+            mime="application/json",
+            disabled=not has_snapshot,
+            help="Download a timestamped backup of the current ranking.",
+            width="stretch",
+        )
+        if not has_snapshot:
+            st.caption("Generate or import a ranking before downloading its backup.")
         import_allowed = mutation_allowed("ALLOW_RANKING_IMPORT")
         uploaded = st.file_uploader(
             "Import ranking JSON",
