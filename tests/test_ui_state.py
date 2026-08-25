@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from ticker_analyzer.ui.state import initialize_state, remove_tickers_from_state
+from ticker_analyzer.ui.state import add_tickers_to_state, initialize_state, remove_tickers_from_state
 
 
 class UiStateTest(unittest.TestCase):
@@ -47,6 +47,22 @@ class UiStateTest(unittest.TestCase):
         self.assertEqual(state["selected_tickers"], [])
         self.assertEqual(state["analysis_results"], {})
         self.assertIsNone(state["active_ticker"])
+
+    def test_adds_normalized_tickers_from_different_markets(self):
+        state = {
+            "selected_tickers": ["AAPL"],
+            "analysis_results": {"AAPL": {}},
+            "analysis_errors": {"OLD": "error"},
+            "active_ticker": "AAPL",
+        }
+
+        added = add_tickers_to_state(state, ["pkn.wa", "9988.hk", "AAPL", "bad ticker"])
+
+        self.assertEqual(added, ["PKN.WA", "9988.HK"])
+        self.assertEqual(state["selected_tickers"], ["AAPL", "PKN.WA", "9988.HK"])
+        self.assertEqual(state["analysis_results"], {})
+        self.assertEqual(state["analysis_errors"], {})
+        self.assertEqual(state["active_ticker"], "PKN.WA")
 
 
 if __name__ == "__main__":

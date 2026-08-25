@@ -3,9 +3,10 @@ from __future__ import annotations
 import streamlit as st
 from streamlit_searchbox import st_searchbox
 
+from ticker_analyzer.ticker_symbols import MARKET_SUFFIXES, ticker_for_market
 from ticker_analyzer.ui.analysis_actions import search_tickers
 from ticker_analyzer.ui.config_view import render_config_editor
-from ticker_analyzer.ui.state import remove_tickers_from_state
+from ticker_analyzer.ui.state import add_ticker_to_state, remove_tickers_from_state
 
 
 def render_sidebar(config: dict) -> tuple[dict[str, str], bool]:
@@ -54,13 +55,39 @@ def render_ticker_search() -> None:
         help="Search by ticker or company name, then add it to the comparison queue.",
     )
     if not selected:
+        _render_manual_market_ticker()
         return
-    ticker = selected.split(" | ", maxsplit=1)[0].strip().upper()
-    if ticker in st.session_state.selected_tickers:
-        return
-    st.session_state.selected_tickers.append(ticker)
-    st.session_state.analysis_results = {}
-    st.rerun()
+    ticker = selected.split(" | ", maxsplit=1)[0]
+    if add_ticker_to_state(st.session_state, ticker):
+        st.rerun()
+
+
+def _render_manual_market_ticker() -> None:
+    with st.expander("Add exact ticker from another market", expanded=False):
+        market = st.selectbox(
+            "Market",
+            options=list(MARKET_SUFFIXES),
+            help="Choose a market to append its Yahoo Finance suffix, or enter a complete Yahoo symbol.",
+            key="manual_ticker_market",
+        )
+        local_symbol = st.text_input(
+            "Ticker symbol",
+            placeholder="Examples: PKN, LLOY, VOW3, 9988",
+            key="manual_ticker_symbol",
+        )
+        ticker = ticker_for_market(local_symbol, market)
+        if ticker:
+            st.caption(f"Yahoo ticker: {ticker}")
+        if st.button(
+            "Add exact ticker",
+            disabled=ticker is None,
+            width="stretch",
+            key="add_manual_ticker",
+        ):
+            if add_ticker_to_state(st.session_state, ticker):
+                st.rerun()
+            else:
+                st.info("This ticker is already selected.")
 
 
 def render_selected_tickers() -> None:

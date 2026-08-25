@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from collections.abc import Mapping, MutableMapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import streamlit as st
+
+from ticker_analyzer.ticker_symbols import normalize_ticker
 
 PERSISTENCE_VERSION = 1
 PERSISTENCE_TTL = timedelta(days=30)
@@ -19,7 +20,6 @@ RANGE_STATE_KEYS = {
     "Fundamentals": "fundamentals_range",
     "Value": "value_range",
 }
-TICKER_PATTERN = re.compile(r"^[A-Z0-9.^=-]{1,32}$")
 DISABLE_ENV = "TICKER_ANALYZER_DISABLE_BROWSER_STORAGE"
 
 _BROWSER_STORAGE = st.components.v2.component(
@@ -165,11 +165,6 @@ def normalize_tickers(value: Any) -> list[str]:
         if ticker and ticker not in normalized:
             normalized.append(ticker)
     return normalized
-
-
-def normalize_ticker(value: Any) -> str | None:
-    ticker = str(value or "").strip().upper().replace("/", "-")
-    return ticker if TICKER_PATTERN.fullmatch(ticker) else None
 
 
 def normalize_range(value: Any) -> str:

@@ -15,6 +15,7 @@ from ticker_analyzer.ranking import (
 from ticker_analyzer.ranking_quality import build_ranking_quality_report
 from ticker_analyzer.ui.config_view import mutation_allowed
 from ticker_analyzer.ui.ranking_actions import refresh_large_cap_ranking
+from ticker_analyzer.ui.state import add_tickers_to_state
 
 
 def render_large_cap_ranking() -> None:
@@ -260,13 +261,7 @@ def ranking_export_filename(metadata: dict) -> str:
 
 
 def add_ranking_tickers_to_analyzer(tickers: list[str]) -> None:
-    normalized_tickers = [ticker.strip().upper() for ticker in tickers if ticker and ticker.strip()]
-    if not normalized_tickers:
+    added = add_tickers_to_state(st.session_state, tickers)
+    if not added:
         return
-    for ticker in normalized_tickers:
-        if ticker not in st.session_state.selected_tickers:
-            st.session_state.selected_tickers.append(ticker)
-    st.session_state.analysis_results = {}
-    st.session_state.analysis_errors = {}
-    st.session_state.active_ticker = normalized_tickers[0]
     st.session_state.page = "Stock Analyzer"

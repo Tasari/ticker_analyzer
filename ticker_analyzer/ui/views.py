@@ -8,6 +8,8 @@ _EXPORTS = {
     "render_ticker_search": "ticker_analyzer.ui.sidebar",
     "render_selected_tickers": "ticker_analyzer.ui.sidebar",
     "remove_selected_tickers": "ticker_analyzer.ui.sidebar",
+    "add_ticker_to_state": "ticker_analyzer.ui.state",
+    "add_tickers_to_state": "ticker_analyzer.ui.state",
     "render_analysis_errors": "ticker_analyzer.ui.analysis_views",
     "render_company_analysis": "ticker_analyzer.ui.analysis_views",
     "render_multi_ticker_analysis": "ticker_analyzer.ui.analysis_views",

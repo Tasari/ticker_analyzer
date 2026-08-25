@@ -102,6 +102,21 @@ class UiActionsTest(unittest.TestCase):
 
         cached.assert_called_once_with("aapl")
 
+    def test_exact_international_ticker_remains_available_when_search_fails(self):
+        with patch("ticker_analyzer.ui.analysis_actions.cached_ticker_search", return_value=[]):
+            results = search_tickers(" pkn.wa ")
+
+        self.assertEqual(results, ["PKN.WA | Add exact Yahoo ticker"])
+
+    def test_search_keeps_international_result_and_deduplicates_exact_option(self):
+        with patch(
+            "ticker_analyzer.ui.analysis_actions.cached_ticker_search",
+            return_value=["PKN.WA | ORLEN | Warsaw"],
+        ):
+            results = search_tickers("PKN.WA")
+
+        self.assertEqual(results, ["PKN.WA | Add exact Yahoo ticker"])
+
     def test_single_ticker_analysis_uses_sequential_path(self):
         with (
             patch("ticker_analyzer.ui.analysis_actions.analyze_tickers_sequentially", return_value=({"ONE": {}}, {})) as sequential,

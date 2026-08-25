@@ -7,6 +7,7 @@ from typing import Any
 import streamlit as st
 
 from ticker_analyzer import analyze_ticker
+from ticker_analyzer.ticker_symbols import looks_like_ticker, normalize_ticker
 
 logger = logging.getLogger(__name__)
 MAX_ANALYSIS_WORKERS = 5
@@ -83,7 +84,21 @@ def ordered_analysis_results(
 
 
 def search_tickers(searchterm: str) -> list[str]:
-    return cached_ticker_search(searchterm.strip())
+    query = searchterm.strip()
+    results = cached_ticker_search(query)
+    exact = normalize_ticker(query) if looks_like_ticker(query) else None
+    if exact:
+        exact_option = f"{exact} | Add exact Yahoo ticker"
+        results = [exact_option, *results]
+    deduplicated = []
+    seen: set[str] = set()
+    for result in results:
+        ticker = result.split(" | ", maxsplit=1)[0]
+        if ticker in seen:
+            continue
+        seen.add(ticker)
+        deduplicated.append(result)
+    return deduplicated
 
 
 @st.cache_data(ttl=900, max_entries=MAX_SEARCH_CACHE_ENTRIES, show_spinner=False)
@@ -106,14 +121,14 @@ def cached_ticker_search(query: str) -> list[str]:
             recommended=0,
         ).quotes
     except Exception:
-        logger.warning("Ticker search failed for query %s", query, exc_info=True)
+        logger.warning("Ticker search failed for query %s", query)
         return []
 
     suggestions = []
     for result in results:
-        if result.get("quoteType") != "EQUITY":
+        if result.get("quoteType") not in {"EQUITY", "ETF"}:
             continue
-        symbol = result.get("symbol")
+        symbol = normalize_ticker(result.get("symbol"))
         if not symbol:
             continue
         name = result.get("longname") or result.get("shortname") or symbol

@@ -124,6 +124,27 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertEqual(app.session_state["analysis_errors"], {})
         self.assertIsNone(app.session_state["active_ticker"])
 
+    def test_adds_exact_ticker_from_selected_international_market(self):
+        with patch(
+            "ticker_analyzer.ui.analysis_actions.analyze_selected_tickers",
+            return_value=({}, {}),
+        ):
+            app = AppTest.from_file("app.py", default_timeout=10)
+            app.session_state["_site_access_authenticated"] = True
+            app.session_state["selected_tickers"] = []
+            app.run()
+
+            market = next(widget for widget in app.selectbox if widget.label == "Market")
+            market.set_value("Poland (Warsaw)").run()
+            symbol = next(widget for widget in app.text_input if widget.label == "Ticker symbol")
+            symbol.set_value("PKN").run()
+            add = next(button for button in app.button if button.label == "Add exact ticker")
+            add.click().run()
+
+        self.assertFalse(app.exception)
+        self.assertEqual(app.session_state["selected_tickers"], ["PKN.WA"])
+        self.assertEqual(app.session_state["active_ticker"], "PKN.WA")
+
     def test_ranking_country_filter_limits_displayed_rows(self):
         app = AppTest.from_string(
             textwrap.dedent(

@@ -5,6 +5,8 @@ from typing import Any
 
 import streamlit as st
 
+from ticker_analyzer.ticker_symbols import normalize_ticker
+
 
 def initialize_state() -> None:
     if "selected_tickers" not in st.session_state:
@@ -40,3 +42,24 @@ def remove_tickers_from_state(state: MutableMapping[str, Any], tickers: list[str
 
     if state.get("active_ticker") in removed:
         state["active_ticker"] = next(iter(results), None)
+
+
+def add_ticker_to_state(state: MutableMapping[str, Any], value: Any) -> bool:
+    return bool(add_tickers_to_state(state, [value]))
+
+
+def add_tickers_to_state(state: MutableMapping[str, Any], values: list[Any]) -> list[str]:
+    selected = state.setdefault("selected_tickers", [])
+    added: list[str] = []
+    for value in values:
+        ticker = normalize_ticker(value)
+        if not ticker or ticker in selected:
+            continue
+        selected.append(ticker)
+        added.append(ticker)
+    if not added:
+        return []
+    state["analysis_results"] = {}
+    state["analysis_errors"] = {}
+    state["active_ticker"] = added[0]
+    return added
