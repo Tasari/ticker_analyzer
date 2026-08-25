@@ -115,6 +115,54 @@ class EdgeCaseTest(unittest.TestCase):
         self.assertEqual(ratio_vs_history_metric(6.0, "pe", history, income, balance, pd.DataFrame(), years=2)["value"], 20.0)
         self.assertIsNone(ratio_vs_history(None, "pe", history, income, balance, pd.DataFrame(), years=2))
 
+    def test_estimate_fallback_and_rejection_paths(self):
+        sparse = pd.DataFrame({"avg": [1.0]}, index=["0y"])
+        self.assertIsNone(estimate_growth_from_table(None, min_analysts=5))
+        self.assertIsNone(estimate_growth_from_table(sparse, min_analysts=5))
+        low_coverage = pd.DataFrame(
+            {"avg": [10.0, 12.0], "numberOfAnalysts": [2, 2]},
+            index=["0y", "+1y"],
+        )
+        self.assertIsNone(estimate_growth_from_table(low_coverage, min_analysts=5))
+        growth_only = pd.DataFrame(
+            {"avg": [0.0, None], "numberOfAnalysts": [8, 8], "growth": [None, 2.5]},
+            index=["0y", "+1y"],
+        )
+        self.assertEqual(estimate_growth_from_table(growth_only, min_analysts=5), 2.5)
+        negative = pd.DataFrame(
+            {"avg": [-1.0, -2.0], "numberOfAnalysts": [8, 8]},
+            index=["0y", "+1y"],
+        )
+        self.assertIsNone(estimate_growth_from_table(negative, min_analysts=5, positive_only=True))
+        self.assertIn("non-positive", estimate_growth_note("eps", negative))
+        self.assertIn(
+            "turnaround",
+            estimate_growth_note("eps", None, {"epsCurrentYear": -1, "epsNextYear": 2}).lower(),
+        )
+        self.assertIn(
+            "non-positive",
+            estimate_growth_note("eps", None, {"epsCurrentYear": 1, "epsNextYear": -2}),
+        )
+        self.assertIn("revenue_estimate", estimate_growth_note("revenue", None))
+        self.assertFalse(estimate_pair_has_non_positive_value(None, min_analysts=5))
+        self.assertFalse(estimate_pair_has_non_positive_value(sparse, min_analysts=5))
+        self.assertFalse(estimate_pair_has_non_positive_value(low_coverage, min_analysts=5))
+        self.assertEqual(estimate_pair(None), (None, None))
+        duplicate = pd.DataFrame(
+            {"avg": [1.0, 2.0, 3.0]},
+            index=["0y", "+1y", "+1y"],
+        )
+        self.assertEqual(estimate_row(duplicate, "+1y")["avg"], 2.0)
+        self.assertIsNone(growth_from_estimates(None, period="+1y"))
+        self.assertIsNone(growth_from_estimates(pd.DataFrame({"other": [1]}, index=["+1y"]), period="+1y"))
+        self.assertEqual(
+            estimate_growth({}, "revenue", growth_estimates=pd.DataFrame({"stockTrend": [2.5]}, index=["+1y"])),
+            2.5,
+        )
+        self.assertEqual(estimate_growth({"earningsGrowth": 0.2}, "eps"), 20)
+        self.assertIsNone(estimate_growth({"epsCurrentYear": -1, "epsNextYear": 2}, "eps"))
+        self.assertIsNone(target_upside({}, {}))
+
 
 if __name__ == "__main__":
     unittest.main()

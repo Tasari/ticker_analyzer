@@ -51,6 +51,46 @@ class DataQualityTest(unittest.TestCase):
         self.assertIn("critical_period_mismatch", period_breakdown["caps"])
         self.assertIn("critical_source_mismatch", source_breakdown["caps"])
 
+    def test_freshness_bands_timezone_normalization_and_missing_dates(self):
+        now = pd.Timestamp("2026-12-31", tz="UTC")
+        expected = {
+            0: 100,
+            46: 90,
+            91: 75,
+            136: 60,
+            181: 40,
+            271: 20,
+            366: 5,
+        }
+        self.assertEqual(freshness_score(None, now), 0)
+        self.assertEqual(freshness_score(pd.NaT, now), 0)
+        for days, score in expected.items():
+            with self.subTest(days=days):
+                naive_filing = (now - pd.Timedelta(days=days)).tz_localize(None)
+                self.assertEqual(freshness_score(naive_filing, now.tz_localize(None)), score)
+        self.assertEqual(freshness_score(now + pd.Timedelta(days=1), now), 100)
+
+    def test_depth_and_quality_values_are_bounded(self):
+        self.assertEqual(observation_depth_score(10, 0), 0)
+        self.assertEqual(observation_depth_score(-1, 10), 0)
+        self.assertEqual(observation_depth_score(20, 10), 100)
+        score, breakdown = calculate_data_quality(
+            metric_weight_coverage=200,
+            filing_freshness=-10,
+            provenance_score=50,
+            reconciliation_score=None,
+            source_mix="custom",
+            config={"data_quality": {"component_weights": {
+                "effective_metric_coverage": 0,
+                "data_freshness": 0,
+                "source_quality": 0,
+                "cross_source_reconciliation": 0,
+            }}},
+        )
+        self.assertEqual(score, 0)
+        self.assertEqual(breakdown["normalized_weights"], {})
+        self.assertEqual(breakdown["caps"], [])
+
 
 def quality_fixture(**overrides):
     values = {

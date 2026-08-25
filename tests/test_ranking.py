@@ -13,6 +13,7 @@ from ticker_analyzer.ranking import (
     DEFAULT_RANKING_PATH,
     UNIVERSE_SCHEMA_VERSION,
     XTB_EUROPE_MARKETS,
+    RankingSnapshotError,
     analysis_fingerprint,
     build_large_cap_ranking,
     checkpoint_universe_is_current,
@@ -31,6 +32,7 @@ from ticker_analyzer.ranking import (
     select_nasdaq_market,
     sort_ranking,
     validate_market_coverage,
+    validate_ranking_payload,
     yahoo_ticker_from_tradingview,
 )
 from ticker_analyzer.ranking_quality import build_ranking_quality_report
@@ -354,6 +356,52 @@ class RankingTest(unittest.TestCase):
                     path,
                 )
 
+    def test_ranking_snapshot_rejects_malformed_and_oversized_imports(self):
+        with self.assertRaisesRegex(RankingSnapshotError, "empty"):
+            import_ranking(b"")
+        with patch("ticker_analyzer.ranking_storage.MAX_RANKING_IMPORT_BYTES", 2):
+            with self.assertRaisesRegex(RankingSnapshotError, "50 MB"):
+                import_ranking(b"{}\n")
+        for malformed in (b"\xff", b"{not json}"):
+            with self.subTest(malformed=malformed):
+                with self.assertRaisesRegex(RankingSnapshotError, "UTF-8 JSON"):
+                    import_ranking(malformed)
+
+    def test_ranking_snapshot_schema_validation_reports_each_invalid_section(self):
+        valid = {"metadata": {}, "companies": [], "errors": [], "universe": []}
+        invalid = [
+            ([], "JSON object"),
+            ({}, "missing"),
+            ({**valid, "metadata": []}, "metadata"),
+            ({**valid, "companies": {}}, "JSON arrays"),
+            ({**valid, "errors": [{}], "universe": {}}, "JSON arrays"),
+            ({**valid, "companies": ["AAA"]}, "row must be"),
+            ({**valid, "errors": ["failure"]}, "row must be"),
+            ({**valid, "universe": ["AAA"]}, "row must be"),
+            ({**valid, "companies": [{}]}, "contain a ticker"),
+        ]
+        for payload, message in invalid:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(RankingSnapshotError, message):
+                    validate_ranking_payload(payload)
+        with patch("ticker_analyzer.ranking_storage.MAX_RANKING_ROWS", 0):
+            with self.assertRaisesRegex(RankingSnapshotError, "too many rows"):
+                validate_ranking_payload({**valid, "companies": [{"ticker": "AAA"}]})
+
+    def test_missing_snapshot_returns_an_empty_ranking(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing.json"
+            self.assertEqual(load_ranking(missing), {"metadata": {}, "companies": [], "errors": []})
+
+    def test_failed_atomic_save_removes_temporary_file(self):
+        payload = {"metadata": {}, "companies": [], "errors": []}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ranking.json"
+            with patch("ticker_analyzer.ranking_storage.os.replace", side_effect=OSError("locked")):
+                with self.assertRaisesRegex(OSError, "locked"):
+                    save_ranking(payload, path)
+            self.assertFalse(path.with_suffix(".json.tmp").exists())
+
     def test_quality_report_compares_market_coverage_and_previous_ranking(self):
         previous = {
             "metadata": {},
@@ -384,6 +432,54 @@ class RankingTest(unittest.TestCase):
         self.assertEqual(report["comparison"]["added"], 1)
         self.assertEqual(report["comparison"]["removed"], 1)
         self.assertEqual(report["comparison"]["large_score_changes"], 1)
+
+    def test_quality_report_categorizes_failures_and_warns_about_incomplete_scan(self):
+        current = {
+            "metadata": {
+                "complete": False,
+                "requested": 20,
+                "processed": 5,
+                "market_counts": {"USA": 10, "Unused": 0},
+            },
+            "companies": [
+                {"ticker": "A", "overall_score": 50, "market": "USA"},
+                {"ticker": "B", "overall_score": None, "market": "Other"},
+                {"ticker": "C", "overall_score": None, "market": "Other"},
+            ],
+            "errors": [
+                {"error": "request timed out"},
+                {"error": "network connection failed"},
+                {"error": "missing data"},
+                {"error": "analysis failed"},
+            ],
+        }
+
+        report = build_ranking_quality_report(current)
+
+        self.assertEqual(
+            report["error_categories"],
+            {"missing_data": 1, "network": 1, "provider_or_analysis": 1, "timeout": 1},
+        )
+        self.assertIsNone(next(row for row in report["markets"] if row["market"] == "Unused")["coverage"])
+        self.assertGreaterEqual(len(report["warnings"]), 5)
+        self.assertFalse(report["comparison"]["previous_available"])
+
+    def test_quality_comparison_ignores_invalid_scores_and_ranks(self):
+        current = {
+            "companies": [
+                {"ticker": "AAA", "overall_score": "bad", "rank": "bad", "rating": "Buy"},
+            ]
+        }
+        previous = {
+            "companies": [
+                {"ticker": "AAA", "overall_score": 10, "rank": None, "rating": "Buy"},
+            ]
+        }
+
+        comparison = build_ranking_quality_report(current, previous)["comparison"]
+
+        self.assertIsNone(comparison["mean_absolute_score_change"])
+        self.assertEqual(comparison["largest_rank_moves"], [])
 
     def test_export_filename_contains_readable_snapshot_date_and_time(self):
         self.assertEqual(
