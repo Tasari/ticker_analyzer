@@ -5,7 +5,7 @@ from datetime import date
 from unittest.mock import patch
 
 import pandas as pd
-from ticker_analyzer.ui.simulation_view import _convert_to_base_currency
+from ticker_analyzer.ui.simulation_view import _cached_fx_factor, _convert_to_base_currency
 
 
 class SimulationViewTest(unittest.TestCase):
@@ -40,6 +40,21 @@ class SimulationViewTest(unittest.TestCase):
         )
 
         self.assertEqual(list(converted), [2.5])
+
+    def test_fx_conversion_uses_inverse_pair_when_direct_pair_is_unavailable(self):
+        inverse = pd.Series([4.0], index=pd.to_datetime(["2024-01-02"]))
+        with patch(
+            "ticker_analyzer.ui.simulation_view._try_fx_history",
+            side_effect=[pd.Series(dtype=float), inverse],
+        ):
+            factor = _cached_fx_factor.__wrapped__(
+                "PLN",
+                "USD",
+                date(2024, 1, 1),
+                date(2024, 1, 2),
+            )
+
+        self.assertEqual(list(factor), [0.25])
 
 
 if __name__ == "__main__":

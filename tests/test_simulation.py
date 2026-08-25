@@ -46,6 +46,29 @@ class SimulationTest(unittest.TestCase):
         self.assertEqual(result.positions[1].status, "Cash: no usable prices")
         self.assertAlmostEqual(result.final_value, 15_000)
 
+    def test_different_exchange_calendars_are_forward_filled_without_reallocation(self):
+        result = simulate_buy_and_hold(
+            {
+                "US": pd.Series(
+                    [100.0, 110.0],
+                    index=pd.to_datetime(["2024-01-02", "2024-01-04"]),
+                ),
+                "EU": pd.Series(
+                    [200.0, 180.0],
+                    index=pd.to_datetime(["2024-01-03", "2024-01-05"]),
+                ),
+            },
+            {"US": 0.5, "EU": 0.5},
+            10_000,
+            date(2024, 1, 1),
+            date(2024, 1, 5),
+        )
+
+        self.assertEqual(result.position_values.loc["2024-01-02", "EU"], 5_000)
+        self.assertAlmostEqual(result.position_values.loc["2024-01-05", "US"], 5_500)
+        self.assertAlmostEqual(result.position_values.loc["2024-01-05", "EU"], 4_500)
+        self.assertAlmostEqual(result.final_value, 10_000)
+
     def test_rejects_invalid_dates_capital_and_weights(self):
         with self.assertRaisesRegex(SimulationError, "positive"):
             simulate_buy_and_hold({}, {"A": 1.0}, 0, date(2024, 1, 1), date(2024, 2, 1))

@@ -77,6 +77,11 @@ def render_simulation(results: dict[str, dict]) -> None:
             for index, ticker in enumerate(tickers)
         }
         st.caption(f"Current total: {sum(weights.values()):.2%}")
+    show_positions = st.checkbox(
+        "Show individual ticker lines",
+        value=True,
+        key="simulation_show_positions",
+    )
 
     signature = (tuple(tickers), initial_capital, start_date, end_date, base_currency, tuple(weights.items()))
     if st.button("Run simulation", type="primary", key="run_simulation"):
@@ -111,7 +116,11 @@ def render_simulation(results: dict[str, dict]) -> None:
         return
     for warning in output.get("warnings", []):
         st.warning(warning)
-    _render_simulation_result(output["result"], output["currency"])
+    _render_simulation_result(
+        output["result"],
+        output["currency"],
+        show_positions=show_positions,
+    )
 
 
 def _fetch_simulation_histories(
@@ -214,7 +223,12 @@ def _try_fx_history(symbol: str, start_date: date, end_date: date) -> pd.Series:
         return pd.Series(dtype=float)
 
 
-def _render_simulation_result(result: SimulationResult, currency: str) -> None:
+def _render_simulation_result(
+    result: SimulationResult,
+    currency: str,
+    *,
+    show_positions: bool = True,
+) -> None:
     metrics = st.columns(6)
     metrics[0].metric("Initial capital", _money(result.initial_capital, currency))
     metrics[1].metric("Final value", _money(result.final_value, currency))
@@ -224,7 +238,7 @@ def _render_simulation_result(result: SimulationResult, currency: str) -> None:
     metrics[5].metric("Max drawdown", _percent(result.maximum_drawdown))
     st.caption(f"Annualized volatility: {_percent(result.annualized_volatility)}")
 
-    chart = result.position_values.copy()
+    chart = result.position_values.copy() if show_positions else pd.DataFrame(index=result.portfolio_values.index)
     chart.insert(0, "Portfolio", result.portfolio_values)
     chart.index.name = "Date"
     figure = px.line(
@@ -250,6 +264,12 @@ def _render_simulation_result(result: SimulationResult, currency: str) -> None:
                 "Final value": position.final_value,
                 "P/L": position.profit_loss,
                 "Return": position.return_value * 100,
+                "Portfolio return contribution": position.profit_loss / result.initial_capital * 100,
+                "Share of total P/L": (
+                    position.profit_loss / result.profit_loss * 100
+                    if abs(result.profit_loss) >= 0.005
+                    else None
+                ),
                 "Status": position.status,
             }
             for position in result.positions
@@ -268,6 +288,8 @@ def _render_simulation_result(result: SimulationResult, currency: str) -> None:
             "Final value": st.column_config.NumberColumn(format=f"%.2f {currency}"),
             "P/L": st.column_config.NumberColumn(format=f"%.2f {currency}"),
             "Return": st.column_config.NumberColumn(format="%.2f%%"),
+            "Portfolio return contribution": st.column_config.NumberColumn(format="%.2f pp"),
+            "Share of total P/L": st.column_config.NumberColumn(format="%.2f%%"),
         },
     )
 
