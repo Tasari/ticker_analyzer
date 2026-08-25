@@ -7,26 +7,24 @@ from typing import Any
 import requests
 import yfinance as yf
 
-UNIVERSE_SCHEMA_VERSION = "xtb-markets-v5"
-US_MARKET = "United States"
-CHINA_ADR_MARKET = "China (US ADR)"
-CHINA_ADR_COUNTRIES = ("China", "Hong Kong")
-XTB_EUROPE_MARKETS: dict[str, tuple[str, str, str]] = {
-    "Poland": ("poland", "Poland", ".WA"),
-    "United Kingdom": ("uk", "United Kingdom", ".L"),
-    "Germany": ("germany", "Germany", ".DE"),
-    "France": ("france", "France", ".PA"),
-    "Spain": ("spain", "Spain", ".MC"),
-    "Italy": ("italy", "Italy", ".MI"),
-    "Portugal": ("portugal", "Portugal", ".LS"),
-    "Netherlands": ("netherlands", "Netherlands", ".AS"),
-    "Belgium": ("belgium", "Belgium", ".BR"),
-    "Austria": ("austria", "Austria", ".VI"),
-    "Switzerland": ("switzerland", "Switzerland", ".SW"),
-    "Denmark": ("denmark", "Denmark", ".CO"),
-    "Finland": ("finland", "Finland", ".HE"),
-    "Norway": ("norway", "Norway", ".OL"),
-    "Sweden": ("sweden", "Sweden", ".ST"),
+UNIVERSE_SCHEMA_VERSION = "xtb-exchanges-v6"
+US_EXCHANGES = "US Exchanges"
+XTB_EXCHANGE_MARKETS: dict[str, tuple[str, str, str]] = {
+    "Warsaw Stock Exchange": ("poland", "Poland", ".WA"),
+    "London Stock Exchange": ("uk", "United Kingdom", ".L"),
+    "Xetra": ("germany", "Germany", ".DE"),
+    "Euronext Paris": ("france", "France", ".PA"),
+    "Bolsa de Madrid": ("spain", "Spain", ".MC"),
+    "Borsa Italiana": ("italy", "Italy", ".MI"),
+    "Euronext Lisbon": ("portugal", "Portugal", ".LS"),
+    "Euronext Amsterdam": ("netherlands", "Netherlands", ".AS"),
+    "Euronext Brussels": ("belgium", "Belgium", ".BR"),
+    "Vienna Stock Exchange": ("austria", "Austria", ".VI"),
+    "SIX Swiss Exchange": ("switzerland", "Switzerland", ".SW"),
+    "Nasdaq Copenhagen": ("denmark", "Denmark", ".CO"),
+    "Nasdaq Helsinki": ("finland", "Finland", ".HE"),
+    "Oslo Bors": ("norway", "Norway", ".OL"),
+    "Nasdaq Stockholm": ("sweden", "Sweden", ".ST"),
 }
 TRADINGVIEW_COLUMNS = (
     "name",
@@ -49,8 +47,8 @@ def fetch_large_cap_universe(
     minimum_market_cap: float = 1_000_000_000,
     *,
     region: str = "us",
-    country: str = US_MARKET,
-    market: str = US_MARKET,
+    country: str = "United States",
+    market: str = US_EXCHANGES,
 ) -> list[dict[str, Any]]:
     query = yf.EquityQuery(
         "and",
@@ -80,7 +78,7 @@ def fetch_large_cap_universe(
                     "company_name": quote.get("longName") or quote.get("shortName") or ticker,
                     "market_cap": quote.get("marketCap"),
                     "exchange": quote.get("fullExchangeName") or quote.get("exchange"),
-                    "country": country,
+                    "country": quote.get("country") or country,
                     "market": market,
                     "sector": quote.get("sector") or quote.get("sectorDisp"),
                     "industry": quote.get("industry") or quote.get("industryDisp"),
@@ -205,41 +203,37 @@ def fetch_large_cap_universe_nasdaq(
                 "ticker": ticker,
                 "company_name": row.get("name") or ticker,
                 "market_cap": market_cap,
-                "exchange": None,
+                "exchange": row.get("exchange"),
                 "sector": row.get("sector"),
                 "industry": row.get("industry"),
                 "country": row.get("country"),
-                "market": US_MARKET,
+                "market": US_EXCHANGES,
                 "universe_source": "Nasdaq stock screener",
             }
         )
     return sorted(universe, key=lambda item: item["market_cap"], reverse=True)[:limit]
 
 
-def select_nasdaq_market(
+def select_exchange_listings(
     universe: list[dict[str, Any]],
     *,
-    country: str | Iterable[str],
     market: str,
     limit: int,
 ) -> list[dict[str, Any]]:
-    selected = []
-    countries = (country,) if isinstance(country, str) else tuple(country)
-    expected_countries = {value.casefold() for value in countries}
-    for source_item in universe:
-        source_country = str(source_item.get("country") or "").strip()
-        if source_country.casefold() not in expected_countries:
-            continue
-        selected.append({**source_item, "country": source_country, "market": market})
-        if len(selected) >= limit:
-            break
-    return selected
+    """Select listings by venue source, irrespective of the issuer's home country."""
+    return [
+        {
+            **source_item,
+            "exchange": source_item.get("exchange") or "US-listed",
+            "market": market,
+        }
+        for source_item in universe[:limit]
+    ]
 
 
-def combine_market_universes(
-    us_nasdaq: list[dict[str, Any]],
+def combine_exchange_universes(
+    us_listings: list[dict[str, Any]],
     us_yahoo: list[dict[str, Any]],
-    china_adrs: list[dict[str, Any]],
     regional_universes: list[list[dict[str, Any]]],
     *,
     us_limit: int,
@@ -259,7 +253,7 @@ def combine_market_universes(
             enriched.append(item)
         return enriched
 
-    us = enrich(us_nasdaq)
+    us = enrich(us_listings)
     seen_us = {item["ticker"] for item in us}
     for item in us_yahoo:
         if len(us) >= us_limit:
@@ -269,7 +263,6 @@ def combine_market_universes(
             us.append(item)
     buckets = [
         us[:us_limit],
-        enrich(china_adrs[:market_limit]),
         *(items[:market_limit] for items in regional_universes),
     ]
     combined: list[dict[str, Any]] = []
@@ -347,7 +340,7 @@ def checkpoint_universe_is_current(
     if required:
         counts = market_counts(universe)
         has_required_coverage = (
-            counts.get(US_MARKET, 0) >= limit
+            counts.get(US_EXCHANGES, 0) >= limit
             and all(counts.get(market, 0) > 0 for market in required)
         )
     return (

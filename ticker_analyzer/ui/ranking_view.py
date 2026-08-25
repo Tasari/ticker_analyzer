@@ -26,7 +26,10 @@ def render_large_cap_ranking() -> None:
     update_clicked = update_col.button(
         "Update Ranking",
         type="primary",
-        help="Rebuild the US 1,000 plus up to 100 companies from every configured international market.",
+        help=(
+            "Rebuild the top 1,000 US listings, including foreign ADRs, plus up to 100 listings "
+            "from every supported XTB exchange."
+        ),
         disabled=not refresh_allowed,
     )
     note_col.caption("The current snapshot stays visible until a complete replacement is ready.")

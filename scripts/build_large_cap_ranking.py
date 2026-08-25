@@ -10,33 +10,31 @@ import yfinance as yf
 from ticker_analyzer import load_config
 from ticker_analyzer.analysis.engine import StockAnalysisEngine
 from ticker_analyzer.ranking import (
-    CHINA_ADR_COUNTRIES,
-    CHINA_ADR_MARKET,
     DEFAULT_RANKING_PATH,
-    US_MARKET,
-    XTB_EUROPE_MARKETS,
+    US_EXCHANGES,
+    XTB_EXCHANGE_MARKETS,
     build_large_cap_ranking,
     checkpoint_universe_is_current,
-    combine_market_universes,
+    combine_exchange_universes,
     fetch_large_cap_universe,
     fetch_large_cap_universe_nasdaq,
     fetch_tradingview_market_universe,
     load_ranking,
     normalize_ticker,
     save_ranking,
-    select_nasdaq_market,
+    select_exchange_listings,
     validate_market_coverage,
 )
 from ticker_analyzer.ranking_provider import PublicYahooRankingProvider
 
-SMOKE_EUROPE_MARKETS = ("Poland", "United Kingdom", "Germany")
+SMOKE_EXCHANGES = ("Warsaw Stock Exchange", "London Stock Exchange", "Xetra")
 SMOKE_OUTPUT_PATH = Path("data/large_cap_ranking_smoke.json")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build a resumable scoring-v5 multi-market ranking.")
-    parser.add_argument("--limit", type=int, default=1000, help="US company quota.")
-    parser.add_argument("--market-limit", type=int, default=100, help="Quota for each non-US market.")
+    parser = argparse.ArgumentParser(description="Build a resumable scoring-v5 exchange ranking.")
+    parser.add_argument("--limit", type=int, default=1000, help="US-listed instrument quota.")
+    parser.add_argument("--market-limit", type=int, default=100, help="Quota for each non-US exchange.")
     parser.add_argument("--workers", type=int, default=5)
     parser.add_argument("--ranges", default="3Y")
     parser.add_argument("--data-as-of", help="UTC snapshot date (YYYY-MM-DD); defaults to today.")
@@ -47,7 +45,7 @@ def main() -> None:
     parser.add_argument(
         "--smoke",
         action="store_true",
-        help="Run a small multi-market build into a separate snapshot with resource profiling.",
+        help="Run a small multi-exchange build into a separate snapshot with resource profiling.",
     )
     parser.add_argument(
         "--profile",
@@ -55,7 +53,7 @@ def main() -> None:
         help="Record total runtime and peak traced Python memory in snapshot metadata.",
     )
     args = parser.parse_args()
-    selected_europe_markets = configure_run(args)
+    selected_exchanges = configure_run(args)
     profiling = args.profile or args.smoke
     started = time.perf_counter()
     if profiling:
@@ -69,7 +67,7 @@ def main() -> None:
     # Preserve the exact universe only while resuming an incomplete checkpoint.
     # A new run from a complete snapshot must fetch it again so newly eligible
     # listings and ADRs can enter the ranking.
-    required_markets = [CHINA_ADR_MARKET, *selected_europe_markets]
+    required_markets = list(selected_exchanges)
     if checkpoint_universe_is_current(
         previous,
         limit=args.limit,
@@ -82,14 +80,10 @@ def main() -> None:
             nasdaq_all = fetch_large_cap_universe_nasdaq(10000)
         except Exception as exc:
             print(f"Nasdaq universe unavailable ({exc}).")
-        us_nasdaq = select_nasdaq_market(
-            nasdaq_all, country=US_MARKET, market=US_MARKET, limit=args.limit
-        )
-        china_adrs = select_nasdaq_market(
+        us_listings = select_exchange_listings(
             nasdaq_all,
-            country=CHINA_ADR_COUNTRIES,
-            market=CHINA_ADR_MARKET,
-            limit=args.market_limit,
+            market=US_EXCHANGES,
+            limit=args.limit,
         )
         yahoo_us = []
         try:
@@ -98,11 +92,11 @@ def main() -> None:
             print(f"Yahoo US universe unavailable ({exc}).")
 
         # Streamlit Cloud IPs are frequently rate-limited by Yahoo's screener.
-        # TradingView provides the European discovery data; Yahoo remains the
+        # TradingView provides the non-US exchange discovery data; Yahoo remains the
         # per-ticker analysis provider after symbols are mapped to its suffixes.
         regional_by_name: dict[str, list[dict]] = {}
         regional_errors: list[str] = []
-        for market, (scanner_market, country, yahoo_suffix) in selected_europe_markets.items():
+        for market, (scanner_market, country, yahoo_suffix) in selected_exchanges.items():
             try:
                 regional_by_name[market] = fetch_tradingview_market_universe(
                     args.market_limit,
@@ -119,18 +113,17 @@ def main() -> None:
         if regional_errors:
             raise RuntimeError("; ".join(regional_errors))
 
-        regional_universes = [regional_by_name[name] for name in selected_europe_markets]
-        universe = combine_market_universes(
-            us_nasdaq,
+        regional_universes = [regional_by_name[name] for name in selected_exchanges]
+        universe = combine_exchange_universes(
+            us_listings,
             yahoo_us,
-            china_adrs,
             regional_universes,
             us_limit=args.limit,
             market_limit=args.market_limit,
         )
         if not universe:
             raise RuntimeError("No ranking universe could be fetched from TradingView, Yahoo, or Nasdaq.")
-        validate_market_coverage(universe, [US_MARKET, *required_markets])
+        validate_market_coverage(universe, [US_EXCHANGES, *required_markets])
         seed = previous or {"companies": [], "errors": []}
         seed["universe"] = universe
         seed["metadata"] = {}
@@ -164,15 +157,15 @@ def main() -> None:
 
 
 def configure_run(args: Any) -> dict[str, tuple[str, str, str]]:
-    """Apply safe smoke defaults and return the markets included in the run."""
+    """Apply safe smoke defaults and return the exchanges included in the run."""
     if not args.smoke:
-        return XTB_EUROPE_MARKETS
+        return XTB_EXCHANGE_MARKETS
     args.limit = min(args.limit, 20)
     args.market_limit = min(args.market_limit, 5)
     args.workers = min(args.workers, 3)
     if args.output == DEFAULT_RANKING_PATH:
         args.output = SMOKE_OUTPUT_PATH
-    return {market: XTB_EUROPE_MARKETS[market] for market in SMOKE_EUROPE_MARKETS}
+    return {market: XTB_EXCHANGE_MARKETS[market] for market in SMOKE_EXCHANGES}
 
 
 if __name__ == "__main__":

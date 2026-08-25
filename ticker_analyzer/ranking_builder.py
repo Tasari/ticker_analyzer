@@ -211,7 +211,7 @@ def ranking_payload(
     return {
         "metadata": {
             "generated_at": datetime.now(UTC).isoformat(),
-            "universe": "USA 1000 plus up to 100 companies per supported international market",
+            "universe": "Top US-listed equities plus up to 100 listings per supported XTB exchange",
             "market_counts": market_counts(universe),
             "requested": len(universe),
             "processed": len(rows) + len(unique_errors) if processed_count is None else processed_count,

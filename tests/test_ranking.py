@@ -12,12 +12,13 @@ from scripts.build_large_cap_ranking import SMOKE_OUTPUT_PATH, configure_run
 from ticker_analyzer.ranking import (
     DEFAULT_RANKING_PATH,
     UNIVERSE_SCHEMA_VERSION,
-    XTB_EUROPE_MARKETS,
+    US_EXCHANGES,
+    XTB_EXCHANGE_MARKETS,
     RankingSnapshotError,
     analysis_fingerprint,
     build_large_cap_ranking,
     checkpoint_universe_is_current,
-    combine_market_universes,
+    combine_exchange_universes,
     export_ranking,
     fetch_large_cap_universe,
     fetch_large_cap_universe_nasdaq,
@@ -29,7 +30,7 @@ from ticker_analyzer.ranking import (
     normalize_ticker,
     ranking_row,
     save_ranking,
-    select_nasdaq_market,
+    select_exchange_listings,
     sort_ranking,
     validate_market_coverage,
     validate_ranking_payload,
@@ -74,7 +75,10 @@ class RankingTest(unittest.TestCase):
         self.assertEqual(args.market_limit, 5)
         self.assertEqual(args.workers, 3)
         self.assertEqual(args.output, SMOKE_OUTPUT_PATH)
-        self.assertEqual(list(markets), ["Poland", "United Kingdom", "Germany"])
+        self.assertEqual(
+            list(markets),
+            ["Warsaw Stock Exchange", "London Stock Exchange", "Xetra"],
+        )
 
     def test_normal_run_keeps_all_market_settings(self):
         output = Path("custom.json")
@@ -83,7 +87,9 @@ class RankingTest(unittest.TestCase):
         markets = configure_run(args)
 
         self.assertEqual((args.limit, args.market_limit, args.workers, args.output), (12, 4, 2, output))
-        self.assertEqual(markets, XTB_EUROPE_MARKETS)
+        self.assertEqual(markets, XTB_EXCHANGE_MARKETS)
+        self.assertEqual(len(markets) + 1, 16)
+        self.assertEqual(len({settings[2] for settings in markets.values()}), 15)
 
     def test_only_current_incomplete_universe_checkpoint_is_resumed(self):
         universe = [{"ticker": "A"}]
@@ -101,18 +107,36 @@ class RankingTest(unittest.TestCase):
         self.assertFalse(checkpoint_universe_is_current(stale, limit=1))
         self.assertFalse(checkpoint_universe_is_current(complete, limit=1))
 
+    def test_country_bucket_checkpoint_is_invalidated_by_exchange_schema(self):
+        legacy = {
+            "metadata": {"complete": False, "universe_schema_version": "xtb-markets-v5"},
+            "universe": [{"ticker": "TSM", "market": "China (US ADR)"}],
+        }
+
+        self.assertFalse(checkpoint_universe_is_current(legacy, limit=1))
+
     def test_checkpoint_rejects_missing_required_market(self):
         current = {
             "metadata": {"complete": False, "universe_schema_version": UNIVERSE_SCHEMA_VERSION},
-            "universe": [{"ticker": "A", "market": "United States"}],
+            "universe": [{"ticker": "A", "market": US_EXCHANGES}],
         }
 
         self.assertFalse(
-            checkpoint_universe_is_current(current, limit=1, required_markets=["Poland"])
+            checkpoint_universe_is_current(
+                current,
+                limit=1,
+                required_markets=["Warsaw Stock Exchange"],
+            )
         )
-        current["universe"].append({"ticker": "PKO.WA", "market": "Poland"})
+        current["universe"].append(
+            {"ticker": "PKO.WA", "market": "Warsaw Stock Exchange"}
+        )
         self.assertTrue(
-            checkpoint_universe_is_current(current, limit=1, required_markets=["Poland"])
+            checkpoint_universe_is_current(
+                current,
+                limit=1,
+                required_markets=["Warsaw Stock Exchange"],
+            )
         )
 
     @patch("ticker_analyzer.ranking_universe.requests.post")
@@ -129,7 +153,7 @@ class RankingTest(unittest.TestCase):
             100,
             scanner_market="poland",
             country="Poland",
-            market="Poland",
+            market="Warsaw Stock Exchange",
             yahoo_suffix=".WA",
         )
 
@@ -147,10 +171,10 @@ class RankingTest(unittest.TestCase):
         self.assertEqual(yahoo_ticker_from_tradingview("OMXCOP:MAERSK_B", ".CO"), "MAERSK-B.CO")
 
     def test_market_coverage_rejects_missing_market(self):
-        universe = [{"ticker": "A", "market": "United States"}]
-        self.assertEqual(market_counts(universe), {"United States": 1})
-        with self.assertRaisesRegex(RuntimeError, "Poland"):
-            validate_market_coverage(universe, ["United States", "Poland"])
+        universe = [{"ticker": "A", "market": US_EXCHANGES}]
+        self.assertEqual(market_counts(universe), {US_EXCHANGES: 1})
+        with self.assertRaisesRegex(RuntimeError, "Warsaw"):
+            validate_market_coverage(universe, [US_EXCHANGES, "Warsaw Stock Exchange"])
 
     @patch("ticker_analyzer.ranking_universe.yf.screen")
     @patch("ticker_analyzer.ranking_universe.yf.EquityQuery")
@@ -175,36 +199,52 @@ class RankingTest(unittest.TestCase):
             "data": {"rows": [
                 {"symbol": "B", "name": "B", "marketCap": "2"},
                 {"symbol": "A", "name": "A", "marketCap": "10"},
+                {"symbol": "TSM", "name": "TSMC", "marketCap": "8", "country": "Taiwan", "exchange": "NYSE"},
                 {"symbol": "BAD", "marketCap": "n/a"},
             ]}
         }
-        self.assertEqual([item["ticker"] for item in fetch_large_cap_universe_nasdaq(2)], ["A", "B"])
+        result = fetch_large_cap_universe_nasdaq(3)
+        self.assertEqual([item["ticker"] for item in result], ["A", "TSM", "B"])
+        self.assertEqual(result[1]["country"], "Taiwan")
+        self.assertEqual(result[1]["exchange"], "NYSE")
 
     def test_normalize_ticker_converts_nasdaq_share_class_separator(self):
         self.assertEqual(normalize_ticker("brk/b"), "BRK-B")
 
-    def test_market_buckets_keep_us_and_chinese_adrs_separate(self):
+    def test_us_exchange_selection_keeps_foreign_adrs_in_the_same_listing_pool(self):
         nasdaq = [
-            {"ticker": "A", "market_cap": 100, "country": "United States", "market": "United States"},
-            {"ticker": "B", "market_cap": 90, "country": "United States", "market": "United States"},
-            {"ticker": "FUTU", "market_cap": 80, "country": "Hong Kong", "market": "United States"},
+            {"ticker": "A", "market_cap": 100, "country": "United States", "exchange": "NASDAQ"},
+            {"ticker": "TSM", "market_cap": 95, "country": "Taiwan", "exchange": "NYSE"},
+            {"ticker": "FUTU", "market_cap": 90, "country": "Hong Kong", "exchange": "NASDAQ"},
+            {"ticker": "B", "market_cap": 80, "country": "United States"},
         ]
-        us = select_nasdaq_market(nasdaq, country="United States", market="United States", limit=2)
-        china = select_nasdaq_market(
-            nasdaq, country=("China", "Hong Kong"), market="China (US ADR)", limit=1
-        )
+        us = select_exchange_listings(nasdaq, market=US_EXCHANGES, limit=4)
         yahoo = [{"ticker": "A", "market_cap": 100, "exchange": "NasdaqGS"}]
-        poland = [{"ticker": "PKN.WA", "market_cap": 70, "country": "Poland", "market": "Poland"}]
+        poland = [
+            {
+                "ticker": "PKN.WA",
+                "market_cap": 70,
+                "country": "Poland",
+                "market": "Warsaw Stock Exchange",
+            }
+        ]
 
-        result = combine_market_universes(
-            us, yahoo, china, [poland], us_limit=2, market_limit=1
+        result = combine_exchange_universes(
+            us,
+            yahoo,
+            [poland],
+            us_limit=4,
+            market_limit=1,
         )
 
-        self.assertEqual([item["ticker"] for item in result], ["A", "B", "FUTU", "PKN.WA"])
-        self.assertEqual(result[0]["exchange"], "NasdaqGS")
-        self.assertEqual(result[1]["exchange"], "US-listed")
-        self.assertEqual(result[2]["market"], "China (US ADR)")
+        self.assertEqual(
+            [item["ticker"] for item in result],
+            ["A", "TSM", "FUTU", "B", "PKN.WA"],
+        )
+        self.assertEqual(result[1]["market"], US_EXCHANGES)
+        self.assertEqual(result[1]["country"], "Taiwan")
         self.assertEqual(result[2]["country"], "Hong Kong")
+        self.assertEqual(result[3]["exchange"], "US-listed")
 
     def test_merge_universes_keeps_us_listed_foreign_company(self):
         yahoo = [
