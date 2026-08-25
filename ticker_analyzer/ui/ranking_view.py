@@ -7,11 +7,11 @@ import streamlit as st
 
 from ticker_analyzer.ranking import (
     RankingSnapshotError,
-    export_ranking,
     import_ranking,
     load_ranking,
     save_ranking,
 )
+from ticker_analyzer.ranking_bundle import available_ranking_snapshots, build_rankings_archive
 from ticker_analyzer.ranking_filters import RankingFilters, filter_ranking_companies
 from ticker_analyzer.ranking_quality import build_ranking_quality_report
 from ticker_analyzer.ui.config_view import mutation_allowed
@@ -21,6 +21,7 @@ from ticker_analyzer.ui.state import add_tickers_to_state
 
 
 def render_large_cap_ranking() -> None:
+    _render_all_ranking_controls()
     stocks_tab, etfs_tab, crypto_tab = st.tabs(["Stocks", "ETFs", "Crypto"])
     with stocks_tab:
         _render_stock_ranking()
@@ -30,52 +31,76 @@ def render_large_cap_ranking() -> None:
         render_crypto_ranking()
 
 
-def _render_stock_ranking() -> None:
-    st.subheader("Large Cap Ranking — Scoring v5.1")
+def _render_all_ranking_controls() -> None:
     refresh_allowed = mutation_allowed("ALLOW_RANKING_REFRESH")
-    update_col, note_col = st.columns([1, 3])
+    update_col, download_col, note_col = st.columns([1, 1, 2])
     update_clicked = update_col.button(
-        "Update Ranking",
+        "Update all rankings",
         type="primary",
-        help=(
-            "Rebuild the top 1,000 US listings, including foreign ADRs, plus up to 100 listings "
-            "from every supported XTB exchange."
-        ),
         disabled=not refresh_allowed,
+        help="Refresh Stocks, ETFs, and Crypto in one operation.",
     )
-    note_col.caption("The current snapshot stays visible until a complete replacement is ready.")
+    snapshot_count = available_ranking_snapshots()
+    download_col.download_button(
+        "Download all rankings",
+        data=build_rankings_archive() if snapshot_count else b"",
+        file_name=f"all_rankings_{datetime.now(UTC):%Y-%m-%d_%H-%M-%S}_UTC.zip",
+        mime="application/zip",
+        disabled=not snapshot_count,
+        help=f"Download {snapshot_count}/3 available ranking snapshots as one ZIP archive.",
+    )
+    note_col.caption("Updates replace each snapshot only after that ranking completes successfully.")
     if not refresh_allowed:
         note_col.caption("Ranking refresh is read-only in production unless explicitly enabled by an administrator.")
-    if update_clicked:
-        progress_bar = st.progress(0.0, text="Preparing the multi-market universe...")
+    if not update_clicked:
+        return
 
-        def update_progress(progress: dict) -> None:
-            requested = int(progress.get("requested", 0) or 0)
-            processed = int(
-                progress.get(
-                    "processed",
-                    int(progress.get("analyzed", 0) or 0) + int(progress.get("failed", 0) or 0),
-                )
-                or 0
-            )
-            fraction = min(1.0, processed / requested) if requested else 0.0
-            progress_bar.progress(
-                fraction,
-                text=(
-                    f"Processed {processed:,}/{requested:,} companies "
-                    f"({fraction * 100:.1f}%)"
-                    if requested
-                    else "Preparing the multi-market universe..."
-                ),
-            )
+    progress_bar = st.progress(0.0, text="Preparing the stock universe...")
 
-        with st.spinner("Updating the ranking; keep this page open..."):
-            success, message, _metadata = refresh_large_cap_ranking(progress_callback=update_progress)
-        if success:
-            st.success(message)
-            st.rerun()
-        else:
-            st.error(message)
+    def update_progress(progress: dict) -> None:
+        requested = int(progress.get("requested", 0) or 0)
+        processed = int(
+            progress.get(
+                "processed",
+                int(progress.get("analyzed", 0) or 0) + int(progress.get("failed", 0) or 0),
+            ) or 0
+        )
+        stock_fraction = min(1.0, processed / requested) if requested else 0.0
+        progress_bar.progress(
+            stock_fraction * 0.85,
+            text=(f"Stocks: {processed:,}/{requested:,} processed" if requested else "Preparing the stock universe..."),
+        )
+
+    outcomes: list[tuple[str, bool, str]] = []
+    with st.spinner("Updating all rankings; keep this page open..."):
+        success, message, _metadata = refresh_large_cap_ranking(progress_callback=update_progress)
+        outcomes.append(("Stocks", success, message))
+        from ticker_analyzer.asset_rankings import refresh_crypto_ranking, refresh_etf_ranking
+
+        for label, fraction, refresh in (
+            ("ETFs", 0.92, refresh_etf_ranking),
+            ("Crypto", 1.0, refresh_crypto_ranking),
+        ):
+            progress_bar.progress(fraction, text=f"Updating {label}...")
+            try:
+                payload = refresh()
+            except Exception as exc:
+                outcomes.append((label, False, f"{type(exc).__name__}: {exc}"))
+            else:
+                outcomes.append((label, True, f"{len(payload.get('companies', [])):,} instruments scored"))
+    progress_bar.progress(1.0, text="Ranking update finished.")
+    failures = [(label, message) for label, success, message in outcomes if not success]
+    successes = [(label, message) for label, success, message in outcomes if success]
+    if successes:
+        st.success("Updated: " + "; ".join(f"{label} — {message}" for label, message in successes))
+    if failures:
+        st.error("Failed: " + "; ".join(f"{label} — {message}" for label, message in failures))
+    if not failures:
+        st.rerun()
+
+
+def _render_stock_ranking() -> None:
+    st.subheader("Large Cap Ranking — Scoring v5.1")
     payload = load_ranking()
     _render_snapshot_transfer(payload)
     metadata = payload.get("metadata", {})
@@ -269,24 +294,10 @@ def _filter_options(companies: list[dict], field: str) -> list[str]:
 
 
 def _render_snapshot_transfer(payload: dict) -> None:
-    with st.expander("Ranking backup: download / import", expanded=False):
+    with st.expander("Import stock ranking snapshot", expanded=False):
         st.caption(
-            "Download the current snapshot before a Streamlit restart or import it later without rebuilding "
-            "the full universe. Imported JSON is validated before replacement."
+            "Import a previously downloaded stock ranking JSON. The file is validated before replacement."
         )
-        has_snapshot = bool(payload.get("companies"))
-        export_bytes = export_ranking(payload) if has_snapshot else b""
-        st.download_button(
-            "Download ranking JSON",
-            data=export_bytes,
-            file_name=ranking_export_filename(payload.get("metadata", {})),
-            mime="application/json",
-            disabled=not has_snapshot,
-            help="Download a timestamped backup of the current ranking.",
-            width="stretch",
-        )
-        if not has_snapshot:
-            st.caption("Generate or import a ranking before downloading its backup.")
         import_allowed = mutation_allowed("ALLOW_RANKING_IMPORT")
         uploaded = st.file_uploader(
             "Import ranking JSON",

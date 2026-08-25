@@ -1,29 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 import streamlit as st
 
 from ticker_analyzer.ranking_storage import load_ranking
-from ticker_analyzer.ui.config_view import mutation_allowed
 
 ETF_RANKING_PATH = Path("data/etf_ranking_v1.json")
 CRYPTO_RANKING_PATH = Path("data/crypto_ranking_v1.json")
-
-
-def _refresh_etf_ranking() -> dict[str, Any]:
-    from ticker_analyzer.asset_rankings import refresh_etf_ranking
-
-    return refresh_etf_ranking()
-
-
-def _refresh_crypto_ranking() -> dict[str, Any]:
-    from ticker_analyzer.asset_rankings import refresh_crypto_ranking
-
-    return refresh_crypto_ranking()
 
 
 def render_etf_ranking() -> None:
@@ -34,7 +19,6 @@ def render_etf_ranking() -> None:
             "volatility and trading liquidity. These are not scored as companies."
         ),
         path=ETF_RANKING_PATH,
-        refresh=_refresh_etf_ranking,
         key="etf",
         columns={
             "rank": "Rank", "ticker": "Ticker", "name": "Fund", "market": "Market",
@@ -54,7 +38,6 @@ def render_crypto_ranking() -> None:
             "market size, liquidity and distance from the all-time high."
         ),
         path=CRYPTO_RANKING_PATH,
-        refresh=_refresh_crypto_ranking,
         key="crypto",
         columns={
             "rank": "Rank", "ticker": "Ticker", "name": "Asset", "price": "Price (USD)",
@@ -67,26 +50,10 @@ def render_crypto_ranking() -> None:
 
 
 def _render_market_ranking(
-    *, title: str, description: str, path: Path, refresh: Callable[[], dict[str, Any]],
-    key: str, columns: dict[str, str],
+    *, title: str, description: str, path: Path, key: str, columns: dict[str, str],
 ) -> None:
     st.subheader(title)
     st.caption(description)
-    refresh_allowed = mutation_allowed("ALLOW_RANKING_REFRESH")
-    if st.button(
-        f"Update {title}", type="primary", key=f"{key}_ranking_update", disabled=not refresh_allowed,
-    ):
-        try:
-            with st.spinner(f"Updating {title.lower()}..."):
-                refresh()
-        except Exception as exc:
-            st.error(f"{title} update failed: {type(exc).__name__}: {exc}")
-        else:
-            st.success(f"{title} updated.")
-            st.rerun()
-    if not refresh_allowed:
-        st.caption("Ranking refresh is disabled in production mode.")
-
     payload = load_ranking(path)
     rows = payload.get("companies", [])
     metadata = payload.get("metadata", {})
