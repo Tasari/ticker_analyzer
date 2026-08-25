@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_RANKING_PATH = Path("data/large_cap_ranking_v5.json")
+ETF_RANKING_PATH = Path("data/etf_ranking_v1.json")
+CRYPTO_RANKING_PATH = Path("data/crypto_ranking_v1.json")
 MAX_RANKING_IMPORT_BYTES = 50 * 1024 * 1024
 MAX_RANKING_ROWS = 50_000
 

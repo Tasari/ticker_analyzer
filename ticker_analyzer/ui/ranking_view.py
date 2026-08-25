@@ -374,18 +374,6 @@ def _render_quality_report(payload: dict) -> None:
             st.caption("Failure categories: " + ", ".join(f"{name}: {count}" for name, count in categories.items()))
 
 
-def ranking_export_filename(metadata: dict) -> str:
-    raw_timestamp = str(metadata.get("generated_at") or "").strip()
-    try:
-        generated_at = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
-    except ValueError:
-        return "large_cap_ranking_snapshot.json"
-    if generated_at.tzinfo is None:
-        generated_at = generated_at.replace(tzinfo=UTC)
-    generated_at = generated_at.astimezone(UTC)
-    return f"large_cap_ranking_{generated_at:%Y-%m-%d_%H-%M-%S}_UTC.json"
-
-
 def add_ranking_tickers_to_analyzer(tickers: list[str]) -> None:
     added = add_tickers_to_state(st.session_state, tickers)
     if not added:

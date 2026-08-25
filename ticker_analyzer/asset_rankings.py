@@ -4,16 +4,13 @@ import math
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import requests
 
-from ticker_analyzer.ranking_storage import save_ranking
+from ticker_analyzer.ranking_storage import CRYPTO_RANKING_PATH, ETF_RANKING_PATH, save_ranking
 from ticker_analyzer.ranking_universe import XTB_EXCHANGE_MARKETS, yahoo_ticker_from_tradingview
 
-ETF_RANKING_PATH = Path("data/etf_ranking_v1.json")
-CRYPTO_RANKING_PATH = Path("data/crypto_ranking_v1.json")
 ETF_COLUMNS = (
     "name",
     "description",
