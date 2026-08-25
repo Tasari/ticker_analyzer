@@ -61,7 +61,13 @@ def main() -> None:
 
         views.render_analysis_errors(st.session_state.analysis_errors)
         results = st.session_state.analysis_results
-        if not results:
+        from ticker_analyzer.returns_table import ACCOUNT_RETURNS_STATE_KEY, ReturnsTable
+
+        account_returns_available = isinstance(
+            st.session_state.get(ACCOUNT_RETURNS_STATE_KEY),
+            ReturnsTable,
+        )
+        if not results and not account_returns_available:
             if not browser_state_ready and st.session_state.selected_tickers:
                 st.info("Saved preferences are still loading. You can continue or click Analyze now.")
             elif st.session_state.selected_tickers:
@@ -76,7 +82,9 @@ def main() -> None:
 
         analysis_tab, simulation_tab = st.tabs(["Analysis", "Simulation"])
         with analysis_tab:
-            if len(results) == 1:
+            if not results:
+                st.info("No analyzed stocks are available. ACC_STMT can still be used in Simulation.")
+            elif len(results) == 1:
                 views.render_company_analysis(next(iter(results.values())))
             else:
                 views.render_multi_ticker_analysis(results)

@@ -8,6 +8,8 @@ from io import StringIO
 from math import isfinite
 
 MAX_RETURNS_UPLOAD_BYTES = 1024 * 1024
+ACCOUNT_STATEMENT_TICKER = "ACC_STMT"
+ACCOUNT_RETURNS_STATE_KEY = "account_statement_returns_table"
 MONTH_COLUMNS = (
     "Jan",
     "Feb",

@@ -5,10 +5,42 @@ from datetime import date
 from unittest.mock import patch
 
 import pandas as pd
-from ticker_analyzer.ui.simulation_view import _cached_fx_factor, _convert_to_base_currency
+from ticker_analyzer.returns_table import ReturnsTable
+from ticker_analyzer.ui.simulation_view import (
+    _account_statement_prices,
+    _cached_fx_factor,
+    _convert_to_base_currency,
+    _fetch_simulation_histories,
+)
 
 
 class SimulationViewTest(unittest.TestCase):
+    def test_account_statement_pseudo_ticker_uses_imported_monthly_returns(self):
+        table = ReturnsTable({(2024, 1): 0.10, (2024, 2): -0.05})
+
+        prices = _account_statement_prices(table, date(2024, 1, 1), date(2024, 2, 29))
+
+        self.assertEqual(prices.index[0], pd.Timestamp("2024-01-01"))
+        self.assertAlmostEqual(prices.iloc[-1], 104.5)
+
+    def test_account_statement_pseudo_ticker_does_not_fetch_yahoo_prices(self):
+        table = ReturnsTable({(2024, 1): 0.10})
+        with patch(
+            "ticker_analyzer.ui.simulation_view._cached_adjusted_prices",
+            side_effect=AssertionError("Yahoo should not be called"),
+        ):
+            histories, warnings = _fetch_simulation_histories(
+                {},
+                date(2024, 1, 1),
+                date(2024, 1, 31),
+                "USD",
+                account_returns=table,
+            )
+
+        self.assertEqual(list(histories), ["ACC_STMT"])
+        self.assertAlmostEqual(histories["ACC_STMT"].iloc[-1], 110)
+        self.assertEqual(warnings, [])
+
     def test_converts_prices_with_historical_exchange_rate(self):
         index = pd.to_datetime(["2024-01-02", "2024-01-03"])
         prices = pd.Series([100.0, 110.0], index=index)

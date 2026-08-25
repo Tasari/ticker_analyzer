@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
+from ticker_analyzer.returns_table import ACCOUNT_RETURNS_STATE_KEY, ReturnsTable
 
 
 class StreamlitAppTest(unittest.TestCase):
@@ -180,6 +181,20 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertTrue(any(tab.label == "Simulation" for tab in app.tabs))
         self.assertTrue(any(header.value == "Portfolio Simulation" for header in app.subheader))
+
+    def test_account_statement_pseudo_ticker_can_open_simulation_without_stocks(self):
+        app = AppTest.from_file("app.py", default_timeout=10)
+        app.session_state["_site_access_authenticated"] = True
+        app.session_state["selected_tickers"] = []
+        app.session_state["analysis_results"] = {}
+        app.session_state["analysis_errors"] = {}
+        app.session_state[ACCOUNT_RETURNS_STATE_KEY] = ReturnsTable({(2024, 1): 0.10})
+
+        app.run()
+
+        self.assertFalse(app.exception)
+        self.assertTrue(any(tab.label == "Simulation" for tab in app.tabs))
+        self.assertTrue(any("ACC_STMT represents" in item.value for item in app.info))
 
     def test_ranking_country_filter_limits_displayed_rows(self):
         app = AppTest.from_string(

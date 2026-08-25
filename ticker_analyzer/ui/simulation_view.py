@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from calendar import monthrange
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 
@@ -8,6 +9,13 @@ import plotly.express as px
 import streamlit as st
 
 from ticker_analyzer.data_provider import retry_transient
+from ticker_analyzer.returns_table import (
+    ACCOUNT_RETURNS_STATE_KEY,
+    ACCOUNT_STATEMENT_TICKER,
+    ReturnsTable,
+    ReturnsTableError,
+    analyze_returns_range,
+)
 from ticker_analyzer.simulation import SimulationError, SimulationResult, simulate_buy_and_hold
 
 BASE_CURRENCIES = ("USD", "EUR", "PLN")
@@ -20,12 +28,30 @@ def render_simulation(results: dict[str, dict]) -> None:
         "Buy-and-hold simulation using adjusted Yahoo prices, fractional shares, and no fees or taxes. "
         "This is a historical illustration, not investment advice."
     )
+    account_returns = st.session_state.get(ACCOUNT_RETURNS_STATE_KEY)
+    if not isinstance(account_returns, ReturnsTable):
+        account_returns = None
     tickers = list(results)
+    if account_returns is not None:
+        tickers.append(ACCOUNT_STATEMENT_TICKER)
     if not tickers:
-        st.info("Analyze at least one ticker before running a simulation.")
+        st.info("Analyze at least one ticker or import an Account Statement returns table first.")
         return
 
     today = date.today()
+    default_start = today - timedelta(days=365)
+    default_end = today
+    if account_returns is not None:
+        default_start = account_returns.first_month
+        last_month = account_returns.last_month
+        default_end = min(
+            today,
+            date(last_month.year, last_month.month, monthrange(last_month.year, last_month.month)[1]),
+        )
+        st.info(
+            f"{ACCOUNT_STATEMENT_TICKER} represents the imported monthly Account Statement returns "
+            "and is included as a simulation asset."
+        )
     controls = st.columns(4)
     initial_capital = float(
         controls[0].number_input(
@@ -38,13 +64,13 @@ def render_simulation(results: dict[str, dict]) -> None:
     )
     start_date = controls[1].date_input(
         "Simulation start",
-        value=today - timedelta(days=365),
+        value=default_start,
         max_value=today,
         key="simulation_start_date",
     )
     end_date = controls[2].date_input(
         "Simulation end",
-        value=today,
+        value=default_end,
         max_value=today,
         key="simulation_end_date",
     )
@@ -92,6 +118,7 @@ def render_simulation(results: dict[str, dict]) -> None:
                     start_date,
                     end_date,
                     base_currency,
+                    account_returns=account_returns,
                 )
             simulation = simulate_buy_and_hold(
                 histories,
@@ -128,12 +155,18 @@ def _fetch_simulation_histories(
     start_date: date,
     end_date: date,
     base_currency: str,
+    *,
+    account_returns: ReturnsTable | None = None,
 ) -> tuple[dict[str, pd.Series], list[str]]:
     histories: dict[str, pd.Series] = {}
     warnings: list[str] = []
 
     def fetch_one(ticker: str) -> tuple[str, pd.Series, str | None]:
         try:
+            if ticker == ACCOUNT_STATEMENT_TICKER:
+                if account_returns is None:
+                    raise ReturnsTableError("the imported returns table is no longer available.")
+                return ticker, _account_statement_prices(account_returns, start_date, end_date), None
             prices = _cached_adjusted_prices(ticker, start_date, end_date)
             currency = str(results[ticker].get("currency") or base_currency)
             converted = _convert_to_base_currency(
@@ -147,14 +180,35 @@ def _fetch_simulation_histories(
         except (RuntimeError, ValueError) as exc:
             return ticker, pd.Series(dtype=float), str(exc)
 
-    with ThreadPoolExecutor(max_workers=min(MAX_SIMULATION_WORKERS, len(results))) as executor:
-        futures = [executor.submit(fetch_one, ticker) for ticker in results]
+    tickers = [*results]
+    if account_returns is not None:
+        tickers.append(ACCOUNT_STATEMENT_TICKER)
+    with ThreadPoolExecutor(max_workers=min(MAX_SIMULATION_WORKERS, len(tickers))) as executor:
+        futures = [executor.submit(fetch_one, ticker) for ticker in tickers]
         for future in as_completed(futures):
             ticker, prices, error = future.result()
             histories[ticker] = prices
             if error:
                 warnings.append(f"{ticker}: {error} Its allocation remains cash.")
-    return {ticker: histories.get(ticker, pd.Series(dtype=float)) for ticker in results}, warnings
+    return {ticker: histories.get(ticker, pd.Series(dtype=float)) for ticker in tickers}, warnings
+
+
+def _account_statement_prices(
+    returns_table: ReturnsTable,
+    start_date: date,
+    end_date: date,
+) -> pd.Series:
+    analysis = analyze_returns_range(
+        returns_table,
+        start_date,
+        end_date,
+        initial_capital=100.0,
+    )
+    return pd.Series(
+        [point.value for point in analysis.growth],
+        index=pd.to_datetime([point.day for point in analysis.growth]),
+        dtype=float,
+    )
 
 
 @st.cache_data(ttl=3600, max_entries=64, show_spinner=False)

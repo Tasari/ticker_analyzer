@@ -27,6 +27,8 @@ from ticker_analyzer.portfolio_performance import (
     parse_comparison_symbols,
 )
 from ticker_analyzer.returns_table import (
+    ACCOUNT_RETURNS_STATE_KEY,
+    ACCOUNT_STATEMENT_TICKER,
     GrowthPoint,
     ReturnsRangeAnalysis,
     ReturnsTable,
@@ -55,6 +57,7 @@ def render_account_statement() -> None:
         help="Optional eToro monthly returns CSV with Year and Jan through Dec columns.",
     )
     if uploaded is None:
+        st.session_state.pop(ACCOUNT_RETURNS_STATE_KEY, None)
         st.info("Choose an eToro account statement in XLSX format to begin.")
         return
 
@@ -62,6 +65,7 @@ def render_account_statement() -> None:
     try:
         overview = inspect_account_statement(payload)
     except AccountStatementError as exc:
+        st.session_state.pop(ACCOUNT_RETURNS_STATE_KEY, None)
         st.error(str(exc))
         return
 
@@ -70,12 +74,17 @@ def render_account_statement() -> None:
         try:
             returns_table = parse_returns_table(returns_upload.getvalue())
         except ReturnsTableError as exc:
+            st.session_state.pop(ACCOUNT_RETURNS_STATE_KEY, None)
             st.warning(f"Returns table could not be used: {exc} Falling back to statement estimates.")
         else:
+            st.session_state[ACCOUNT_RETURNS_STATE_KEY] = returns_table
             st.success(
                 f"Loaded {returns_upload.name}: "
                 f"{returns_table.first_month:%Y-%m} through {returns_table.last_month:%Y-%m}"
             )
+            st.caption(f"{ACCOUNT_STATEMENT_TICKER} is now available in Portfolio Simulation.")
+    else:
+        st.session_state.pop(ACCOUNT_RETURNS_STATE_KEY, None)
 
     st.success(f"Loaded {uploaded.name}")
     analysis_tab, preview_tab = st.tabs(["Analysis", "Data preview"])
