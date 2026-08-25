@@ -29,7 +29,8 @@ def render_simulation(results: dict[str, dict]) -> None:
         "This is a historical illustration, not investment advice."
     )
     account_returns = st.session_state.get(ACCOUNT_RETURNS_STATE_KEY)
-    if not isinstance(account_returns, ReturnsTable):
+    account_selected = ACCOUNT_STATEMENT_TICKER in st.session_state.get("selected_tickers", [])
+    if not isinstance(account_returns, ReturnsTable) or not account_selected:
         account_returns = None
     tickers = list(results)
     if account_returns is not None:

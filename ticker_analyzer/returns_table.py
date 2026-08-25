@@ -10,6 +10,10 @@ from math import isfinite
 MAX_RETURNS_UPLOAD_BYTES = 1024 * 1024
 ACCOUNT_STATEMENT_TICKER = "ACC_STMT"
 ACCOUNT_RETURNS_STATE_KEY = "account_statement_returns_table"
+ACCOUNT_STATEMENT_PAYLOAD_STATE_KEY = "account_statement_payload"
+ACCOUNT_STATEMENT_NAME_STATE_KEY = "account_statement_filename"
+ACCOUNT_RETURNS_PAYLOAD_STATE_KEY = "account_returns_payload"
+ACCOUNT_RETURNS_NAME_STATE_KEY = "account_returns_filename"
 MONTH_COLUMNS = (
     "Jan",
     "Feb",

@@ -27,7 +27,11 @@ from ticker_analyzer.portfolio_performance import (
     parse_comparison_symbols,
 )
 from ticker_analyzer.returns_table import (
+    ACCOUNT_RETURNS_NAME_STATE_KEY,
+    ACCOUNT_RETURNS_PAYLOAD_STATE_KEY,
     ACCOUNT_RETURNS_STATE_KEY,
+    ACCOUNT_STATEMENT_NAME_STATE_KEY,
+    ACCOUNT_STATEMENT_PAYLOAD_STATE_KEY,
     ACCOUNT_STATEMENT_TICKER,
     GrowthPoint,
     ReturnsRangeAnalysis,
@@ -49,49 +53,89 @@ def render_account_statement() -> None:
         type=["xlsx"],
         accept_multiple_files=False,
         help="Current importer supports eToro account statements up to 10 MB.",
+        key="account_statement_upload",
     )
     returns_upload = st.file_uploader(
         "Returns table (optional)",
         type=["csv"],
         accept_multiple_files=False,
         help="Optional eToro monthly returns CSV with Year and Jan through Dec columns.",
+        key="account_returns_upload",
     )
-    if uploaded is None:
-        st.session_state.pop(ACCOUNT_RETURNS_STATE_KEY, None)
+    st.button(
+        "Clear imported files",
+        help="Remove the statement, returns table, and ACC_STMT from this session.",
+        key="clear_account_statement_imports",
+        on_click=_clear_imported_statement_state,
+    )
+
+    if uploaded is not None:
+        st.session_state[ACCOUNT_STATEMENT_PAYLOAD_STATE_KEY] = uploaded.getvalue()
+        st.session_state[ACCOUNT_STATEMENT_NAME_STATE_KEY] = uploaded.name
+    if returns_upload is not None:
+        st.session_state[ACCOUNT_RETURNS_PAYLOAD_STATE_KEY] = returns_upload.getvalue()
+        st.session_state[ACCOUNT_RETURNS_NAME_STATE_KEY] = returns_upload.name
+
+    payload = st.session_state.get(ACCOUNT_STATEMENT_PAYLOAD_STATE_KEY)
+    if not isinstance(payload, bytes):
         st.info("Choose an eToro account statement in XLSX format to begin.")
         return
 
-    payload = uploaded.getvalue()
     try:
         overview = inspect_account_statement(payload)
     except AccountStatementError as exc:
-        st.session_state.pop(ACCOUNT_RETURNS_STATE_KEY, None)
         st.error(str(exc))
         return
 
     returns_table: ReturnsTable | None = None
-    if returns_upload is not None:
+    returns_payload = st.session_state.get(ACCOUNT_RETURNS_PAYLOAD_STATE_KEY)
+    if isinstance(returns_payload, bytes):
         try:
-            returns_table = parse_returns_table(returns_upload.getvalue())
+            returns_table = parse_returns_table(returns_payload)
         except ReturnsTableError as exc:
             st.session_state.pop(ACCOUNT_RETURNS_STATE_KEY, None)
             st.warning(f"Returns table could not be used: {exc} Falling back to statement estimates.")
         else:
             st.session_state[ACCOUNT_RETURNS_STATE_KEY] = returns_table
+            returns_name = st.session_state.get(ACCOUNT_RETURNS_NAME_STATE_KEY, "returns table")
             st.success(
-                f"Loaded {returns_upload.name}: "
+                f"Loaded {returns_name}: "
                 f"{returns_table.first_month:%Y-%m} through {returns_table.last_month:%Y-%m}"
             )
             st.caption(f"{ACCOUNT_STATEMENT_TICKER} is now available in Portfolio Simulation.")
     else:
         st.session_state.pop(ACCOUNT_RETURNS_STATE_KEY, None)
 
-    st.success(f"Loaded {uploaded.name}")
+    statement_name = st.session_state.get(ACCOUNT_STATEMENT_NAME_STATE_KEY, "account statement")
+    st.success(f"Loaded {statement_name}")
     analysis_tab, preview_tab = st.tabs(["Analysis", "Data preview"])
     with analysis_tab:
         _render_analysis(payload, returns_table)
     with preview_tab:
         _render_data_preview(payload, overview)
+
+
+def _clear_imported_statement_state() -> None:
+    for key in (
+        ACCOUNT_STATEMENT_PAYLOAD_STATE_KEY,
+        ACCOUNT_STATEMENT_NAME_STATE_KEY,
+        ACCOUNT_RETURNS_PAYLOAD_STATE_KEY,
+        ACCOUNT_RETURNS_NAME_STATE_KEY,
+        ACCOUNT_RETURNS_STATE_KEY,
+        "account_statement_upload",
+        "account_returns_upload",
+    ):
+        st.session_state.pop(key, None)
+    selected = st.session_state.get("selected_tickers", [])
+    st.session_state["selected_tickers"] = [
+        ticker for ticker in selected if ticker != ACCOUNT_STATEMENT_TICKER
+    ]
+    if st.session_state.get("active_ticker") == ACCOUNT_STATEMENT_TICKER:
+        st.session_state["active_ticker"] = next(
+            iter(st.session_state.get("analysis_results", {})),
+            None,
+        )
+    st.session_state.pop("simulation_output", None)
 
 
 def _render_analysis(payload: bytes, returns_table: ReturnsTable | None = None) -> None:

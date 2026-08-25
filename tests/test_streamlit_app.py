@@ -6,7 +6,14 @@ import unittest
 from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
-from ticker_analyzer.returns_table import ACCOUNT_RETURNS_STATE_KEY, ReturnsTable
+from tests.test_account_statement import statement_workbook
+from ticker_analyzer.returns_table import (
+    ACCOUNT_RETURNS_STATE_KEY,
+    ACCOUNT_STATEMENT_NAME_STATE_KEY,
+    ACCOUNT_STATEMENT_PAYLOAD_STATE_KEY,
+    ACCOUNT_STATEMENT_TICKER,
+    ReturnsTable,
+)
 
 
 class StreamlitAppTest(unittest.TestCase):
@@ -95,6 +102,19 @@ class StreamlitAppTest(unittest.TestCase):
             ["Account statement", "Returns table (optional)"],
         )
         self.assertTrue(any("Choose an eToro" in element.value for element in app.info))
+
+    def test_account_statement_survives_navigation_without_uploader_widget_value(self):
+        app = AppTest.from_file("app.py", default_timeout=10)
+        app.session_state["_site_access_authenticated"] = True
+        app.session_state["page"] = "Account Statement"
+        app.session_state[ACCOUNT_STATEMENT_PAYLOAD_STATE_KEY] = statement_workbook()
+        app.session_state[ACCOUNT_STATEMENT_NAME_STATE_KEY] = "remembered.xlsx"
+
+        app.run()
+
+        self.assertFalse(app.exception)
+        self.assertTrue(any("Loaded remembered.xlsx" in item.value for item in app.success))
+        self.assertTrue(any(tab.label == "Analysis" for tab in app.tabs))
 
     def test_bulk_removes_checked_tickers_and_their_analysis_state(self):
         app = AppTest.from_string(
@@ -185,7 +205,7 @@ class StreamlitAppTest(unittest.TestCase):
     def test_account_statement_pseudo_ticker_can_open_simulation_without_stocks(self):
         app = AppTest.from_file("app.py", default_timeout=10)
         app.session_state["_site_access_authenticated"] = True
-        app.session_state["selected_tickers"] = []
+        app.session_state["selected_tickers"] = [ACCOUNT_STATEMENT_TICKER]
         app.session_state["analysis_results"] = {}
         app.session_state["analysis_errors"] = {}
         app.session_state[ACCOUNT_RETURNS_STATE_KEY] = ReturnsTable({(2024, 1): 0.10})
@@ -195,6 +215,20 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertTrue(any(tab.label == "Simulation" for tab in app.tabs))
         self.assertTrue(any("ACC_STMT represents" in item.value for item in app.info))
+
+    def test_imported_account_statement_ticker_can_be_selected_from_sidebar(self):
+        app = AppTest.from_file("app.py", default_timeout=10)
+        app.session_state["_site_access_authenticated"] = True
+        app.session_state["selected_tickers"] = []
+        app.session_state["analysis_results"] = {}
+        app.session_state["analysis_errors"] = {}
+        app.session_state[ACCOUNT_RETURNS_STATE_KEY] = ReturnsTable({(2024, 1): 0.10})
+
+        app.run()
+        next(button for button in app.sidebar.button if button.label == "Add ACC_STMT").click().run()
+
+        self.assertFalse(app.exception)
+        self.assertEqual(app.session_state["selected_tickers"], [ACCOUNT_STATEMENT_TICKER])
 
     def test_ranking_country_filter_limits_displayed_rows(self):
         app = AppTest.from_string(

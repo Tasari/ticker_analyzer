@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from ticker_analyzer.returns_table import ACCOUNT_STATEMENT_TICKER
+
 TICKER_PATTERN = re.compile(r"^[A-Z0-9.^=-]{1,32}$")
 
 MARKET_SUFFIXES: dict[str, str] = {
@@ -32,6 +34,8 @@ MARKET_SUFFIXES: dict[str, str] = {
 
 def normalize_ticker(value: Any) -> str | None:
     ticker = str(value or "").strip().upper().replace("/", "-")
+    if ticker == ACCOUNT_STATEMENT_TICKER:
+        return ticker
     return ticker if TICKER_PATTERN.fullmatch(ticker) else None
 
 

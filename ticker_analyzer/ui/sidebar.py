@@ -3,6 +3,11 @@ from __future__ import annotations
 import streamlit as st
 from streamlit_searchbox import st_searchbox
 
+from ticker_analyzer.returns_table import (
+    ACCOUNT_RETURNS_STATE_KEY,
+    ACCOUNT_STATEMENT_TICKER,
+    ReturnsTable,
+)
 from ticker_analyzer.ticker_symbols import MARKET_SUFFIXES, ticker_for_market
 from ticker_analyzer.ui.analysis_actions import search_tickers
 from ticker_analyzer.ui.config_view import render_config_editor
@@ -13,6 +18,7 @@ def render_sidebar(config: dict) -> tuple[dict[str, str], bool]:
     with st.sidebar:
         st.header("Analysis")
         render_ticker_search()
+        render_account_statement_ticker()
         render_selected_tickers()
         range_options = ["1Y", "2Y", "3Y"]
         growth_range = st.selectbox("Growth range", range_options, key="growth_range")
@@ -90,6 +96,24 @@ def _render_manual_market_ticker() -> None:
                 st.info("This ticker is already selected.")
 
 
+def render_account_statement_ticker() -> None:
+    returns_table = st.session_state.get(ACCOUNT_RETURNS_STATE_KEY)
+    if not isinstance(returns_table, ReturnsTable):
+        return
+    selected = st.session_state.get("selected_tickers", [])
+    if ACCOUNT_STATEMENT_TICKER in selected:
+        st.caption(f"{ACCOUNT_STATEMENT_TICKER} uses your imported Account Statement returns.")
+        return
+    if st.button(
+        f"Add {ACCOUNT_STATEMENT_TICKER}",
+        width="stretch",
+        help="Add the imported Account Statement portfolio to Simulation.",
+        key="add_account_statement_ticker",
+    ):
+        add_ticker_to_state(st.session_state, ACCOUNT_STATEMENT_TICKER)
+        st.rerun()
+
+
 def render_selected_tickers() -> None:
     st.caption("Selected stocks")
     if not st.session_state.selected_tickers:
@@ -105,7 +129,8 @@ def render_selected_tickers() -> None:
             label_visibility="collapsed",
             help=f"Select {ticker} for removal",
         )
-        label_col.write(ticker)
+        label = f"{ticker} (portfolio)" if ticker == ACCOUNT_STATEMENT_TICKER else ticker
+        label_col.write(label)
         remove_col.button(
             "X",
             key=f"remove_{ticker}",

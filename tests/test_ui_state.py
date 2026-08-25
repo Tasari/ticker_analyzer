@@ -64,6 +64,14 @@ class UiStateTest(unittest.TestCase):
         self.assertEqual(state["analysis_errors"], {})
         self.assertEqual(state["active_ticker"], "PKN.WA")
 
+    def test_account_statement_pseudo_ticker_is_a_valid_selection(self):
+        state = {"selected_tickers": [], "analysis_results": {}, "analysis_errors": {}}
+
+        added = add_tickers_to_state(state, ["acc_stmt"])
+
+        self.assertEqual(added, ["ACC_STMT"])
+        self.assertEqual(state["selected_tickers"], ["ACC_STMT"])
+
 
 if __name__ == "__main__":
     unittest.main()
