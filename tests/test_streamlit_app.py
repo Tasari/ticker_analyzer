@@ -149,7 +149,7 @@ class StreamlitAppTest(unittest.TestCase):
         with patch(
             "ticker_analyzer.ui.analysis_actions.analyze_selected_tickers",
             return_value=({}, {}),
-        ):
+        ) as analyze:
             app = AppTest.from_file("app.py", default_timeout=10)
             app.session_state["_site_access_authenticated"] = True
             app.session_state["selected_tickers"] = []
@@ -165,6 +165,8 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertEqual(app.session_state["selected_tickers"], ["PKN.WA"])
         self.assertEqual(app.session_state["active_ticker"], "PKN.WA")
+        self.assertTrue(app.session_state["analysis_pending_changes"])
+        self.assertEqual(analyze.call_count, 1)
 
     def test_stock_analyzer_exposes_simulation_tab_for_analyzed_tickers(self):
         result = {

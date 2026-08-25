@@ -30,6 +30,8 @@ def render_sidebar(config: dict) -> tuple[dict[str, str], bool]:
             width="stretch",
             disabled=not st.session_state.selected_tickers,
         )
+        if st.session_state.get("analysis_pending_changes"):
+            st.caption("Selection changed. Add more tickers or analyze the whole queue when ready.")
         overwrite_preferences = st.button(
             "Save / overwrite remembered setup",
             width="stretch",

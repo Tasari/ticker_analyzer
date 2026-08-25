@@ -14,6 +14,8 @@ class UiStateTest(unittest.TestCase):
         self.assertEqual(state["growth_range"], "2Y")
         self.assertEqual(state["fundamentals_range"], "2Y")
         self.assertEqual(state["value_range"], "2Y")
+        self.assertFalse(state["analysis_pending_changes"])
+        self.assertFalse(state["automatic_analysis_attempted"])
 
     def test_removes_multiple_tickers_and_related_session_data(self):
         state = {
@@ -60,9 +62,10 @@ class UiStateTest(unittest.TestCase):
 
         self.assertEqual(added, ["PKN.WA", "9988.HK"])
         self.assertEqual(state["selected_tickers"], ["AAPL", "PKN.WA", "9988.HK"])
-        self.assertEqual(state["analysis_results"], {})
-        self.assertEqual(state["analysis_errors"], {})
-        self.assertEqual(state["active_ticker"], "PKN.WA")
+        self.assertEqual(state["analysis_results"], {"AAPL": {}})
+        self.assertEqual(state["analysis_errors"], {"OLD": "error"})
+        self.assertEqual(state["active_ticker"], "AAPL")
+        self.assertTrue(state["analysis_pending_changes"])
 
     def test_account_statement_pseudo_ticker_is_a_valid_selection(self):
         state = {"selected_tickers": [], "analysis_results": {}, "analysis_errors": {}}
@@ -71,6 +74,7 @@ class UiStateTest(unittest.TestCase):
 
         self.assertEqual(added, ["ACC_STMT"])
         self.assertEqual(state["selected_tickers"], ["ACC_STMT"])
+        self.assertEqual(state["active_ticker"], "ACC_STMT")
 
 
 if __name__ == "__main__":

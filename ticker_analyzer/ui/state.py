@@ -23,6 +23,10 @@ def initialize_state() -> None:
         st.session_state["fundamentals_range"] = "2Y"
     if "value_range" not in st.session_state:
         st.session_state["value_range"] = "2Y"
+    if "analysis_pending_changes" not in st.session_state:
+        st.session_state["analysis_pending_changes"] = False
+    if "automatic_analysis_attempted" not in st.session_state:
+        st.session_state["automatic_analysis_attempted"] = False
 
 
 def remove_tickers_from_state(state: MutableMapping[str, Any], tickers: list[str]) -> None:
@@ -59,7 +63,7 @@ def add_tickers_to_state(state: MutableMapping[str, Any], values: list[Any]) -> 
         added.append(ticker)
     if not added:
         return []
-    state["analysis_results"] = {}
-    state["analysis_errors"] = {}
-    state["active_ticker"] = added[0]
+    state["analysis_pending_changes"] = True
+    if state.get("active_ticker") not in selected:
+        state["active_ticker"] = added[0]
     return added
