@@ -60,6 +60,18 @@ The suite contains formula-level tests and network-free integration tests for th
 - Ranking snapshots can be exported as validated JSON backups and restored through the UI. Each completed refresh stores a quality report with market coverage, failure categories, rating distribution, and score/rank/rating changes from the previous snapshot.
 - A separate Account Statement area imports eToro XLSX statements in memory without persisting the uploaded file. Its Analysis tab reports the period-end portfolio snapshot, cash-flow-adjusted P/L, ROI, annualized ROI, an explicitly estimated Modified Dietz TWR, a reconciled P/L waterfall, and holdings exposure. Separate inclusive start- and end-date controls provide exact realized activity and estimate total P/L, ROI, annualized ROI, and Modified Dietz return for subperiods by combining Account Activity with interpolated unrealized P/L from periodic Holdings snapshots. Instruments can be excluded by their Position-ID-linked ticker, removing their realized transactions, linked fees/dividends, holdings exposure, and closed-position contribution; eToro's aggregate historical unrealized valuations remain explicitly marked as estimated in filtered mode. An optional eToro returns-table CSV replaces estimated TWR/CAGR with compounded monthly returns when it covers the selected range; partial boundary months are geometrically prorated. A normalized growth chart shows the value of an initial 10,000 using the returns table or the statement estimate as fallback, compares the Account Statement portfolio with up to ten cached Yahoo tickers at once, and reports total return, final value, maximum drawdown, relative return, and monthly portfolio returns. Closed Positions provides an exact per-asset realized contribution table for the selected period. The UI reports valuation-anchor distance and coverage warnings so estimates are not presented as exact historical valuations. Its Data preview tab retains the bounded worksheet viewer.
 
+## Market Rankings
+
+The ranking page contains separate models for stocks, ETFs, and cryptocurrencies:
+
+- stocks use the application's fundamental company scoring model;
+- ETFs from supported European exchanges use a relative momentum, volatility, and liquidity score;
+- the top 100 cryptocurrencies by market capitalization use a relative momentum, size, liquidity, and all-time-high drawdown score.
+
+ETF and crypto snapshots are saved independently in `data/etf_ranking_v1.json` and
+`data/crypto_ranking_v1.json`. They are refreshed only from their own tab. Market scores are
+screening signals, not company fundamental ratings or investment recommendations.
+
 ## Large Cap Ranking
 
 The ranking universe contains 1,000 US companies, up to 100 China/Hong Kong ADRs, and up to 100 companies from each configured European market available through XTB: Poland, the United Kingdom, Germany, France, Spain, Italy, Portugal, the Netherlands, Belgium, Austria, Switzerland, Denmark, Finland, Norway, and Sweden. Market quotas are selected independently by local market capitalization, avoiding invalid comparisons between unconverted currencies. Nasdaq classifies some Chinese issuers, including FUTU, under Hong Kong, so both country labels belong to the ADR bucket. European market discovery uses the TradingView stock screener because shared Streamlit Cloud IPs are frequently rate-limited by Yahoo; the resulting symbols are mapped to Yahoo tickers for the existing analysis engine. A snapshot or checkpoint missing any configured market is rejected. Each company is analyzed with the same scoring-v5 engine as the single-stock view. Missing data remains `Insufficient Data` and is not replaced with a neutral score. The UI can filter results by country and exchange.

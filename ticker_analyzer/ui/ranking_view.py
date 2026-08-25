@@ -15,11 +15,22 @@ from ticker_analyzer.ranking import (
 from ticker_analyzer.ranking_filters import RankingFilters, filter_ranking_companies
 from ticker_analyzer.ranking_quality import build_ranking_quality_report
 from ticker_analyzer.ui.config_view import mutation_allowed
+from ticker_analyzer.ui.market_ranking_view import render_crypto_ranking, render_etf_ranking
 from ticker_analyzer.ui.ranking_actions import refresh_large_cap_ranking
 from ticker_analyzer.ui.state import add_tickers_to_state
 
 
 def render_large_cap_ranking() -> None:
+    stocks_tab, etfs_tab, crypto_tab = st.tabs(["Stocks", "ETFs", "Crypto"])
+    with stocks_tab:
+        _render_stock_ranking()
+    with etfs_tab:
+        render_etf_ranking()
+    with crypto_tab:
+        render_crypto_ranking()
+
+
+def _render_stock_ranking() -> None:
     st.subheader("Large Cap Ranking — Scoring v5.1")
     refresh_allowed = mutation_allowed("ALLOW_RANKING_REFRESH")
     update_col, note_col = st.columns([1, 3])
