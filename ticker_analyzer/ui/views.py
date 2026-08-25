@@ -35,6 +35,7 @@ _EXPORTS = {
     "add_ranking_tickers_to_analyzer": "ticker_analyzer.ui.ranking_view",
     "render_account_statement": "ticker_analyzer.ui.account_statement_view",
     "render_config_editor": "ticker_analyzer.ui.config_view",
+    "render_simulation": "ticker_analyzer.ui.simulation_view",
     "mutation_allowed": "ticker_analyzer.ui.config_view",
 }
 

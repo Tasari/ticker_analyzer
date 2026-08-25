@@ -145,6 +145,35 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertEqual(app.session_state["selected_tickers"], ["PKN.WA"])
         self.assertEqual(app.session_state["active_ticker"], "PKN.WA")
 
+    def test_stock_analyzer_exposes_simulation_tab_for_analyzed_tickers(self):
+        result = {
+            "ticker": "AAPL",
+            "company_name": "Apple",
+            "currency": "USD",
+            "profile": "Industrial",
+            "current_price": 100,
+            "overall_score": 80,
+            "rating": "Buy",
+            "tabs": {
+                name: {"score": 80, "rating": "Buy", "metrics": [], "coverage": {"percentage": 100}}
+                for name in ("Growth", "Fundamentals", "Value")
+            },
+            "charts": {},
+            "missing": [],
+        }
+        app = AppTest.from_file("app.py", default_timeout=10)
+        app.session_state["_site_access_authenticated"] = True
+        app.session_state["selected_tickers"] = ["AAPL"]
+        app.session_state["analysis_results"] = {"AAPL": result}
+        app.session_state["analysis_errors"] = {}
+        app.session_state["active_ticker"] = "AAPL"
+
+        app.run()
+
+        self.assertFalse(app.exception)
+        self.assertTrue(any(tab.label == "Simulation" for tab in app.tabs))
+        self.assertTrue(any(header.value == "Portfolio Simulation" for header in app.subheader))
+
     def test_ranking_country_filter_limits_displayed_rows(self):
         app = AppTest.from_string(
             textwrap.dedent(

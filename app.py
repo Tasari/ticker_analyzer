@@ -70,11 +70,14 @@ def main() -> None:
                 st.info("Add a ticker to start the analysis.")
             return
 
-        if len(results) == 1:
-            views.render_company_analysis(next(iter(results.values())))
-            return
-
-        views.render_multi_ticker_analysis(results)
+        analysis_tab, simulation_tab = st.tabs(["Analysis", "Simulation"])
+        with analysis_tab:
+            if len(results) == 1:
+                views.render_company_analysis(next(iter(results.values())))
+            else:
+                views.render_multi_ticker_analysis(results)
+        with simulation_tab:
+            views.render_simulation(results)
     finally:
         persist_browser_state(st.session_state)
 

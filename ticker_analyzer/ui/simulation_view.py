@@ -1,0 +1,280 @@
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, timedelta
+
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
+from ticker_analyzer.data_provider import retry_transient
+from ticker_analyzer.simulation import SimulationError, SimulationResult, simulate_buy_and_hold
+
+BASE_CURRENCIES = ("USD", "EUR", "PLN")
+MAX_SIMULATION_WORKERS = 5
+
+
+def render_simulation(results: dict[str, dict]) -> None:
+    st.subheader("Portfolio Simulation")
+    st.caption(
+        "Buy-and-hold simulation using adjusted Yahoo prices, fractional shares, and no fees or taxes. "
+        "This is a historical illustration, not investment advice."
+    )
+    tickers = list(results)
+    if not tickers:
+        st.info("Analyze at least one ticker before running a simulation.")
+        return
+
+    today = date.today()
+    controls = st.columns(4)
+    initial_capital = float(
+        controls[0].number_input(
+            "Initial capital",
+            min_value=1.0,
+            value=10_000.0,
+            step=1_000.0,
+            key="simulation_initial_capital",
+        )
+    )
+    start_date = controls[1].date_input(
+        "Simulation start",
+        value=today - timedelta(days=365),
+        max_value=today,
+        key="simulation_start_date",
+    )
+    end_date = controls[2].date_input(
+        "Simulation end",
+        value=today,
+        max_value=today,
+        key="simulation_end_date",
+    )
+    base_currency = controls[3].selectbox(
+        "Base currency",
+        BASE_CURRENCIES,
+        key="simulation_base_currency",
+    )
+
+    equal_weights = st.checkbox("Equal weights", value=True, key="simulation_equal_weights")
+    if equal_weights:
+        weights = {ticker: 1 / len(tickers) for ticker in tickers}
+        st.caption(f"Each of {len(tickers)} ticker(s) receives {100 / len(tickers):.2f}% of the capital.")
+    else:
+        st.caption("Set allocation weights; their sum must equal 100%.")
+        columns = st.columns(min(4, len(tickers)))
+        default_weight = 100 / len(tickers)
+        weights = {
+            ticker: float(
+                columns[index % len(columns)].number_input(
+                    f"{ticker} weight (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=float(default_weight),
+                    step=1.0,
+                    key=f"simulation_weight_{ticker}",
+                )
+            )
+            / 100
+            for index, ticker in enumerate(tickers)
+        }
+        st.caption(f"Current total: {sum(weights.values()):.2%}")
+
+    signature = (tuple(tickers), initial_capital, start_date, end_date, base_currency, tuple(weights.items()))
+    if st.button("Run simulation", type="primary", key="run_simulation"):
+        try:
+            with st.spinner("Fetching adjusted prices and exchange rates..."):
+                histories, warnings = _fetch_simulation_histories(
+                    results,
+                    start_date,
+                    end_date,
+                    base_currency,
+                )
+            simulation = simulate_buy_and_hold(
+                histories,
+                weights,
+                initial_capital,
+                start_date,
+                end_date,
+            )
+        except SimulationError as exc:
+            st.error(str(exc))
+        else:
+            st.session_state["simulation_output"] = {
+                "signature": signature,
+                "result": simulation,
+                "warnings": warnings,
+                "currency": base_currency,
+            }
+
+    output = st.session_state.get("simulation_output")
+    if not output or output.get("signature") != signature:
+        st.info("Choose the range and allocation, then run the simulation.")
+        return
+    for warning in output.get("warnings", []):
+        st.warning(warning)
+    _render_simulation_result(output["result"], output["currency"])
+
+
+def _fetch_simulation_histories(
+    results: dict[str, dict],
+    start_date: date,
+    end_date: date,
+    base_currency: str,
+) -> tuple[dict[str, pd.Series], list[str]]:
+    histories: dict[str, pd.Series] = {}
+    warnings: list[str] = []
+
+    def fetch_one(ticker: str) -> tuple[str, pd.Series, str | None]:
+        try:
+            prices = _cached_adjusted_prices(ticker, start_date, end_date)
+            currency = str(results[ticker].get("currency") or base_currency)
+            converted = _convert_to_base_currency(
+                prices,
+                currency,
+                base_currency,
+                start_date,
+                end_date,
+            )
+            return ticker, converted, None
+        except (RuntimeError, ValueError) as exc:
+            return ticker, pd.Series(dtype=float), str(exc)
+
+    with ThreadPoolExecutor(max_workers=min(MAX_SIMULATION_WORKERS, len(results))) as executor:
+        futures = [executor.submit(fetch_one, ticker) for ticker in results]
+        for future in as_completed(futures):
+            ticker, prices, error = future.result()
+            histories[ticker] = prices
+            if error:
+                warnings.append(f"{ticker}: {error} Its allocation remains cash.")
+    return {ticker: histories.get(ticker, pd.Series(dtype=float)) for ticker in results}, warnings
+
+
+@st.cache_data(ttl=3600, max_entries=64, show_spinner=False)
+def _cached_adjusted_prices(ticker: str, start_date: date, end_date: date) -> pd.Series:
+    import yfinance as yf
+
+    try:
+        history = retry_transient(
+            lambda: yf.Ticker(ticker).history(
+                start=start_date.isoformat(),
+                end=(end_date + timedelta(days=1)).isoformat(),
+                auto_adjust=True,
+                actions=False,
+            )
+        )
+    except Exception as exc:
+        raise RuntimeError(f"price data could not be downloaded: {exc}") from exc
+    if history.empty or "Close" not in history:
+        raise RuntimeError("no adjusted prices are available for this range.")
+    return pd.to_numeric(history["Close"], errors="coerce").dropna()
+
+
+def _convert_to_base_currency(
+    prices: pd.Series,
+    source_currency: str,
+    base_currency: str,
+    start_date: date,
+    end_date: date,
+) -> pd.Series:
+    raw_currency = source_currency.strip()
+    source = raw_currency.upper()
+    converted = _daily_series(prices)
+    if raw_currency in {"GBp", "GBX"}:
+        converted = converted / 100
+        source = "GBP"
+    if not source or source == base_currency:
+        return converted
+    factor = _daily_series(_cached_fx_factor(source, base_currency, start_date, end_date))
+    aligned_factor = factor.reindex(converted.index, method="ffill").bfill()
+    if aligned_factor.isna().any():
+        raise RuntimeError(f"{source}/{base_currency} exchange-rate history is incomplete.")
+    return converted * aligned_factor
+
+
+def _daily_series(values: pd.Series) -> pd.Series:
+    normalized = pd.to_numeric(values, errors="coerce").dropna()
+    normalized.index = pd.to_datetime(normalized.index, errors="coerce", utc=True).tz_convert(None).normalize()
+    return normalized[~normalized.index.duplicated(keep="last")].sort_index()
+
+
+@st.cache_data(ttl=3600, max_entries=24, show_spinner=False)
+def _cached_fx_factor(source: str, target: str, start_date: date, end_date: date) -> pd.Series:
+    direct = _try_fx_history(f"{source}{target}=X", start_date, end_date)
+    if not direct.empty:
+        return direct
+    inverse = _try_fx_history(f"{target}{source}=X", start_date, end_date)
+    if inverse.empty or (inverse <= 0).any():
+        raise RuntimeError(f"no {source}/{target} exchange-rate history is available.")
+    return 1 / inverse
+
+
+def _try_fx_history(symbol: str, start_date: date, end_date: date) -> pd.Series:
+    try:
+        return _cached_adjusted_prices(symbol, start_date - timedelta(days=7), end_date)
+    except RuntimeError:
+        return pd.Series(dtype=float)
+
+
+def _render_simulation_result(result: SimulationResult, currency: str) -> None:
+    metrics = st.columns(6)
+    metrics[0].metric("Initial capital", _money(result.initial_capital, currency))
+    metrics[1].metric("Final value", _money(result.final_value, currency))
+    metrics[2].metric("P/L", _money(result.profit_loss, currency))
+    metrics[3].metric("ROI", _percent(result.return_value))
+    metrics[4].metric("CAGR", _percent(result.cagr))
+    metrics[5].metric("Max drawdown", _percent(result.maximum_drawdown))
+    st.caption(f"Annualized volatility: {_percent(result.annualized_volatility)}")
+
+    chart = result.position_values.copy()
+    chart.insert(0, "Portfolio", result.portfolio_values)
+    chart.index.name = "Date"
+    figure = px.line(
+        chart.reset_index().melt(id_vars="Date", var_name="Series", value_name="Value"),
+        x="Date",
+        y="Value",
+        color="Series",
+        title="Buy-and-hold portfolio value",
+    )
+    figure.update_layout(yaxis_title=f"Value ({currency})", xaxis_title=None)
+    st.plotly_chart(figure, width="stretch")
+
+    frame = pd.DataFrame(
+        [
+            {
+                "Ticker": position.ticker,
+                "Weight": position.weight * 100,
+                "Allocation": position.allocation,
+                "Entry date": position.entry_date,
+                "Entry price": position.entry_price,
+                "Shares": position.shares,
+                "Final price": position.final_price,
+                "Final value": position.final_value,
+                "P/L": position.profit_loss,
+                "Return": position.return_value * 100,
+                "Status": position.status,
+            }
+            for position in result.positions
+        ]
+    )
+    st.dataframe(
+        frame,
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Weight": st.column_config.NumberColumn(format="%.2f%%"),
+            "Allocation": st.column_config.NumberColumn(format=f"%.2f {currency}"),
+            "Entry price": st.column_config.NumberColumn(format="%.4f"),
+            "Shares": st.column_config.NumberColumn(format="%.6f"),
+            "Final price": st.column_config.NumberColumn(format="%.4f"),
+            "Final value": st.column_config.NumberColumn(format=f"%.2f {currency}"),
+            "P/L": st.column_config.NumberColumn(format=f"%.2f {currency}"),
+            "Return": st.column_config.NumberColumn(format="%.2f%%"),
+        },
+    )
+
+
+def _money(value: float, currency: str) -> str:
+    return f"{value:,.2f} {currency}"
+
+
+def _percent(value: float | None) -> str:
+    return "N/A" if value is None else f"{value:.2%}"
