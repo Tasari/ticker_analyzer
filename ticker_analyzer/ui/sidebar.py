@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import math
+import time
+
 import streamlit as st
 from streamlit_searchbox import st_searchbox
 
@@ -12,6 +15,31 @@ from ticker_analyzer.ticker_symbols import MARKET_SUFFIXES, ticker_for_market
 from ticker_analyzer.ui.analysis_actions import search_tickers
 from ticker_analyzer.ui.config_view import render_config_editor
 from ticker_analyzer.ui.state import add_ticker_to_state, remove_tickers_from_state
+
+AUTO_ANALYSIS_DELAY_SECONDS = 10
+
+
+def seconds_until_auto_analysis(started_at: float | None, now: float | None = None) -> int:
+    if started_at is None:
+        return AUTO_ANALYSIS_DELAY_SECONDS
+    current = time.time() if now is None else now
+    return max(0, math.ceil(AUTO_ANALYSIS_DELAY_SECONDS - (current - started_at)))
+
+
+@st.fragment(run_every=1)
+def render_auto_analysis_countdown() -> None:
+    if not st.session_state.get("analysis_pending_changes"):
+        return
+    if st.session_state.get("automatic_analysis_requested"):
+        return
+    remaining = seconds_until_auto_analysis(st.session_state.get("analysis_pending_since"))
+    if remaining > 0:
+        st.caption(
+            f"Selection changed. Add more tickers or wait {remaining}s — analysis will start automatically."
+        )
+        return
+    st.session_state["automatic_analysis_requested"] = True
+    st.rerun()
 
 
 def render_sidebar(config: dict) -> tuple[dict[str, str], bool]:
@@ -31,7 +59,7 @@ def render_sidebar(config: dict) -> tuple[dict[str, str], bool]:
             disabled=not st.session_state.selected_tickers,
         )
         if st.session_state.get("analysis_pending_changes"):
-            st.caption("Selection changed. Add more tickers or analyze the whole queue when ready.")
+            render_auto_analysis_countdown()
         overwrite_preferences = st.button(
             "Save / overwrite remembered setup",
             width="stretch",

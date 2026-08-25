@@ -162,11 +162,15 @@ class StreamlitAppTest(unittest.TestCase):
             add = next(button for button in app.button if button.label == "Add exact ticker")
             add.click().run()
 
+            self.assertEqual(analyze.call_count, 1)
+            app.session_state["analysis_pending_since"] = 0.0
+            app.run()
+
         self.assertFalse(app.exception)
         self.assertEqual(app.session_state["selected_tickers"], ["PKN.WA"])
         self.assertEqual(app.session_state["active_ticker"], "PKN.WA")
-        self.assertTrue(app.session_state["analysis_pending_changes"])
-        self.assertEqual(analyze.call_count, 1)
+        self.assertEqual(analyze.call_count, 2)
+        self.assertFalse(app.session_state["analysis_pending_changes"])
 
     def test_stock_analyzer_exposes_simulation_tab_for_analyzed_tickers(self):
         result = {

@@ -58,15 +58,18 @@ def main() -> None:
             for ticker in st.session_state.selected_tickers
             if ticker != ACCOUNT_STATEMENT_TICKER
         ]
-        automatic_analysis = (
+        restored_setup_analysis = (
             browser_state_ready
             and not st.session_state.analysis_results
             and not st.session_state.analysis_pending_changes
             and not st.session_state.automatic_analysis_attempted
         )
+        automatic_analysis = st.session_state.automatic_analysis_requested or restored_setup_analysis
         if analyze_clicked or automatic_analysis:
             st.session_state.automatic_analysis_attempted = True
+            st.session_state.automatic_analysis_requested = False
             st.session_state.analysis_pending_changes = False
+            st.session_state.analysis_pending_since = None
             with st.spinner("Fetching market and financial data..."):
                 st.session_state.analysis_results, st.session_state.analysis_errors = analyze_selected_tickers(
                     market_tickers,
