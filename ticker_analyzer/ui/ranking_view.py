@@ -12,6 +12,7 @@ from ticker_analyzer.ranking import (
     load_ranking,
     save_ranking,
 )
+from ticker_analyzer.ranking_filters import RankingFilters, filter_ranking_companies
 from ticker_analyzer.ranking_quality import build_ranking_quality_report
 from ticker_analyzer.ui.config_view import mutation_allowed
 from ticker_analyzer.ui.ranking_actions import refresh_large_cap_ranking
@@ -77,30 +78,126 @@ def render_large_cap_ranking() -> None:
     if errors:
         with st.expander(f"Failed tickers ({len(errors)})", expanded=False):
             st.dataframe(pd.DataFrame(errors), hide_index=True, width="stretch")
-    profiles = sorted({row.get("profile") for row in companies if row.get("profile")})
-    ratings = sorted({row.get("rating") for row in companies if row.get("rating")})
-    countries = sorted({row.get("country") for row in companies if row.get("country")})
-    exchanges = sorted({row.get("exchange") for row in companies if row.get("exchange")})
-    location_cols = st.columns(3)
-    country = location_cols[0].selectbox("Country", ["All", *countries])
-    exchange = location_cols[1].selectbox("Exchange", ["All", *exchanges])
-    maximum_rows = location_cols[2].selectbox("Rows", [50, 100, 250, 500, 1000, 2500, 5000], index=1)
-    score_cols = st.columns(3)
-    profile = score_cols[0].selectbox("Profile", ["All", *profiles])
-    rating = score_cols[1].selectbox("Rating", ["All", *ratings])
-    minimum_quality = score_cols[2].slider("Minimum Data Quality", 0, 95, 0)
-    filtered = [
-        row
-        for row in companies
-        if (country == "All" or row.get("country") == country)
-        and (exchange == "All" or row.get("exchange") == exchange)
-        and (profile == "All" or row.get("profile") == profile)
-        and (rating == "All" or row.get("rating") == rating)
-        and float(row.get("data_quality", row.get("confidence")) or 0) >= minimum_quality
-    ][:maximum_rows]
+    with st.expander("Ranking filters", expanded=True):
+        search_cols = st.columns([3, 1, 1])
+        query = search_cols[0].text_input(
+            "Search",
+            placeholder="Ticker, company, or industry",
+            key="ranking_filter_query",
+        )
+        maximum_rows = search_cols[1].selectbox(
+            "Rows",
+            [50, 100, 250, 500, 1000, 2500, 5000],
+            index=1,
+            key="ranking_filter_rows",
+        )
+        include_unscored = search_cols[2].checkbox(
+            "Include unscored",
+            value=True,
+            key="ranking_filter_include_unscored",
+        )
+
+        location_cols = st.columns(4)
+        countries = location_cols[0].multiselect(
+            "Country",
+            _filter_options(companies, "country"),
+            key="ranking_filter_countries",
+        )
+        markets = location_cols[1].multiselect(
+            "Market Pool",
+            _filter_options(companies, "market"),
+            key="ranking_filter_markets",
+        )
+        exchanges = location_cols[2].multiselect(
+            "Exchange",
+            _filter_options(companies, "exchange"),
+            key="ranking_filter_exchanges",
+        )
+        sectors = location_cols[3].multiselect(
+            "Sector",
+            _filter_options(companies, "sector"),
+            key="ranking_filter_sectors",
+        )
+
+        classification_cols = st.columns(3)
+        profiles = classification_cols[0].multiselect(
+            "Profile",
+            _filter_options(companies, "profile"),
+            key="ranking_filter_profiles",
+        )
+        ratings = classification_cols[1].multiselect(
+            "Rating",
+            _filter_options(companies, "rating"),
+            key="ranking_filter_ratings",
+        )
+        confidences = classification_cols[2].multiselect(
+            "Confidence",
+            _filter_options(companies, "rating_confidence"),
+            key="ranking_filter_confidences",
+        )
+
+        score_cols = st.columns(3)
+        overall_score_range = score_cols[0].slider(
+            "Overall Score",
+            0,
+            100,
+            (0, 100),
+            key="ranking_filter_overall_score",
+        )
+        minimum_quality = score_cols[1].slider(
+            "Minimum Data Quality",
+            0,
+            100,
+            0,
+            key="ranking_filter_quality",
+        )
+        minimum_market_cap_billions = score_cols[2].number_input(
+            "Minimum Market Cap (B)",
+            min_value=0.0,
+            value=0.0,
+            step=1.0,
+            key="ranking_filter_market_cap",
+        )
+
+        tab_score_cols = st.columns(3)
+        minimum_growth = tab_score_cols[0].slider(
+            "Minimum Growth Score", 0, 100, 0, key="ranking_filter_growth"
+        )
+        minimum_fundamentals = tab_score_cols[1].slider(
+            "Minimum Fundamentals Score", 0, 100, 0, key="ranking_filter_fundamentals"
+        )
+        minimum_value = tab_score_cols[2].slider(
+            "Minimum Value Score", 0, 100, 0, key="ranking_filter_value"
+        )
+
+    matching = filter_ranking_companies(
+        companies,
+        RankingFilters(
+            query=query,
+            countries=tuple(countries),
+            markets=tuple(markets),
+            exchanges=tuple(exchanges),
+            sectors=tuple(sectors),
+            profiles=tuple(profiles),
+            ratings=tuple(ratings),
+            confidences=tuple(confidences),
+            overall_score_range=overall_score_range,
+            minimum_growth=minimum_growth,
+            minimum_fundamentals=minimum_fundamentals,
+            minimum_value=minimum_value,
+            minimum_quality=minimum_quality,
+            minimum_market_cap=minimum_market_cap_billions * 1_000_000_000,
+            include_unscored=include_unscored,
+        ),
+    )
+    filtered = matching[:maximum_rows]
+    st.caption(
+        f"Showing {len(filtered):,} of {len(matching):,} matching companies "
+        f"({len(companies):,} in snapshot)."
+    )
     table = pd.DataFrame(filtered)
     if table.empty:
-        st.info("No companies match the selected country, exchange, profile, rating, and quality filters.")
+        st.info("No companies match the selected ranking filters.")
         _render_quality_report(payload)
         return
     columns = {
@@ -151,6 +248,10 @@ def render_large_cap_ranking() -> None:
     )
     st.caption("Ranking is a model-based screening tool, not investment advice. Missing tabs are never treated as neutral scores.")
     _render_quality_report(payload)
+
+
+def _filter_options(companies: list[dict], field: str) -> list[str]:
+    return sorted({str(row[field]) for row in companies if row.get(field)})
 
 
 def _render_snapshot_transfer(payload: dict) -> None:

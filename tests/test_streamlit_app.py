@@ -277,8 +277,8 @@ class StreamlitAppTest(unittest.TestCase):
         )
 
         app.run()
-        country_filter = next(widget for widget in app.selectbox if widget.label == "Country")
-        country_filter.set_value("Poland").run()
+        country_filter = next(widget for widget in app.multiselect if widget.label == "Country")
+        country_filter.set_value(["Poland"]).run()
 
         self.assertFalse(app.exception)
         table = app.dataframe[0].value
