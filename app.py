@@ -70,6 +70,10 @@ def main() -> None:
                 st.info("Add a ticker to start the analysis.")
             return
 
+        # Import the simulation view directly. Streamlit Cloud can rerun a freshly
+        # pulled app.py while retaining an older lazy views module in sys.modules.
+        from ticker_analyzer.ui.simulation_view import render_simulation
+
         analysis_tab, simulation_tab = st.tabs(["Analysis", "Simulation"])
         with analysis_tab:
             if len(results) == 1:
@@ -77,7 +81,7 @@ def main() -> None:
             else:
                 views.render_multi_ticker_analysis(results)
         with simulation_tab:
-            views.render_simulation(results)
+            render_simulation(results)
     finally:
         persist_browser_state(st.session_state)
 

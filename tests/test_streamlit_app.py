@@ -168,7 +168,14 @@ class StreamlitAppTest(unittest.TestCase):
         app.session_state["analysis_errors"] = {}
         app.session_state["active_ticker"] = "AAPL"
 
-        app.run()
+        # A stale lazy facade may survive a Streamlit Cloud hot reload. The app
+        # must load the simulation view directly instead of relying on that map.
+        with patch(
+            "ticker_analyzer.ui.views.render_simulation",
+            side_effect=AssertionError("stale facade used"),
+            create=True,
+        ):
+            app.run()
 
         self.assertFalse(app.exception)
         self.assertTrue(any(tab.label == "Simulation" for tab in app.tabs))
