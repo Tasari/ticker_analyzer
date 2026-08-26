@@ -187,13 +187,7 @@ def validate_config(config: dict[str, Any]) -> None:
     validate_minimum_coverage(config.get("minimum_weight_coverage", {}), config["metrics"])
     validate_coverage_policy(config.get("coverage_policy", {}), config["metrics"])
     for tab_name, metrics in config["metrics"].items():
-        if not isinstance(metrics, list) or not metrics:
-            raise ConfigValidationError(f"metrics.{tab_name} must be a non-empty list.")
-        ids = [metric.get("id") for metric in metrics if isinstance(metric, dict)]
-        if len(ids) != len(set(ids)):
-            raise ConfigValidationError(f"metrics.{tab_name} contains duplicate metric ids.")
-        for index, metric in enumerate(metrics, start=1):
-            validate_metric(metric, f"metrics.{tab_name}[{index}]")
+        _validate_metric_list(metrics, f"metrics.{tab_name}")
     validate_profile_metrics(config.get("profile_metrics", {}))
     validate_all_groups(config)
     validate_profile_rules(config)
@@ -225,13 +219,17 @@ def validate_profile_metrics(profile_metrics: dict[str, Any]) -> None:
         if not isinstance(metrics_by_tab, dict) or not metrics_by_tab:
             raise ConfigValidationError(f"profile_metrics.{profile_name} must be a non-empty object keyed by tab name.")
         for tab_name, metrics in metrics_by_tab.items():
-            if not isinstance(metrics, list) or not metrics:
-                raise ConfigValidationError(f"profile_metrics.{profile_name}.{tab_name} must be a non-empty list.")
-            ids = [metric.get("id") for metric in metrics if isinstance(metric, dict)]
-            if len(ids) != len(set(ids)):
-                raise ConfigValidationError(f"profile_metrics.{profile_name}.{tab_name} contains duplicate metric ids.")
-            for index, metric in enumerate(metrics, start=1):
-                validate_metric(metric, f"profile_metrics.{profile_name}.{tab_name}[{index}]")
+            _validate_metric_list(metrics, f"profile_metrics.{profile_name}.{tab_name}")
+
+
+def _validate_metric_list(metrics: Any, path: str) -> None:
+    if not isinstance(metrics, list) or not metrics:
+        raise ConfigValidationError(f"{path} must be a non-empty list.")
+    ids = [metric.get("id") for metric in metrics if isinstance(metric, dict)]
+    if len(ids) != len(set(ids)):
+        raise ConfigValidationError(f"{path} contains duplicate metric ids.")
+    for index, metric in enumerate(metrics, start=1):
+        validate_metric(metric, f"{path}[{index}]")
 
 
 def validate_thresholds(thresholds: dict[str, Any], path: str) -> None:

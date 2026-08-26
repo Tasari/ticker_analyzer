@@ -52,11 +52,8 @@ def main() -> None:
 
         config = load_config()
         ranges, analyze_clicked = views.render_sidebar(config)
-
         market_tickers = [
-            ticker
-            for ticker in st.session_state.selected_tickers
-            if ticker != ACCOUNT_STATEMENT_TICKER
+            ticker for ticker in st.session_state.selected_tickers if ticker != ACCOUNT_STATEMENT_TICKER
         ]
         restored_setup_analysis = (
             browser_state_ready

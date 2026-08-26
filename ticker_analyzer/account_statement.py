@@ -157,16 +157,7 @@ class _UnrealizedEquityAnchor:
 
 def list_statement_assets(payload: bytes) -> tuple[str, ...]:
     """Return stable instrument labels that can be excluded from statement analysis."""
-    validate_xlsx_payload(payload)
-    try:
-        workbook = load_workbook(
-            BytesIO(payload),
-            read_only=True,
-            data_only=True,
-            keep_links=False,
-        )
-    except (BadZipFile, InvalidFileException, KeyError, OSError, ValueError) as exc:
-        raise AccountStatementError("The uploaded file is not a readable XLSX workbook.") from exc
+    workbook = _load_statement_workbook(payload)
     try:
         _, assets = _position_asset_index(workbook)
         return tuple(sorted(assets))
@@ -175,16 +166,7 @@ def list_statement_assets(payload: bytes) -> tuple[str, ...]:
 
 
 def inspect_account_statement(payload: bytes) -> StatementOverview:
-    validate_xlsx_payload(payload)
-    try:
-        workbook = load_workbook(
-            BytesIO(payload),
-            read_only=True,
-            data_only=True,
-            keep_links=False,
-        )
-    except (BadZipFile, InvalidFileException, KeyError, OSError, ValueError) as exc:
-        raise AccountStatementError("The uploaded file is not a readable XLSX workbook.") from exc
+    workbook = _load_statement_workbook(payload)
 
     try:
         missing = REQUIRED_SHEETS.difference(workbook.sheetnames)
@@ -217,16 +199,7 @@ def read_statement_sheet(
 ) -> SheetPreview:
     if max_rows < 1:
         raise ValueError("max_rows must be positive")
-    validate_xlsx_payload(payload)
-    try:
-        workbook = load_workbook(
-            BytesIO(payload),
-            read_only=True,
-            data_only=True,
-            keep_links=False,
-        )
-    except (BadZipFile, InvalidFileException, KeyError, OSError, ValueError) as exc:
-        raise AccountStatementError("The uploaded file is not a readable XLSX workbook.") from exc
+    workbook = _load_statement_workbook(payload)
 
     try:
         if sheet_name not in workbook.sheetnames:
@@ -255,16 +228,7 @@ def analyze_account_statement(
     *,
     excluded_assets: tuple[str, ...] = (),
 ) -> StatementAnalysis:
-    validate_xlsx_payload(payload)
-    try:
-        workbook = load_workbook(
-            BytesIO(payload),
-            read_only=True,
-            data_only=True,
-            keep_links=False,
-        )
-    except (BadZipFile, InvalidFileException, KeyError, OSError, ValueError) as exc:
-        raise AccountStatementError("The uploaded file is not a readable XLSX workbook.") from exc
+    workbook = _load_statement_workbook(payload)
 
     try:
         missing_sheets = ANALYSIS_SHEETS.difference(workbook.sheetnames)
@@ -397,18 +361,9 @@ def analyze_statement_range(
     *,
     excluded_assets: tuple[str, ...] = (),
 ) -> StatementRangeAnalysis:
-    validate_xlsx_payload(payload)
     if end_date < start_date:
         raise AccountStatementError("The selected end date must not be before the start date.")
-    try:
-        workbook = load_workbook(
-            BytesIO(payload),
-            read_only=True,
-            data_only=True,
-            keep_links=False,
-        )
-    except (BadZipFile, InvalidFileException, KeyError, OSError, ValueError) as exc:
-        raise AccountStatementError("The uploaded file is not a readable XLSX workbook.") from exc
+    workbook = _load_statement_workbook(payload)
 
     try:
         missing_range_sheets = {"Account Activity", "Holdings"}.difference(workbook.sheetnames)
@@ -550,18 +505,9 @@ def analyze_position_contributions(
     excluded_assets: tuple[str, ...] = (),
 ) -> tuple[PositionContribution, ...]:
     """Aggregate exact closed-position results by asset for the selected close-date range."""
-    validate_xlsx_payload(payload)
     if end_date < start_date:
         raise AccountStatementError("The selected end date must not be before the start date.")
-    try:
-        workbook = load_workbook(
-            BytesIO(payload),
-            read_only=True,
-            data_only=True,
-            keep_links=False,
-        )
-    except (BadZipFile, InvalidFileException, KeyError, OSError, ValueError) as exc:
-        raise AccountStatementError("The uploaded file is not a readable XLSX workbook.") from exc
+    workbook = _load_statement_workbook(payload)
     try:
         if "Closed Positions" not in workbook.sheetnames:
             return ()
@@ -637,6 +583,19 @@ def validate_xlsx_payload(payload: bytes) -> None:
                 raise AccountStatementError("The uploaded file is not an XLSX workbook.")
     except BadZipFile as exc:
         raise AccountStatementError("The uploaded file is not an XLSX workbook.") from exc
+
+
+def _load_statement_workbook(payload: bytes) -> Any:
+    validate_xlsx_payload(payload)
+    try:
+        return load_workbook(
+            BytesIO(payload),
+            read_only=True,
+            data_only=True,
+            keep_links=False,
+        )
+    except (BadZipFile, InvalidFileException, KeyError, OSError, ValueError) as exc:
+        raise AccountStatementError("The uploaded file is not a readable XLSX workbook.") from exc
 
 
 def _key_value_rows(worksheet: Any) -> dict[str, Any]:

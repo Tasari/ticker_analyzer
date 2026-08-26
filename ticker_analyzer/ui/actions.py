@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from importlib import import_module
 from typing import Any
+
+from ticker_analyzer.lazy_imports import resolve_export
 
 _EXPORTS = {
     "refresh_large_cap_ranking": "ticker_analyzer.ui.ranking_actions",
@@ -23,9 +24,4 @@ __all__ = list(_EXPORTS)
 
 
 def __getattr__(name: str) -> Any:
-    module_name = _EXPORTS.get(name)
-    if module_name is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    value = getattr(import_module(module_name), name)
-    globals()[name] = value
-    return value
+    return resolve_export(name, _EXPORTS, globals(), __name__)

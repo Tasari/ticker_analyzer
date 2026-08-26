@@ -5,9 +5,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ticker_analyzer
+import ticker_analyzer.providers as providers
 
 
 class PublicApiTest(unittest.TestCase):
+    def test_lazy_facade_rejects_unknown_exports(self):
+        with self.assertRaisesRegex(AttributeError, "not_exported"):
+            providers.__getattr__("not_exported")
+
     def test_public_facade_delegates_analysis_and_formatting(self):
         with patch("ticker_analyzer.analysis.engine.analyze_ticker", return_value={"ticker": "AAA"}) as analyze:
             self.assertEqual(ticker_analyzer.analyze_ticker("AAA", "1y", {"version": 5}), {"ticker": "AAA"})

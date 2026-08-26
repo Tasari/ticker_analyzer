@@ -314,28 +314,18 @@ def _render_full_period_performance(
         _percent(analysis.simple_roi),
         help="Total P/L divided by beginning equity plus positive contributions.",
     )
-    if returns_analysis is not None:
-        primary[2].metric(
-            "Returns-table CAGR",
-            _percent(returns_analysis.annualized_return),
-            help="The imported time-weighted return annualized over the selected period.",
-        )
-        primary[3].metric(
-            "Returns-table TWR",
-            _percent(returns_analysis.period_return),
-            help="Geometrically compounded monthly eToro returns.",
-        )
-    else:
-        primary[2].metric(
-            "Annualized ROI",
-            _percent(analysis.annualized_roi),
-            help="ROI annualized over the exact statement duration (CAGR-style).",
-        )
-        primary[3].metric(
-            "Estimated TWR",
-            _percent(analysis.modified_dietz_return),
-            help="Modified Dietz estimate using dated external cash flows; not a true daily-valued TWR.",
-        )
+    _render_return_metrics(
+        primary[2:],
+        returns_analysis,
+        (
+            ("Annualized ROI", analysis.annualized_roi, "ROI annualized over the exact statement duration (CAGR-style)."),
+            (
+                "Estimated TWR",
+                analysis.modified_dietz_return,
+                "Modified Dietz estimate using dated external cash flows; not a true daily-valued TWR.",
+            ),
+        ),
+    )
     secondary = st.columns(4)
     secondary[0].metric("Net external flows", _money(analysis.net_external_flows, currency))
     secondary[1].metric("Closed P/L", _money(analysis.closed_positions_profit_loss, currency))
@@ -378,28 +368,22 @@ def _render_partial_period_performance(
         _money(range_analysis.estimated_total_profit_loss, currency),
     )
     estimated[1].metric("Estimated ROI", _percent(range_analysis.estimated_roi))
-    if returns_analysis is not None:
-        estimated[2].metric(
-            "Returns-table CAGR",
-            _percent(returns_analysis.annualized_return),
-            help="The imported time-weighted return annualized over the selected period.",
-        )
-        estimated[3].metric(
-            "Returns-table TWR",
-            _percent(returns_analysis.period_return),
-            help="Geometrically compounded monthly eToro returns.",
-        )
-    else:
-        estimated[2].metric(
-            "Estimated annualized ROI",
-            _percent(range_analysis.estimated_annualized_roi),
-            help="Estimated ROI annualized over the inclusive selected period (CAGR-style).",
-        )
-        estimated[3].metric(
-            "Estimated TWR",
-            _percent(range_analysis.estimated_modified_dietz_return),
-            help="Modified Dietz estimate using exact dated external cash flows.",
-        )
+    _render_return_metrics(
+        estimated[2:],
+        returns_analysis,
+        (
+            (
+                "Estimated annualized ROI",
+                range_analysis.estimated_annualized_roi,
+                "Estimated ROI annualized over the inclusive selected period (CAGR-style).",
+            ),
+            (
+                "Estimated TWR",
+                range_analysis.estimated_modified_dietz_return,
+                "Modified Dietz estimate using exact dated external cash flows.",
+            ),
+        ),
+    )
     st.caption(
         f"Estimated equity: {_money(range_analysis.estimated_beginning_equity, currency)} "
         f"→ {_money(range_analysis.estimated_ending_equity, currency)}. "
@@ -423,6 +407,25 @@ def _render_partial_period_performance(
     )
     secondary[2].metric("Net external flows", _money(range_analysis.net_external_flows, currency))
     st.plotly_chart(_realized_performance_chart(range_analysis, currency), width="stretch")
+
+
+def _render_return_metrics(
+    columns: list,
+    returns_analysis: ReturnsRangeAnalysis | None,
+    fallback_metrics: tuple[tuple[str, float | None, str], tuple[str, float | None, str]],
+) -> None:
+    metrics = fallback_metrics
+    if returns_analysis is not None:
+        metrics = (
+            (
+                "Returns-table CAGR",
+                returns_analysis.annualized_return,
+                "The imported time-weighted return annualized over the selected period.",
+            ),
+            ("Returns-table TWR", returns_analysis.period_return, "Geometrically compounded monthly eToro returns."),
+        )
+    for column, (label, value, help_text) in zip(columns, metrics, strict=True):
+        column.metric(label, _percent(value), help=help_text)
 
 
 def _render_exposure_and_cash_flows(analysis: StatementAnalysis, selected_start: object, selected_end: object) -> None:

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ticker_analyzer.numbers import clean_number
+
 
 @dataclass(frozen=True)
 class RankingFilters:
@@ -66,7 +68,7 @@ def _matches_choice(row: dict[str, Any], field: str, selected: tuple[str, ...]) 
 
 
 def _matches_overall_score(row: dict[str, Any], filters: RankingFilters) -> bool:
-    score = _number(row.get("overall_score"))
+    score = clean_number(row.get("overall_score"))
     if score is None:
         return filters.include_unscored
     minimum, maximum = filters.overall_score_range
@@ -76,12 +78,5 @@ def _matches_overall_score(row: dict[str, Any], filters: RankingFilters) -> bool
 def _meets_minimum(value: Any, minimum: float) -> bool:
     if minimum <= 0:
         return True
-    numeric = _number(value)
+    numeric = clean_number(value)
     return numeric is not None and numeric >= minimum
-
-
-def _number(value: Any) -> float | None:
-    try:
-        return float(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None

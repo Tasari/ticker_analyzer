@@ -10,25 +10,20 @@ def freshness_score(filed_at: pd.Timestamp | None, now: pd.Timestamp | None = No
         return 0.0
     current = now or pd.Timestamp.now(tz="UTC")
     filed = pd.Timestamp(filed_at)
-    if filed.tzinfo is None:
-        filed = filed.tz_localize("UTC")
-    else:
-        filed = filed.tz_convert("UTC")
+    filed = filed.tz_localize("UTC") if filed.tzinfo is None else filed.tz_convert("UTC")
     if current.tzinfo is None:
         current = current.tz_localize("UTC")
     age_days = max(0, (current - filed).days)
-    if age_days <= 45:
-        return 100.0
-    if age_days <= 90:
-        return 90.0
-    if age_days <= 135:
-        return 75.0
-    if age_days <= 180:
-        return 60.0
-    if age_days <= 270:
-        return 40.0
-    if age_days <= 365:
-        return 20.0
+    for maximum_age, score in (
+        (45, 100.0),
+        (90, 90.0),
+        (135, 75.0),
+        (180, 60.0),
+        (270, 40.0),
+        (365, 20.0),
+    ):
+        if age_days <= maximum_age:
+            return score
     return 5.0
 
 

@@ -18,6 +18,7 @@ from ticker_analyzer.analysis.profiles import config_for_profile
 from ticker_analyzer.analysis.quality import analysis_coverage
 from ticker_analyzer.data_quality import calculate_data_quality
 from ticker_analyzer.domain import MetricResult
+from ticker_analyzer.numbers import clean_number
 from ticker_analyzer.ratings import calculate_rating_decision
 
 
@@ -104,7 +105,7 @@ def audit_scoring_robustness(
             baseline_scores = {
                 index: score
                 for index, original in enumerate(prepared)
-                if (score := _number(original.get("overall_score"))) is not None
+                if (score := clean_number(original.get("overall_score"))) is not None
             }
             changed_scores = {
                 index: changed.overall_score
@@ -115,7 +116,7 @@ def audit_scoring_robustness(
             baseline_ranks = _rank_map({index: baseline_scores[index] for index in joint})
             changed_ranks = _rank_map({index: float(changed_scores[index]) for index in joint})
             for index, (original, changed) in enumerate(zip(prepared, perturbed, strict=True)):
-                baseline = _number(original.get("overall_score"))
+                baseline = clean_number(original.get("overall_score"))
                 baseline_rating = str(original.get("rating_code") or "insufficient_data")
                 ticker = changed.ticker
                 company = company_impacts[ticker]
@@ -268,7 +269,7 @@ def _validate_replay(results: list[dict[str, Any]], config: dict[str, Any]) -> N
                 f"{result.get('ticker', 'Unknown')} has no metric-level results."
             )
         replay = overall_score_with_missing_policy(replay_tabs, scoring_config)
-        baseline = _number(result.get("overall_score"))
+        baseline = clean_number(result.get("overall_score"))
         if (baseline is None) != (replay is None) or (
             baseline is not None and replay is not None and abs(baseline - replay) > 1e-6
         ):
@@ -311,7 +312,7 @@ def _trial_summary(
     baseline_scores = {
         index: score
         for index in indices
-        if (score := _number(originals[index].get("overall_score"))) is not None
+        if (score := clean_number(originals[index].get("overall_score"))) is not None
     }
     changed_scores = {
         index: perturbed[index].overall_score
@@ -457,9 +458,9 @@ def _metric_result(metric: Any) -> MetricResult:
     return MetricResult(
         id=str(metric.get("id") or "unknown"),
         name=str(metric.get("name") or metric.get("id") or "Unknown"),
-        value=_number(metric.get("value")),
+        value=clean_number(metric.get("value")),
         unit=str(metric.get("unit") or ""),
-        score=_number(metric.get("score")),
+        score=clean_number(metric.get("score")),
         weight=float(metric.get("weight") or 0),
         status=str(metric.get("status") or "Unavailable"),
         note=str(metric.get("note") or ""),
@@ -530,14 +531,6 @@ def _percentile(values: list[float], fraction: float) -> float:
 def _derived_seed(seed: int, rate: float, trial: int, ticker: str) -> int:
     digest = hashlib.sha256(f"{seed}:{rate:.8f}:{trial}:{ticker}".encode()).digest()
     return int.from_bytes(digest[:8], "big")
-
-
-def _number(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _rounded(value: float) -> float | None:

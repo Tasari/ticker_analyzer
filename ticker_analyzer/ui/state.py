@@ -10,28 +10,21 @@ from ticker_analyzer.ticker_symbols import normalize_ticker
 
 
 def initialize_state() -> None:
-    if "selected_tickers" not in st.session_state:
-        st.session_state["selected_tickers"] = ["AFRM"]
-    if "analysis_results" not in st.session_state:
-        st.session_state["analysis_results"] = {}
-    if "analysis_errors" not in st.session_state:
-        st.session_state["analysis_errors"] = {}
-    if "active_ticker" not in st.session_state:
-        st.session_state["active_ticker"] = "AFRM"
-    if "growth_range" not in st.session_state:
-        st.session_state["growth_range"] = "2Y"
-    if "fundamentals_range" not in st.session_state:
-        st.session_state["fundamentals_range"] = "2Y"
-    if "value_range" not in st.session_state:
-        st.session_state["value_range"] = "2Y"
-    if "analysis_pending_changes" not in st.session_state:
-        st.session_state["analysis_pending_changes"] = False
-    if "automatic_analysis_attempted" not in st.session_state:
-        st.session_state["automatic_analysis_attempted"] = False
-    if "automatic_analysis_requested" not in st.session_state:
-        st.session_state["automatic_analysis_requested"] = False
-    if "analysis_pending_since" not in st.session_state:
-        st.session_state["analysis_pending_since"] = None
+    defaults = {
+        "selected_tickers": ["AFRM"],
+        "analysis_results": {},
+        "analysis_errors": {},
+        "active_ticker": "AFRM",
+        "growth_range": "2Y",
+        "fundamentals_range": "2Y",
+        "value_range": "2Y",
+        "analysis_pending_changes": False,
+        "automatic_analysis_attempted": False,
+        "automatic_analysis_requested": False,
+        "analysis_pending_since": None,
+    }
+    for key, value in defaults.items():
+        st.session_state.setdefault(key, value)
 
 
 def remove_tickers_from_state(state: MutableMapping[str, Any], tickers: list[str]) -> None:

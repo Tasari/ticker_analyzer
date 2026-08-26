@@ -137,11 +137,11 @@ def estimate_row(table: pd.DataFrame, period: str) -> dict[str, Any] | None:
 
 
 def growth_from_estimates(table: pd.DataFrame | None, *, period: str) -> float | None:
-    if table is None or table.empty or period not in table.index:
+    if table is None or table.empty:
         return None
-    row = table.loc[period]
-    if isinstance(row, pd.DataFrame):
-        row = row.iloc[0]
+    row = estimate_row(table, period)
+    if row is None:
+        return None
     growth = clean_number(row.get("stockTrend"))
     if growth is None:
         return None

@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from ticker_analyzer.numbers import clean_number
+
 
 def build_ranking_quality_report(
     current: dict[str, Any],
@@ -45,11 +47,11 @@ def build_ranking_quality_report(
         warnings.append(f"Provider failures affected {len(errors) / requested:.1%} of the universe.")
     if companies and scored / len(companies) < 0.7:
         warnings.append(f"Only {scored / len(companies):.1%} of analyzed companies received a score.")
-    for row in markets:
-        if row["expected"] and row["analyzed"] / row["expected"] < 0.5:
-            warnings.append(
-                f"{row['market']} coverage is low: {row['analyzed']:,}/{row['expected']:,}."
-            )
+    warnings.extend(
+        f"{row['market']} coverage is low: {row['analyzed']:,}/{row['expected']:,}."
+        for row in markets
+        if row["expected"] and row["analyzed"] / row["expected"] < 0.5
+    )
 
     return {
         "summary": {
@@ -79,8 +81,8 @@ def _compare_rankings(current: dict[str, Any], previous: dict[str, Any]) -> dict
     for ticker in common:
         current_row = current_rows[ticker]
         previous_row = previous_rows[ticker]
-        current_score = _number(current_row.get("overall_score"))
-        previous_score = _number(previous_row.get("overall_score"))
+        current_score = clean_number(current_row.get("overall_score"))
+        previous_score = clean_number(previous_row.get("overall_score"))
         if current_score is not None and previous_score is not None:
             score_changes.append(abs(current_score - previous_score))
         if current_row.get("rating") != previous_row.get("rating"):
@@ -91,8 +93,8 @@ def _compare_rankings(current: dict[str, Any], previous: dict[str, Any]) -> dict
                     "to": current_row.get("rating"),
                 }
             )
-        current_rank = _number(current_row.get("rank"))
-        previous_rank = _number(previous_row.get("rank"))
+        current_rank = clean_number(current_row.get("rank"))
+        previous_rank = clean_number(previous_row.get("rank"))
         if current_rank is not None and previous_rank is not None and current_rank != previous_rank:
             rank_moves.append(
                 {
@@ -127,10 +129,3 @@ def _error_category(message: str) -> str:
     if "insufficient" in normalized or "missing" in normalized or "no data" in normalized:
         return "missing_data"
     return "provider_or_analysis"
-
-
-def _number(value: Any) -> float | None:
-    try:
-        return float(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None

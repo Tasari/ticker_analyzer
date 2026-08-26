@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
 import pandas as pd
 
@@ -37,7 +37,7 @@ class SecClient(JsonApiClient):
 class SecCompanyFactsProvider:
     """Primary-source US-GAAP statements suitable for a CompositeProvider."""
 
-    TAGS = {
+    TAGS: ClassVar[dict[str, dict[str, list[str]]]] = {
         "annual_income": {
             "Total Revenue": ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet"],
             "Net Income": ["NetIncomeLoss", "ProfitLoss"],

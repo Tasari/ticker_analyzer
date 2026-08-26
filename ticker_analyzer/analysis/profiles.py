@@ -4,6 +4,20 @@ from typing import Any
 
 from ticker_analyzer.metrics.formulas import is_financial_company
 
+_IDENTIFIER_PROFILES = {
+    "fdic_cert": "FinancialBank",
+    "finra_crd": "FinancialBroker",
+    "naic_code": "FinancialInsurance",
+}
+_INDUSTRY_PROFILE_RULES = (
+    ("REIT", frozenset(), ("6798",), ("reit",)),
+    ("FinancialInsurance", frozenset(), ("63",), ("insurance", "reinsurance")),
+    ("FinancialAssetManager", frozenset({"6282"}), (), ("asset management", "investment management")),
+    ("FinancialBroker", frozenset({"6211"}), (), ("capital markets", "broker", "securities")),
+    ("FinancialLender", frozenset({"6141", "6153", "6159", "6162", "6163"}), (), ("credit services", "consumer finance", "mortgage finance")),
+    ("FinancialBank", frozenset({"6021", "6022", "6029", "6035", "6036"}), (), ("bank",)),
+)
+
 
 def company_profile(
     info: dict[str, Any],
@@ -16,29 +30,19 @@ def company_profile(
     if normalized_ticker in overrides:
         return str(overrides[normalized_ticker])
     identifiers = official_ids or {}
-    if identifiers.get("fdic_cert"):
-        return "FinancialBank"
-    if identifiers.get("finra_crd"):
-        return "FinancialBroker"
-    if identifiers.get("naic_code"):
-        return "FinancialInsurance"
+    for identifier, profile in _IDENTIFIER_PROFILES.items():
+        if identifiers.get(identifier):
+            return profile
     industry = str(info.get("industry") or info.get("industryDisp") or "").lower()
     sector = str(info.get("sector") or "").lower()
     sic = str(identifiers.get("sec_sic") or identifiers.get("sic") or info.get("sic") or "")
-    if "reit" in industry or sic.startswith("6798"):
-        return "REIT"
-    if sic.startswith("63") or any(term in industry for term in ("insurance", "reinsurance")):
-        return "FinancialInsurance"
-    if sic == "6282" or any(term in industry for term in ("asset management", "investment management")):
-        return "FinancialAssetManager"
-    if sic == "6211" or any(term in industry for term in ("capital markets", "broker", "securities")):
-        return "FinancialBroker"
-    if sic in {"6141", "6153", "6159", "6162", "6163"} or any(
-        term in industry for term in ("credit services", "consumer finance", "mortgage finance")
-    ):
-        return "FinancialLender"
-    if "bank" in industry or sic in {"6021", "6022", "6029", "6035", "6036"}:
-        return "FinancialBank"
+    for profile, exact_sics, sic_prefixes, industry_terms in _INDUSTRY_PROFILE_RULES:
+        if (
+            sic in exact_sics
+            or any(sic.startswith(prefix) for prefix in sic_prefixes)
+            or any(term in industry for term in industry_terms)
+        ):
+            return profile
     if is_financial_company(info) or sector == "financial services":
         return "Financial"
     return "Industrial"

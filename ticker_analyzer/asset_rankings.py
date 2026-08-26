@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
@@ -8,6 +7,7 @@ from typing import Any
 
 import requests
 
+from ticker_analyzer.numbers import clean_number
 from ticker_analyzer.ranking_storage import CRYPTO_RANKING_PATH, ETF_RANKING_PATH, save_ranking
 from ticker_analyzer.ranking_universe import XTB_EXCHANGE_MARKETS, yahoo_ticker_from_tradingview
 
@@ -25,14 +25,6 @@ ETF_COLUMNS = (
     "Volatility.M",
     "Value.Traded",
 )
-
-
-def _number(value: Any) -> float | None:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if math.isfinite(result) else None
 
 
 def fetch_etfs_for_exchange(
@@ -73,14 +65,14 @@ def fetch_etfs_for_exchange(
                 "exchange": values.get("exchange") or str(source.get("s") or "").partition(":")[0],
                 "country": values.get("country") or country,
                 "market": market,
-                "price": _number(values.get("close")),
+                "price": clean_number(values.get("close")),
                 "currency": values.get("currency"),
-                "return_1m": _number(values.get("Perf.1M")),
-                "return_3m": _number(values.get("Perf.3M")),
-                "return_6m": _number(values.get("Perf.6M")),
-                "return_1y": _number(values.get("Perf.Y")),
-                "volatility_1m": _number(values.get("Volatility.M")),
-                "traded_value": _number(values.get("Value.Traded")),
+                "return_1m": clean_number(values.get("Perf.1M")),
+                "return_3m": clean_number(values.get("Perf.3M")),
+                "return_6m": clean_number(values.get("Perf.6M")),
+                "return_1y": clean_number(values.get("Perf.Y")),
+                "volatility_1m": clean_number(values.get("Volatility.M")),
+                "traded_value": clean_number(values.get("Value.Traded")),
             }
         )
     return rows[:limit]
@@ -115,32 +107,32 @@ def fetch_crypto_market(
         if ticker in seen:
             ticker = f"{symbol}-{str(source.get('id') or '').upper()}-USD"
         seen.add(ticker)
-        market_cap = _number(source.get("market_cap"))
-        volume = _number(source.get("total_volume"))
+        market_cap = clean_number(source.get("market_cap"))
+        volume = clean_number(source.get("total_volume"))
         result.append(
             {
                 "ticker": ticker,
                 "coin_id": source.get("id"),
                 "name": source.get("name") or symbol,
                 "symbol": symbol,
-                "price": _number(source.get("current_price")),
+                "price": clean_number(source.get("current_price")),
                 "market_cap": market_cap,
                 "market_cap_rank": source.get("market_cap_rank"),
                 "total_volume": volume,
                 "volume_market_cap": volume / market_cap if volume is not None and market_cap else None,
-                "return_24h": _number(source.get("price_change_percentage_24h")),
-                "return_7d": _number(source.get("price_change_percentage_7d_in_currency")),
-                "return_30d": _number(source.get("price_change_percentage_30d_in_currency")),
-                "return_200d": _number(source.get("price_change_percentage_200d_in_currency")),
-                "return_1y": _number(source.get("price_change_percentage_1y_in_currency")),
-                "ath_drawdown": _number(source.get("ath_change_percentage")),
+                "return_24h": clean_number(source.get("price_change_percentage_24h")),
+                "return_7d": clean_number(source.get("price_change_percentage_7d_in_currency")),
+                "return_30d": clean_number(source.get("price_change_percentage_30d_in_currency")),
+                "return_200d": clean_number(source.get("price_change_percentage_200d_in_currency")),
+                "return_1y": clean_number(source.get("price_change_percentage_1y_in_currency")),
+                "ath_drawdown": clean_number(source.get("ath_change_percentage")),
             }
         )
     return result[:limit]
 
 
 def _percentiles(rows: list[dict[str, Any]], field: str, *, lower_is_better: bool = False) -> dict[int, float]:
-    available = [(index, _number(row.get(field))) for index, row in enumerate(rows)]
+    available = [(index, clean_number(row.get(field))) for index, row in enumerate(rows)]
     available = [(index, value) for index, value in available if value is not None]
     if not available:
         return {}

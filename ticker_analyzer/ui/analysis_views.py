@@ -57,30 +57,26 @@ def render_comparison_summary(results: dict[str, dict]) -> None:
 
 def rank_results(results: dict[str, dict], sort_option: str) -> list[dict]:
     ranked = list(results.values())
-    if sort_option == "Overall":
-
-        def score_for(result: dict) -> float | None:
-            return result.get("overall_score")
-
-    else:
-
-        def score_for(result: dict) -> float | None:
-            return result.get("tabs", {}).get(sort_option, {}).get("score")
-
     return sorted(
         ranked,
-        key=lambda result: -1 if score_for(result) is None else score_for(result),
+        key=lambda result: -1 if _comparison_score(result, sort_option) is None else _comparison_score(result, sort_option),
         reverse=True,
     )
+
+
+def _comparison_score(result: dict, sort_option: str) -> float | None:
+    if sort_option == "Overall":
+        return result.get("overall_score")
+    return result.get("tabs", {}).get(sort_option, {}).get("score")
 
 
 def render_ranking(results: list[dict], sort_option: str) -> None:
     st.markdown(f"#### {sort_option} Ranking")
     if len(results) > 5:
-        rows = []
-        for index, result in enumerate(results):
-            score = result.get("overall_score") if sort_option == "Overall" else result["tabs"][sort_option].get("score")
-            rows.append({"Rank": index + 1, "Ticker": result["ticker"], "Score": score})
+        rows = [
+            {"Rank": index + 1, "Ticker": result["ticker"], "Score": _comparison_score(result, sort_option)}
+            for index, result in enumerate(results)
+        ]
         st.dataframe(
             pd.DataFrame(rows),
             hide_index=True,
@@ -90,7 +86,7 @@ def render_ranking(results: list[dict], sort_option: str) -> None:
         return
     columns = st.columns(len(results))
     for index, result in enumerate(results):
-        score = result.get("overall_score") if sort_option == "Overall" else result["tabs"][sort_option].get("score")
+        score = _comparison_score(result, sort_option)
         score_text = "Missing" if score is None else f"{score:.1f}/100"
         columns[index].metric(f"#{index + 1} {result['ticker']}", score_text)
 
@@ -99,15 +95,12 @@ def render_company_cards(results: list[dict]) -> None:
     st.markdown("#### Company Cards")
     for result in results:
         score = result.get("overall_score")
-        price = result.get("current_price")
-        currency = result.get("currency", "")
-        price_text = "Missing" if price is None else f"{price:,.2f} {currency}".strip()
         with st.container(border=True):
             st.markdown(f"##### {result['company_name']} ({result['ticker']})")
             columns = st.columns(7)
             columns[0].metric("Overall Score", "Missing" if score is None else f"{score:.1f}/100")
             columns[1].metric("Rating", result.get("rating", "Not Rated"))
-            columns[2].metric("Price", price_text)
+            columns[2].metric("Price", format_company_price(result))
             columns[3].metric("Profile", result.get("profile", "Industrial"))
             columns[4].metric("Growth", result["tabs"]["Growth"].get("rating", "Not Rated"))
             columns[5].metric("Fundamentals", result["tabs"]["Fundamentals"].get("rating", "Not Rated"))
@@ -121,22 +114,21 @@ def render_company_cards(results: list[dict]) -> None:
 
 def render_comparison_table(results: list[dict]) -> None:
     st.markdown("#### Score Comparison")
-    rows = []
-    for result in results:
-        rows.append(
-            {
-                "Ticker": result["ticker"],
-                "Company": result["company_name"],
-                "Profile": result.get("profile", "Industrial"),
-                "Price": format_company_price(result),
-                "Overall Score": format_score(result.get("overall_score")),
-                "Overall Rating": result.get("rating", "Not Rated"),
-                "Data Quality": format_data_quality(result),
-                "Growth": format_tab_summary(result, "Growth"),
-                "Fundamentals": format_tab_summary(result, "Fundamentals"),
-                "Value": format_tab_summary(result, "Value"),
-            }
-        )
+    rows = [
+        {
+            "Ticker": result["ticker"],
+            "Company": result["company_name"],
+            "Profile": result.get("profile", "Industrial"),
+            "Price": format_company_price(result),
+            "Overall Score": format_score(result.get("overall_score")),
+            "Overall Rating": result.get("rating", "Not Rated"),
+            "Data Quality": format_data_quality(result),
+            "Growth": format_tab_summary(result, "Growth"),
+            "Fundamentals": format_tab_summary(result, "Fundamentals"),
+            "Value": format_tab_summary(result, "Value"),
+        }
+        for result in results
+    ]
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
 
@@ -215,15 +207,12 @@ def format_data_quality(result: dict) -> str:
 def render_summary(result: dict) -> None:
     score = result.get("overall_score")
     score_label = "Not Rated" if score is None else f"{score:.1f}/100"
-    current_price = result.get("current_price")
-    currency = result.get("currency", "")
-    price_label = "Missing" if current_price is None else f"{current_price:,.2f} {currency}".strip()
 
     st.subheader(f"{result['company_name']} ({result['ticker']})")
     cols = st.columns(6)
     cols[0].metric("Overall Score", score_label)
     cols[1].metric("Rating", result.get("rating", "Not Rated"))
-    cols[2].metric("Current Price", price_label)
+    cols[2].metric("Current Price", format_company_price(result))
     cols[3].metric("Analysis Profile", result.get("profile", "Industrial"))
     cols[4].metric("Available Tabs", sum(1 for tab in result["tabs"].values() if tab["score"] is not None))
     cols[5].metric("Data Quality", format_data_quality(result))

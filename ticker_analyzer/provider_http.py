@@ -4,7 +4,7 @@ import random
 import time
 from collections import OrderedDict
 from threading import Lock
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urlparse
 
 import requests
@@ -13,8 +13,8 @@ from urllib3.util.retry import Retry
 
 
 class JsonApiClient:
-    _host_last_request: dict[str, float] = {}
-    _rate_lock = Lock()
+    _host_last_request: ClassVar[dict[str, float]] = {}
+    _rate_lock: ClassVar[Lock] = Lock()
 
     def __init__(
         self,
@@ -45,7 +45,7 @@ class JsonApiClient:
         self._wait_for_host(url)
         headers = dict(kwargs.pop("headers", {}) or {})
         params = kwargs.get("params") or {}
-        cache_key = f"{url}?{repr(sorted(params.items()))}"
+        cache_key = f"{url}?{sorted(params.items())!r}"
         cached = self._cache.get(cache_key)
         if cached:
             self._cache.move_to_end(cache_key)

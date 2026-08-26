@@ -166,8 +166,7 @@ def analyze_returns_range(
 
 def _parse_percentage(raw_value: str, row_number: int, column: str) -> float:
     normalized = raw_value.strip().replace(" ", "")
-    if normalized.endswith("%"):
-        normalized = normalized[:-1]
+    normalized = normalized.removesuffix("%")
     try:
         value = float(normalized) / 100
     except ValueError as exc:
