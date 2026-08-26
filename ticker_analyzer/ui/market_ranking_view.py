@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from ticker_analyzer.ranking_storage import CRYPTO_RANKING_PATH, ETF_RANKING_PATH, load_ranking
+from ticker_analyzer.ranking.storage import CRYPTO_RANKING_PATH, ETF_RANKING_PATH, load_ranking
 
 
 def render_etf_ranking() -> None:

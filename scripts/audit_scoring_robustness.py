@@ -8,7 +8,7 @@ from typing import Any
 
 import yfinance as yf
 from ticker_analyzer import analyze_ticker, load_config
-from ticker_analyzer.robustness import audit_scoring_robustness, compact_analysis_result
+from ticker_analyzer.scoring.robustness import audit_scoring_robustness, compact_analysis_result
 
 DEFAULT_TICKERS = [
     "AAPL", "MSFT", "GOOGL", "META", "NVDA", "IBM", "CVX", "XOM", "T", "VZ",

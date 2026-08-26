@@ -41,8 +41,8 @@ class ImportBoundaryTest(unittest.TestCase):
         self.assertNotIn("ticker_analyzer.analysis.engine", modules)
         self.assertNotIn("ticker_analyzer.ui.analysis_actions", modules)
         self.assertNotIn("ticker_analyzer.ui.analysis_views", modules)
-        self.assertNotIn("ticker_analyzer.ranking_builder", modules)
-        self.assertNotIn("ticker_analyzer.ranking_universe", modules)
+        self.assertNotIn("ticker_analyzer.ranking.builder", modules)
+        self.assertNotIn("ticker_analyzer.ranking.universe", modules)
         self.assertNotIn("yfinance", modules)
 
     def test_stock_sidebar_does_not_load_ranking_pipeline(self):
@@ -52,8 +52,8 @@ class ImportBoundaryTest(unittest.TestCase):
         )
 
         self.assertNotIn("ticker_analyzer.ui.ranking_actions", modules)
-        self.assertNotIn("ticker_analyzer.ranking_builder", modules)
-        self.assertNotIn("ticker_analyzer.ranking_universe", modules)
+        self.assertNotIn("ticker_analyzer.ranking.builder", modules)
+        self.assertNotIn("ticker_analyzer.ranking.universe", modules)
 
     def test_account_statement_view_does_not_load_analysis_or_ranking(self):
         modules = self.imported_modules(
@@ -62,7 +62,7 @@ class ImportBoundaryTest(unittest.TestCase):
         )
 
         self.assertNotIn("ticker_analyzer.analysis.engine", modules)
-        self.assertNotIn("ticker_analyzer.ranking_builder", modules)
+        self.assertNotIn("ticker_analyzer.ranking.builder", modules)
         self.assertNotIn("yfinance", modules)
 
 

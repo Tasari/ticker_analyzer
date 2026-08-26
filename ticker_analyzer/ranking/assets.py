@@ -8,8 +8,8 @@ from typing import Any
 import requests
 
 from ticker_analyzer.numbers import clean_number
-from ticker_analyzer.ranking_storage import CRYPTO_RANKING_PATH, ETF_RANKING_PATH, save_ranking
-from ticker_analyzer.ranking_universe import XTB_EXCHANGE_MARKETS, yahoo_ticker_from_tradingview
+from ticker_analyzer.ranking.storage import CRYPTO_RANKING_PATH, ETF_RANKING_PATH, save_ranking
+from ticker_analyzer.ranking.universe import XTB_EXCHANGE_MARKETS, yahoo_ticker_from_tradingview
 
 ETF_COLUMNS = (
     "name",

@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 import pandas as pd
-from ticker_analyzer.data_quality import calculate_data_quality, freshness_score, observation_depth_score
+from ticker_analyzer.scoring.quality import calculate_data_quality, freshness_score, observation_depth_score
 
 
 class DataQualityTest(unittest.TestCase):

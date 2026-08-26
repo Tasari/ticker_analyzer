@@ -9,10 +9,10 @@ from ticker_analyzer.analysis.aggregation import (
 )
 from ticker_analyzer.analysis.profiles import config_for_profile
 from ticker_analyzer.config import load_config
-from ticker_analyzer.data_quality import calculate_data_quality
 from ticker_analyzer.domain import MetricResult
-from ticker_analyzer.ratings import calculate_rating_decision
-from ticker_analyzer.robustness import (
+from ticker_analyzer.scoring.quality import calculate_data_quality
+from ticker_analyzer.scoring.ratings import calculate_rating_decision
+from ticker_analyzer.scoring.robustness import (
     RobustnessAuditError,
     audit_scoring_robustness,
     compact_analysis_result,

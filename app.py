@@ -43,7 +43,7 @@ def main() -> None:
             return
 
         from ticker_analyzer.config import load_config
-        from ticker_analyzer.returns_table import (
+        from ticker_analyzer.portfolio.returns import (
             ACCOUNT_RETURNS_STATE_KEY,
             ACCOUNT_STATEMENT_TICKER,
             ReturnsTable,

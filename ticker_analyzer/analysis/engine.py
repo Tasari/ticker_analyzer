@@ -24,7 +24,6 @@ from ticker_analyzer.analysis.quality import (
     diagnostic_warnings,
     has_statement_period_mismatch,
 )
-from ticker_analyzer.data_provider import MarketDataProvider, YFinanceProvider
 from ticker_analyzer.domain import AnalysisRanges, MarketData, StockAnalysis
 from ticker_analyzer.metrics.builder import (
     apply_configured_metric_fallbacks,
@@ -33,6 +32,7 @@ from ticker_analyzer.metrics.builder import (
 )
 from ticker_analyzer.metrics.utils import clean_number
 from ticker_analyzer.providers import CompositeProvider, SecClient, SecCompanyFactsProvider
+from ticker_analyzer.providers.market_data import MarketDataProvider, YFinanceProvider
 from ticker_analyzer.scoring import (
     ScoringEngine,
     calculate_rating_decision,

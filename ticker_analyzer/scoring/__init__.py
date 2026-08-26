@@ -5,7 +5,7 @@ from typing import Any
 
 from ticker_analyzer.domain import MetricResult
 from ticker_analyzer.numbers import clean_number
-from ticker_analyzer.ratings import (
+from ticker_analyzer.scoring.ratings import (
     RATING_CODE_RANK,
     RATING_RANK,
     calculate_overall_rating,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import Mock, patch
 
-from ticker_analyzer.asset_rankings import (
+from ticker_analyzer.ranking.assets import (
     CRYPTO_RANKING_PATH,
     ETF_RANKING_PATH,
     build_crypto_ranking,
@@ -112,7 +112,7 @@ class AssetRankingTests(unittest.TestCase):
         self.assertEqual(by_ticker["A"]["rating"], "Insufficient data")
         self.assertIsNone(by_ticker["B"]["rank"])
 
-    @patch("ticker_analyzer.asset_rankings.fetch_etfs_for_exchange")
+    @patch("ticker_analyzer.ranking.assets.fetch_etfs_for_exchange")
     def test_build_etf_ranking_keeps_partial_exchange_results(self, fetch):
         def result(_limit, **kwargs):
             if kwargs["market"] == "Xetra":
@@ -129,7 +129,7 @@ class AssetRankingTests(unittest.TestCase):
         self.assertEqual(len(payload["errors"]), 1)
         self.assertGreater(len(payload["companies"]), 0)
 
-    @patch("ticker_analyzer.asset_rankings.fetch_crypto_market")
+    @patch("ticker_analyzer.ranking.assets.fetch_crypto_market")
     def test_build_crypto_ranking(self, fetch):
         fetch.return_value = [
             {
@@ -141,22 +141,22 @@ class AssetRankingTests(unittest.TestCase):
         self.assertEqual(payload["metadata"]["asset_class"], "Crypto")
         self.assertEqual(payload["companies"][0]["ticker"], "BTC-USD")
 
-    @patch("ticker_analyzer.asset_rankings.save_ranking")
-    @patch("ticker_analyzer.asset_rankings.build_etf_ranking")
+    @patch("ticker_analyzer.ranking.assets.save_ranking")
+    @patch("ticker_analyzer.ranking.assets.build_etf_ranking")
     def test_refresh_etf_saves_nonempty_snapshot(self, build, save):
         build.return_value = {"metadata": {}, "companies": [{"ticker": "ETF.L"}], "errors": []}
         self.assertIs(refresh_etf_ranking(), build.return_value)
         save.assert_called_once_with(build.return_value, ETF_RANKING_PATH)
 
-    @patch("ticker_analyzer.asset_rankings.save_ranking")
-    @patch("ticker_analyzer.asset_rankings.build_crypto_ranking")
+    @patch("ticker_analyzer.ranking.assets.save_ranking")
+    @patch("ticker_analyzer.ranking.assets.build_crypto_ranking")
     def test_refresh_crypto_saves_nonempty_snapshot(self, build, save):
         build.return_value = {"metadata": {}, "companies": [{"ticker": "BTC-USD"}], "errors": []}
         self.assertIs(refresh_crypto_ranking(), build.return_value)
         save.assert_called_once_with(build.return_value, CRYPTO_RANKING_PATH)
 
-    @patch("ticker_analyzer.asset_rankings.save_ranking")
-    @patch("ticker_analyzer.asset_rankings.build_crypto_ranking")
+    @patch("ticker_analyzer.ranking.assets.save_ranking")
+    @patch("ticker_analyzer.ranking.assets.build_crypto_ranking")
     def test_empty_refresh_does_not_replace_snapshot(self, build, save):
         build.return_value = {"metadata": {}, "companies": [], "errors": []}
         with self.assertRaisesRegex(RuntimeError, "previous snapshot"):

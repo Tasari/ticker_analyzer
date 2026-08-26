@@ -17,7 +17,7 @@ from ticker_analyzer.config import (
     validate_tab_weights,
     validate_thresholds,
 )
-from ticker_analyzer.config_defaults import default_data_quality_config
+from ticker_analyzer.config.defaults import default_data_quality_config
 
 
 def metric(**overrides):

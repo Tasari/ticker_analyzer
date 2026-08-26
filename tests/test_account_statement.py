@@ -5,7 +5,7 @@ from datetime import datetime
 from io import BytesIO
 
 from openpyxl import Workbook
-from ticker_analyzer.account_statement import (
+from ticker_analyzer.portfolio.statement import (
     AccountStatementError,
     ExternalCashFlow,
     analyze_account_statement,

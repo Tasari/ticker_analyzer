@@ -2,7 +2,8 @@ import unittest
 from unittest.mock import patch
 
 import pandas as pd
-from ticker_analyzer.data_provider import (
+from ticker_analyzer.domain import AnalysisRanges
+from ticker_analyzer.providers.market_data import (
     YFinanceProvider,
     adjusted_price_history,
     normalize_statement,
@@ -10,7 +11,6 @@ from ticker_analyzer.data_provider import (
     safe_frame,
     safe_statement,
 )
-from ticker_analyzer.domain import AnalysisRanges
 
 
 class DataProviderTest(unittest.TestCase):
@@ -33,7 +33,7 @@ class DataProviderTest(unittest.TestCase):
                 )
 
         fake = FakeTicker()
-        with patch("ticker_analyzer.data_provider.yf.Ticker", return_value=fake):
+        with patch("ticker_analyzer.providers.market_data.yf.Ticker", return_value=fake):
             YFinanceProvider().fetch("ABC", AnalysisRanges.from_input("2Y"))
         self.assertEqual(len(fake.history_calls), 1)
         self.assertFalse(fake.history_calls[0]["auto_adjust"])
@@ -69,7 +69,7 @@ class DataProviderTest(unittest.TestCase):
         self.assertEqual(result, {})
         self.assertEqual(diagnostics[0]["kind"], "network_error")
 
-    @patch("ticker_analyzer.data_provider.time.sleep")
+    @patch("ticker_analyzer.providers.market_data.time.sleep")
     def test_safe_dict_retries_one_transient_failure(self, sleep):
         attempts = []
 

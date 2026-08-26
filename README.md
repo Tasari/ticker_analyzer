@@ -144,12 +144,11 @@ The app validates the config when loading or saving it. Invalid JSON or inconsis
 - `ticker_analyzer/metrics/estimates.py`: analyst estimates, targets, and forecast growth.
 - `ticker_analyzer/metrics/utils.py`: reusable statement, range, CAGR, and ratio helpers.
 - `ticker_analyzer/engine.py`: backward-compatible exports for existing imports.
-- `ticker_analyzer/data_provider.py`: yfinance access and normalization.
-- `ticker_analyzer/providers.py`: lazy compatibility facade for provider integrations.
-- `ticker_analyzer/provider_*.py`: HTTP infrastructure, provider composition, SEC, and reference-data clients.
-- `ticker_analyzer/data_quality.py`: Data Quality components, penalties, and caps.
-- `ticker_analyzer/scoring.py`: metric and tab scoring; `ratings.py` owns rating decisions and gates.
-- `ticker_analyzer/ranking_*.py`: universe discovery, batch analysis, storage, and public fallback data.
+- `ticker_analyzer/providers/`: lazy public facade plus yfinance, HTTP, SEC, composition, and reference-data integrations.
+- `ticker_analyzer/scoring/`: metric and tab scoring, Data Quality, ratings, gates, and robustness audits.
+- `ticker_analyzer/portfolio/`: account-statement parsing, returns, performance, and simulations.
+- `ticker_analyzer/config/`: configuration loading, validation, migration, and defaults.
+- `ticker_analyzer/ranking/`: lazy public facade plus universe discovery, batch analysis, storage, filtering, and fallback data.
 - `ticker_analyzer/ui/`: lazy page facade plus separate analysis, ranking, configuration, and sidebar modules.
 
 Metric IDs referring to a historical median use `selected_median`, because the comparison period follows the Value range selected in the UI. Config v5 is active. v3/v4 are migrated explicitly; v2 is rejected because its threshold semantics cannot be migrated safely. See `docs/SCORING_V5.md` for the model, data-source, and migration details.

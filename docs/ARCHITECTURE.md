@@ -6,18 +6,18 @@ The application is split by runtime responsibility so that a Streamlit rerun loa
 
 ```text
 app.py
-  |-- Large Cap Ranking -> ui/ranking_view.py -> ranking_storage.py
+  |-- Large Cap Ranking -> ui/ranking_view.py -> ranking/storage.py
   |                                            -> ui/ranking_actions.py (refresh only)
   |
   `-- Stock Analyzer    -> ui/sidebar.py
                          -> ui/analysis_actions.py
                          -> analysis/engine.py
-                              |-- providers.py -> provider_*.py / data_provider.py
+                              |-- providers/ -> market_data.py / sec.py / clients.py
                               |-- metrics/builder.py -> formulas.py / valuation.py / estimates.py
-                              `-- scoring.py -> ratings.py
+                              `-- scoring/ -> quality.py / ratings.py
 ```
 
-Compatibility facades (`ticker_analyzer.engine`, `ticker_analyzer.providers`, `ticker_analyzer.ranking`, `ticker_analyzer.ui.views`, and `ticker_analyzer.ui.actions`) keep existing imports working while resolving their implementations lazily.
+Compatibility facades (`ticker_analyzer.engine`, `ticker_analyzer.providers`, `ticker_analyzer.ranking`, `ticker_analyzer.ui.views`, and `ticker_analyzer.ui.actions`) keep existing imports working while resolving their implementations lazily. Ranking and provider implementations live in their respective packages rather than as prefixed files at the package root.
 
 `persistence.py` bridges validated session preferences to browser `localStorage` through an inline Streamlit v2 component. The browser snapshot is user-local, versioned, limited to 50 tickers, and expires after 30 days. Analysis results and provider data remain session-only.
 
@@ -25,9 +25,11 @@ Compatibility facades (`ticker_analyzer.engine`, `ticker_analyzer.providers`, `t
 
 - `analysis/` orchestrates a single-company analysis and owns profile selection, aggregation, provenance, and quality evaluation.
 - `metrics/` calculates raw business signals. It does not decide final rating gates.
-- `scoring.py` scores metrics and tabs; `ratings.py` owns labels, caps, and overall-rating rules.
-- `data_provider.py` adapts `yfinance`; `provider_*.py` contains reusable HTTP, SEC, reference-data, and merge infrastructure.
-- `ranking_universe.py`, `ranking_builder.py`, `ranking_provider.py`, and `ranking_storage.py` isolate discovery, scheduling, fallback data, and persistence.
+- `scoring/` owns metric and tab scoring, data-quality calculations, robustness audits, labels, caps, and rating rules.
+- `portfolio/` owns statement parsing, return-series analysis, performance estimates, and simulations.
+- `config/` owns validated configuration persistence and defaults.
+- `providers/market_data.py` adapts `yfinance`; the rest of `providers/` contains reusable HTTP, SEC, reference-data, and merge infrastructure.
+- `ranking/universe.py`, `ranking/builder.py`, `ranking/provider.py`, and `ranking/storage.py` isolate discovery, scheduling, fallback data, and persistence.
 - `ui/` contains presentation and user actions. Analysis and ranking actions are independent so one page does not initialize the other page's dependencies.
 
 ## Resource invariants

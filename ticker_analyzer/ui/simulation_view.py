@@ -8,15 +8,15 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from ticker_analyzer.data_provider import retry_transient
-from ticker_analyzer.returns_table import (
+from ticker_analyzer.portfolio.returns import (
     ACCOUNT_RETURNS_STATE_KEY,
     ACCOUNT_STATEMENT_TICKER,
     ReturnsTable,
     ReturnsTableError,
     analyze_returns_range,
 )
-from ticker_analyzer.simulation import SimulationError, SimulationResult, simulate_buy_and_hold
+from ticker_analyzer.portfolio.simulation import SimulationError, SimulationResult, simulate_buy_and_hold
+from ticker_analyzer.providers.market_data import retry_transient
 
 BASE_CURRENCIES = ("USD", "EUR", "PLN")
 MAX_SIMULATION_WORKERS = 5

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 from tests.test_account_statement import statement_workbook
-from ticker_analyzer.returns_table import (
+from ticker_analyzer.portfolio.returns import (
     ACCOUNT_RETURNS_STATE_KEY,
     ACCOUNT_STATEMENT_NAME_STATE_KEY,
     ACCOUNT_STATEMENT_PAYLOAD_STATE_KEY,

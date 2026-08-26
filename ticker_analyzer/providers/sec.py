@@ -6,7 +6,7 @@ from typing import Any, ClassVar
 import pandas as pd
 
 from ticker_analyzer.domain import AnalysisRanges, DataProvenance, MarketData
-from ticker_analyzer.provider_http import JsonApiClient
+from ticker_analyzer.providers.http import JsonApiClient
 
 
 class SecClient(JsonApiClient):

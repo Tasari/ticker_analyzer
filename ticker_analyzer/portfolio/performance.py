@@ -7,7 +7,7 @@ from math import isfinite
 
 import pandas as pd
 
-from ticker_analyzer.returns_table import GrowthPoint
+from ticker_analyzer.portfolio.returns import GrowthPoint
 
 MAX_COMPARISON_SYMBOLS = 10
 
@@ -52,7 +52,7 @@ def fetch_benchmark_growth(
 ) -> tuple[GrowthPoint, ...]:
     import yfinance as yf
 
-    from ticker_analyzer.data_provider import retry_transient
+    from ticker_analyzer.providers.market_data import retry_transient
 
     normalized = symbol.strip().upper()
     if not normalized:

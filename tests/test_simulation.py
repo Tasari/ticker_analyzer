@@ -4,7 +4,7 @@ import unittest
 from datetime import date
 
 import pandas as pd
-from ticker_analyzer.simulation import SimulationError, simulate_buy_and_hold
+from ticker_analyzer.portfolio.simulation import SimulationError, simulate_buy_and_hold
 
 
 class SimulationTest(unittest.TestCase):

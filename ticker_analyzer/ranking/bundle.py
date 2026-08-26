@@ -6,7 +6,7 @@ from pathlib import Path
 from stat import S_ISREG
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from ticker_analyzer.ranking_storage import CRYPTO_RANKING_PATH, DEFAULT_RANKING_PATH, ETF_RANKING_PATH
+from ticker_analyzer.ranking.storage import CRYPTO_RANKING_PATH, DEFAULT_RANKING_PATH, ETF_RANKING_PATH
 
 RANKING_SNAPSHOTS = {
     "stocks_ranking.json": DEFAULT_RANKING_PATH,

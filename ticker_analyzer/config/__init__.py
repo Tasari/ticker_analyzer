@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from ticker_analyzer.config_defaults import (
+from ticker_analyzer.config.defaults import (
     CALIBRATION_VERSION,
     DEFAULT_FULL_CONFIDENCE_COVERAGE,
     DEFAULT_MINIMUM_COVERAGE,

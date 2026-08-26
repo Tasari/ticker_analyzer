@@ -36,7 +36,7 @@ from ticker_analyzer.ranking import (
     validate_ranking_payload,
     yahoo_ticker_from_tradingview,
 )
-from ticker_analyzer.ranking_quality import build_ranking_quality_report
+from ticker_analyzer.ranking.quality import build_ranking_quality_report
 
 
 def analysis(ticker: str, score: float | None, confidence: float = 80) -> dict:
@@ -138,7 +138,7 @@ class RankingTest(unittest.TestCase):
             )
         )
 
-    @patch("ticker_analyzer.ranking_universe.requests.post")
+    @patch("ticker_analyzer.ranking.universe.requests.post")
     def test_tradingview_universe_maps_symbol_and_metadata(self, post):
         post.return_value.raise_for_status.return_value = None
         post.return_value.json.return_value = {
@@ -175,8 +175,8 @@ class RankingTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Warsaw"):
             validate_market_coverage(universe, [US_EXCHANGES, "Warsaw Stock Exchange"])
 
-    @patch("ticker_analyzer.ranking_universe.yf.screen")
-    @patch("ticker_analyzer.ranking_universe.yf.EquityQuery")
+    @patch("ticker_analyzer.ranking.universe.yf.screen")
+    @patch("ticker_analyzer.ranking.universe.yf.EquityQuery")
     def test_yahoo_universe_deduplicates_and_normalizes(self, query, screen):
         query.return_value = object()
         screen.return_value = {
@@ -191,7 +191,7 @@ class RankingTest(unittest.TestCase):
         self.assertEqual(result[0]["company_name"], "Berkshire")
         self.assertEqual(result[0]["country"], "United States")
 
-    @patch("ticker_analyzer.ranking_universe.requests.get")
+    @patch("ticker_analyzer.ranking.universe.requests.get")
     def test_nasdaq_universe_filters_bad_caps_and_sorts(self, get):
         get.return_value.raise_for_status.return_value = None
         get.return_value.json.return_value = {
@@ -303,7 +303,7 @@ class RankingTest(unittest.TestCase):
         universe = [{"ticker": str(index)} for index in range(12)]
         config = {"version": 5, "calibration_version": "v5-audit-2026Q3"}
 
-        with patch("ticker_analyzer.ranking_builder.wait", wraps=futures_wait) as bounded_wait:
+        with patch("ticker_analyzer.ranking.builder.wait", wraps=futures_wait) as bounded_wait:
             result = build_large_cap_ranking(
                 universe,
                 config,
@@ -398,7 +398,7 @@ class RankingTest(unittest.TestCase):
     def test_ranking_snapshot_rejects_malformed_and_oversized_imports(self):
         with self.assertRaisesRegex(RankingSnapshotError, "empty"):
             import_ranking(b"")
-        with patch("ticker_analyzer.ranking_storage.MAX_RANKING_IMPORT_BYTES", 2):
+        with patch("ticker_analyzer.ranking.storage.MAX_RANKING_IMPORT_BYTES", 2):
             with self.assertRaisesRegex(RankingSnapshotError, "50 MB"):
                 import_ranking(b"{}\n")
         for malformed in (b"\xff", b"{not json}"):
@@ -423,7 +423,7 @@ class RankingTest(unittest.TestCase):
             with self.subTest(message=message):
                 with self.assertRaisesRegex(RankingSnapshotError, message):
                     validate_ranking_payload(payload)
-        with patch("ticker_analyzer.ranking_storage.MAX_RANKING_ROWS", 0):
+        with patch("ticker_analyzer.ranking.storage.MAX_RANKING_ROWS", 0):
             with self.assertRaisesRegex(RankingSnapshotError, "too many rows"):
                 validate_ranking_payload({**valid, "companies": [{"ticker": "AAA"}]})
 
@@ -436,7 +436,7 @@ class RankingTest(unittest.TestCase):
         payload = {"metadata": {}, "companies": [], "errors": []}
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ranking.json"
-            with patch("ticker_analyzer.ranking_storage.os.replace", side_effect=OSError("locked")):
+            with patch("ticker_analyzer.ranking.storage.os.replace", side_effect=OSError("locked")):
                 with self.assertRaisesRegex(OSError, "locked"):
                     save_ranking(payload, path)
             self.assertFalse(path.with_suffix(".json.tmp").exists())

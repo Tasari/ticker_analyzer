@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from ticker_analyzer.ranking_filters import RankingFilters, filter_ranking_companies
+from ticker_analyzer.ranking.filters import RankingFilters, filter_ranking_companies
 
 
 class RankingFiltersTest(unittest.TestCase):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ticker_analyzer.provider_http import JsonApiClient
+from ticker_analyzer.providers.http import JsonApiClient
 
 
 class NbpClient(JsonApiClient):

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ticker_analyzer.returns_table import ACCOUNT_STATEMENT_TICKER
+from ticker_analyzer.portfolio.returns import ACCOUNT_STATEMENT_TICKER
 
 TICKER_PATTERN = re.compile(r"^[A-Z0-9.^=-]{1,32}$")
 

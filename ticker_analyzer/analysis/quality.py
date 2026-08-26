@@ -4,9 +4,9 @@ from typing import Any
 
 import pandas as pd
 
-from ticker_analyzer.data_quality import calculate_data_quality, freshness_score
 from ticker_analyzer.domain import MarketData
 from ticker_analyzer.metrics.utils import clean_number
+from ticker_analyzer.scoring.quality import calculate_data_quality, freshness_score
 
 
 def analysis_data_quality(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
-from ticker_analyzer.returns_table import (
+from ticker_analyzer.portfolio.returns import (
     ReturnsTableError,
     analyze_returns_range,
     parse_returns_table,

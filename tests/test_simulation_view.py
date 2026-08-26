@@ -5,7 +5,7 @@ from datetime import date
 from unittest.mock import patch
 
 import pandas as pd
-from ticker_analyzer.returns_table import ReturnsTable
+from ticker_analyzer.portfolio.returns import ReturnsTable
 from ticker_analyzer.ui.simulation_view import (
     _account_statement_prices,
     _cached_fx_factor,

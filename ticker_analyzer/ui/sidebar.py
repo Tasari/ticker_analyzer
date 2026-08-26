@@ -6,7 +6,7 @@ import time
 import streamlit as st
 from streamlit_searchbox import st_searchbox
 
-from ticker_analyzer.returns_table import (
+from ticker_analyzer.portfolio.returns import (
     ACCOUNT_RETURNS_STATE_KEY,
     ACCOUNT_STATEMENT_TICKER,
     ReturnsTable,

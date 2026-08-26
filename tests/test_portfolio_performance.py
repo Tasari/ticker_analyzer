@@ -5,7 +5,7 @@ from datetime import date
 from unittest.mock import patch
 
 import pandas as pd
-from ticker_analyzer.portfolio_performance import (
+from ticker_analyzer.portfolio.performance import (
     BenchmarkError,
     benchmark_growth_from_history,
     calculate_drawdown,
@@ -13,7 +13,7 @@ from ticker_analyzer.portfolio_performance import (
     monthly_performance,
     parse_comparison_symbols,
 )
-from ticker_analyzer.returns_table import GrowthPoint
+from ticker_analyzer.portfolio.returns import GrowthPoint
 
 
 class PortfolioPerformanceTest(unittest.TestCase):
@@ -66,7 +66,7 @@ class PortfolioPerformanceTest(unittest.TestCase):
             fetch_benchmark_growth(" ", date(2024, 1, 1), date(2024, 2, 1))
         with patch("yfinance.Ticker") as ticker:
             ticker.return_value.history.side_effect = RuntimeError("offline")
-            with patch("ticker_analyzer.data_provider.retry_transient", side_effect=RuntimeError("offline")):
+            with patch("ticker_analyzer.providers.market_data.retry_transient", side_effect=RuntimeError("offline")):
                 with self.assertRaisesRegex(BenchmarkError, "offline"):
                     fetch_benchmark_growth("spy", date(2024, 1, 1), date(2024, 2, 1))
 

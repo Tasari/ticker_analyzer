@@ -6,27 +6,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from ticker_analyzer.account_statement import (
-    AccountStatementError,
-    PositionContribution,
-    StatementAnalysis,
-    StatementOverview,
-    StatementRangeAnalysis,
-    analyze_account_statement,
-    analyze_position_contributions,
-    analyze_statement_range,
-    inspect_account_statement,
-    list_statement_assets,
-    read_statement_sheet,
-)
-from ticker_analyzer.portfolio_performance import (
+from ticker_analyzer.portfolio.performance import (
     BenchmarkError,
     calculate_drawdown,
     fetch_benchmark_growth,
     monthly_performance,
     parse_comparison_symbols,
 )
-from ticker_analyzer.returns_table import (
+from ticker_analyzer.portfolio.returns import (
     ACCOUNT_RETURNS_NAME_STATE_KEY,
     ACCOUNT_RETURNS_PAYLOAD_STATE_KEY,
     ACCOUNT_RETURNS_STATE_KEY,
@@ -39,6 +26,19 @@ from ticker_analyzer.returns_table import (
     ReturnsTableError,
     analyze_returns_range,
     parse_returns_table,
+)
+from ticker_analyzer.portfolio.statement import (
+    AccountStatementError,
+    PositionContribution,
+    StatementAnalysis,
+    StatementOverview,
+    StatementRangeAnalysis,
+    analyze_account_statement,
+    analyze_position_contributions,
+    analyze_statement_range,
+    inspect_account_statement,
+    list_statement_assets,
+    read_statement_sheet,
 )
 
 

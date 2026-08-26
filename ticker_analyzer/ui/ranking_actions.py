@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ticker_analyzer.ranking import DEFAULT_RANKING_PATH, load_ranking, save_ranking
-from ticker_analyzer.ranking_quality import build_ranking_quality_report
+from ticker_analyzer.ranking.quality import build_ranking_quality_report
 
 
 def refresh_large_cap_ranking(

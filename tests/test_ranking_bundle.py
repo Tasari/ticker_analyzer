@@ -6,7 +6,7 @@ from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
 
-from ticker_analyzer.ranking_bundle import available_ranking_snapshots, build_rankings_archive
+from ticker_analyzer.ranking.bundle import available_ranking_snapshots, build_rankings_archive
 
 
 class RankingBundleTest(unittest.TestCase):

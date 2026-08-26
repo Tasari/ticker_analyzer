@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pandas as pd
 from ticker_analyzer.domain import AnalysisRanges
-from ticker_analyzer.ranking_provider import (
+from ticker_analyzer.ranking.provider import (
     PublicYahooRankingProvider,
     _latest_value,
     _statement_frame,
@@ -127,7 +127,7 @@ class RankingProviderTest(unittest.TestCase):
             barrier.wait(timeout=1)
             return session
 
-        with patch("ticker_analyzer.ranking_provider.requests.Session", side_effect=make_session):
+        with patch("ticker_analyzer.ranking.provider.requests.Session", side_effect=make_session):
             with ThreadPoolExecutor(max_workers=2) as executor:
                 sessions = list(executor.map(worker_session, range(2)))
 

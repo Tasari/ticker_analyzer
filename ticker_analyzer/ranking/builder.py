@@ -9,7 +9,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import UTC, datetime
 from typing import Any
 
-from ticker_analyzer.ranking_universe import UNIVERSE_SCHEMA_VERSION, market_counts
+from ticker_analyzer.ranking.universe import UNIVERSE_SCHEMA_VERSION, market_counts
 
 SCORING_VERSION = 5
 PROVIDER_SCHEMA_VERSION = "providers-v2"

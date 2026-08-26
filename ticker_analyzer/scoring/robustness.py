@@ -16,10 +16,10 @@ from ticker_analyzer.analysis.aggregation import (
 )
 from ticker_analyzer.analysis.profiles import config_for_profile
 from ticker_analyzer.analysis.quality import analysis_coverage
-from ticker_analyzer.data_quality import calculate_data_quality
 from ticker_analyzer.domain import MetricResult
 from ticker_analyzer.numbers import clean_number
-from ticker_analyzer.ratings import calculate_rating_decision
+from ticker_analyzer.scoring.quality import calculate_data_quality
+from ticker_analyzer.scoring.ratings import calculate_rating_decision
 
 
 class RobustnessAuditError(ValueError):

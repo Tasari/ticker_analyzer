@@ -25,7 +25,7 @@ from ticker_analyzer.ranking import (
     select_exchange_listings,
     validate_market_coverage,
 )
-from ticker_analyzer.ranking_provider import PublicYahooRankingProvider
+from ticker_analyzer.ranking.provider import PublicYahooRankingProvider
 
 SMOKE_EXCHANGES = ("Warsaw Stock Exchange", "London Stock Exchange", "Xetra")
 SMOKE_OUTPUT_PATH = Path("data/large_cap_ranking_smoke.json")

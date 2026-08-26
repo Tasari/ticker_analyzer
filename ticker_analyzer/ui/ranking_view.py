@@ -11,9 +11,9 @@ from ticker_analyzer.ranking import (
     load_ranking,
     save_ranking,
 )
-from ticker_analyzer.ranking_bundle import available_ranking_snapshots, build_rankings_archive
-from ticker_analyzer.ranking_filters import RankingFilters, filter_ranking_companies
-from ticker_analyzer.ranking_quality import build_ranking_quality_report
+from ticker_analyzer.ranking.bundle import available_ranking_snapshots, build_rankings_archive
+from ticker_analyzer.ranking.filters import RankingFilters, filter_ranking_companies
+from ticker_analyzer.ranking.quality import build_ranking_quality_report
 from ticker_analyzer.ui.config_view import mutation_allowed
 from ticker_analyzer.ui.market_ranking_view import render_crypto_ranking, render_etf_ranking
 from ticker_analyzer.ui.ranking_actions import refresh_large_cap_ranking
@@ -75,7 +75,7 @@ def _render_all_ranking_controls() -> None:
     with st.spinner("Updating all rankings; keep this page open..."):
         success, message, _metadata = refresh_large_cap_ranking(progress_callback=update_progress)
         outcomes.append(("Stocks", success, message))
-        from ticker_analyzer.asset_rankings import refresh_crypto_ranking, refresh_etf_ranking
+        from ticker_analyzer.ranking.assets import refresh_crypto_ranking, refresh_etf_ranking
 
         for label, fraction, refresh in (
             ("ETFs", 0.92, refresh_etf_ranking),
