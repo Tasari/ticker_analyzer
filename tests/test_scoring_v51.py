@@ -4,11 +4,13 @@ import unittest
 
 from scripts.calibrate_scoring import build_before_after_report, calibration_acceptance_checks
 from ticker_analyzer.analysis.engine import metric_coverage, overall_score_with_missing_policy
+from ticker_analyzer.config import load_config
 from ticker_analyzer.domain import MetricResult
 from ticker_analyzer.scoring import (
     apply_absolute_guardrail,
     calculate_rating_decision,
     percentile_score,
+    score_value,
 )
 
 
@@ -82,6 +84,14 @@ class ScoringV51Test(unittest.TestCase):
             "peer": {"weight": 0, "metrics": ["peer"]},
         }}}
         self.assertEqual(metric_coverage(metrics, "Value", config)["percentage"], 100)
+
+    def test_absolute_value_anchors_do_not_saturate_at_plausible_extremes(self):
+        config = load_config()
+        value_metrics = {metric["id"]: metric for metric in config["metrics"]["Value"]}
+
+        self.assertLess(score_value(0, value_metrics["pe_current"]), 100)
+        self.assertLess(score_value(0, value_metrics["ev_ebitda_current"]), 100)
+        self.assertEqual(score_value(-100, value_metrics["pe_vs_selected_median"]), 100)
 
     def test_calibration_report_contains_checks_and_before_after_reasons(self):
         result = {

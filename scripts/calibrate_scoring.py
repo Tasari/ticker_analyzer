@@ -85,7 +85,7 @@ def build_report(results: list[dict[str, Any]]) -> dict[str, Any]:
             )
     correlations = pd.DataFrame(correlation_rows).corr(min_periods=3).round(4).to_dict() if correlation_rows else {}
     return {
-        "model": {"scoring_version": 5, "calibration_version": "v5.1-calibration-2026Q3"},
+        "model": {"scoring_version": 5, "calibration_version": "v5.2-value-2026Q3"},
         "distributions": {name: describe(values) for name, values in series.items()},
         "profile_distributions": {
             profile: {name: describe(values) for name, values in values_by_name.items()}
@@ -157,8 +157,8 @@ def build_before_after_report(
         changed = [key for key in after_summary if before_summary.get(key) != after_summary.get(key)]
         rows.append({
             "ticker": ticker,
-            "before_v5_1": before_summary,
-            "after_v5_1": after_summary,
+            "before_v5_2": before_summary,
+            "after_v5_2": after_summary,
             "delta": {
                 key: _numeric_delta(before_summary.get(key), after_summary.get(key))
                 for key in ("growth_score", "fundamentals_score", "value_score", "overall_score", "data_quality")
@@ -202,7 +202,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Create a deterministic scoring-v5 calibration report from exported JSON results.")
     parser.add_argument("input", type=Path, nargs="?", help="JSON file containing a list of analysis API results")
     parser.add_argument("--output", type=Path, default=Path("calibration_report_v5.json"))
-    parser.add_argument("--before", type=Path, help="Optional pre-v5.1 JSON export for row-level comparison")
+    parser.add_argument("--before", type=Path, help="Optional pre-v5.2 JSON export for row-level comparison")
     parser.add_argument("--live", action="store_true", help="Fetch the built-in broad ticker sample using yfinance")
     args = parser.parse_args()
     if args.live:

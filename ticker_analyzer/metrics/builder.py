@@ -30,6 +30,7 @@ from ticker_analyzer.metrics.utils import (
 )
 from ticker_analyzer.metrics.valuation import (
     build_historical_ratio_context,
+    current_absolute_multiple,
     current_price_to_book,
     current_price_to_cfo,
     estimate_growth,
@@ -107,6 +108,22 @@ def build_raw_metrics(
         annual_balance,
         annual_cashflow,
         years=value_years,
+    )
+    current_ps, current_ps_source = current_absolute_multiple(
+        info.get("priceToSalesTrailing12Months"),
+        value_context.statement_aligned_current_ratio("ps", info),
+    )
+    current_pe, current_pe_source = current_absolute_multiple(
+        info.get("trailingPE"),
+        value_context.statement_aligned_current_ratio("pe", info),
+    )
+    current_pb, current_pb_source = current_absolute_multiple(
+        info.get("priceToBook"),
+        value_context.statement_aligned_current_ratio("pb", info),
+    )
+    current_ev_ebitda, current_ev_ebitda_source = current_absolute_multiple(
+        info.get("enterpriseToEbitda"),
+        value_context.statement_aligned_current_ratio("ev_ebitda", info),
     )
     fundamentals = build_fundamentals_metrics(
         info,
@@ -214,6 +231,10 @@ def build_raw_metrics(
             value_context,
             fallback_current_ratio=current_price_to_cfo(info, annual_cashflow),
         ),
+        "price_to_sales_current": metric_value(current_ps, current_ps_source),
+        "pe_current": metric_value(current_pe, current_pe_source),
+        "pb_current": metric_value(current_pb, current_pb_source),
+        "ev_ebitda_current": metric_value(current_ev_ebitda, current_ev_ebitda_source),
         "fcf_yield": metric_value(fcf_yield(info, annual_cashflow), "Latest annual free cash flow divided by current market capitalization"),
         "fcf_yield_ttm": metric_value(
             fcf_yield_ttm,

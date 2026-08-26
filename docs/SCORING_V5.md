@@ -1,6 +1,8 @@
 # Scoring v5
 
-Scoring v5.1 is an audit-focused screening model. Missing observations remain missing. Overall requires Fundamentals and at least one additional scored tab; one missing tab carries a visible five-point penalty.
+Scoring v5.2 is an audit-focused screening model. Missing observations remain missing. Overall requires Fundamentals and at least one additional scored tab; one missing tab carries a visible five-point penalty.
+
+Value v5.2 combines relative and absolute valuation. Industrial companies receive separate group scores for historical multiples, current P/S, P/E and EV/EBITDA, cash yield, growth-adjusted valuation, and analyst context. Financial companies combine historical P/E and P/B discounts with current absolute P/E and P/B. Relative discounts use stricter anchors, and plausible absolute multiples no longer saturate at 100. A top Value score therefore requires agreement across independent valuation signals rather than merely trading below the company's own historical median.
 
 ## Data and point-in-time rules
 
@@ -15,7 +17,7 @@ Ratings use stable semantic codes; display labels cannot alter gating. Data Qual
 
 Data Quality is the renormalized weighted average of effective positive-weight metric coverage (50%), freshness (25%), source quality (15%), and reconciliation (10%). Reconciliation is `null` and removed from the denominator when only one source is present. Secondary-only, primary-only, and mixed source sets cap DQ at 75, 85, and 92 respectively. Profile fit never changes DQ.
 
-The active v5.1 values live in `data_quality.component_weights`. `data_quality.weights` retains the v5 schema solely so Streamlit rolling deployments cannot pair a stale validator with an incompatible config; v5.1 scoring does not consume those legacy weights.
+The active Data Quality values live in `data_quality.component_weights`. `data_quality.weights` retains the v5 schema solely so Streamlit rolling deployments cannot pair a stale validator with an incompatible config; current scoring does not consume those legacy weights.
 
 Model applicability is separate. Generic financial fallback has applicability at most 65, blocks Strong Buy, and caps the rating at Buy. Every cap and gate is exposed through `rating_caps`, `warnings`, and `rating_reason_codes`.
 

@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 SCORING_MODEL = "piecewise_anchor_25_75_v1"
-CALIBRATION_VERSION = "v5.1-calibration-2026Q3"
+CALIBRATION_VERSION = "v5.2-value-2026Q3"
 DEFAULT_MINIMUM_COVERAGE = {"Growth": 0.55, "Fundamentals": 0.60, "Value": 0.50}
 DEFAULT_FULL_CONFIDENCE_COVERAGE = {"Growth": 0.80, "Fundamentals": 0.80, "Value": 0.75}
 DEFAULT_MISSING_POLICY = {
@@ -172,8 +172,12 @@ def financial_groups(profile: str) -> dict[str, Any]:
         },
         "Value": {
             "historical_or_peer": {
-                "weight": 0.90,
+                "weight": 0.45,
                 "metrics": ["pe_vs_selected_median", "pb_vs_selected_median"],
+            },
+            "absolute_multiples": {
+                "weight": 0.45,
+                "metrics": ["pe_current", "pb_current"],
             },
             "analyst_context": {"weight": 0.10, "metrics": ["price_target"]},
         },
@@ -199,6 +203,7 @@ def default_profile_rules() -> dict[str, Any]:
             "minimum_coverage": 0.50,
             "required_groups": {
                 "historical_multiples": {"minimum_available_metrics": 2},
+                "absolute_multiples": {"minimum_available_metrics": 1},
                 "absolute_cash_yield": {"minimum_available_metrics": 1},
             },
         },
@@ -217,7 +222,10 @@ def default_profile_rules() -> dict[str, Any]:
         },
         "Value": {
             "minimum_coverage": 0.50,
-            "required_groups": {"historical_or_peer": {"minimum_available_metrics": 1}},
+            "required_groups": {
+                "historical_or_peer": {"minimum_available_metrics": 1},
+                "absolute_multiples": {"minimum_available_metrics": 1},
+            },
         },
     }
     specialized = {profile: deepcopy(financial) for profile in specialized_financial_profiles()}

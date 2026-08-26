@@ -1,5 +1,13 @@
 # Changelog
 
+## v5.2 Value calibration — 2026-08-26
+
+- Added absolute P/S, P/E, EV/EBITDA, and financial P/B anchors alongside historical comparisons.
+- Tightened relative-value, free-cash-flow-yield, growth-adjusted, and analyst-target thresholds so plausible extremes no longer saturate at 100.
+- Required both absolute and historical valuation evidence for a complete Value score.
+- Added current-versus-historical-median details and a weighted Value component breakdown.
+- Added per-company strongest signals, weakest signals, rating constraints, and improvement actions.
+
 ## v5.1 calibration hotfix — 2026-07-31
 
 - Decoupled Data Quality from model applicability and rating confidence.

@@ -193,7 +193,7 @@ class StockAnalysisEngine:
             warnings=warnings,
             scoring_version=5,
             config_version=int(config.get("version", 5)),
-            calibration_version=str(config.get("calibration_version", "v5.1-calibration-2026Q3")),
+            calibration_version=str(config.get("calibration_version", "v5.2-value-2026Q3")),
             diagnostics=data.diagnostics,
         )
 

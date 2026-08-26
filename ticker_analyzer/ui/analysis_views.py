@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from ticker_analyzer.analysis.explanations import analysis_insights
 from ticker_analyzer.scoring import format_metric_value
 
 
@@ -235,9 +236,27 @@ def render_summary(result: dict) -> None:
         rating_cols[index].metric(label, tab_result.get("rating", "Not Rated"), score_text)
         rating_cols[index].caption(f"Metric coverage: {coverage}")
 
+    render_score_explanation(result)
+
     if result.get("missing"):
         with st.expander("Missing data warnings", expanded=False):
             for item in result["missing"]:
+                st.write(f"- {item}")
+
+
+def render_score_explanation(result: dict) -> None:
+    explanation = analysis_insights(result)
+    st.markdown("#### Why this rating")
+    columns = st.columns(3)
+    sections = (
+        ("Strongest signals", explanation["strongest"]),
+        ("Weakest signals", explanation["weakest"]),
+        ("What could improve it", explanation["improvements"]),
+    )
+    for column, (title, items) in zip(columns, sections, strict=True):
+        with column:
+            st.markdown(f"**{title}**")
+            for item in items:
                 st.write(f"- {item}")
 
 
@@ -270,9 +289,36 @@ def render_tab(name: str, tab_result: dict, charts: dict) -> None:
         render_line_chart(charts.get("fundamentals"), "Debt and Assets")
     elif name == "Value":
         st.info(
-            "Value metrics compare current multiples and upside signals against approximate historical medians "
-            "when enough data is available."
+            "Value combines absolute multiples and cash yield with comparisons against the company's selected-range "
+            "history, forward growth-adjusted valuation, and low-weight analyst context. A historical discount alone "
+            "cannot produce a top score."
         )
+        render_value_breakdown(tab_result)
+
+
+def render_value_breakdown(tab_result: dict) -> None:
+    groups = tab_result.get("group_breakdown", {}).get("groups", {})
+    if not groups:
+        return
+    rows = [
+        {
+            "Value component": name.replace("_", " ").title(),
+            "Score": details.get("score"),
+            "Model weight": float(details.get("weight", 0)) * 100,
+            "Available metrics": f"{details.get('available_metrics', 0)}/{details.get('total_metrics', 0)}",
+        }
+        for name, details in groups.items()
+        if float(details.get("weight", 0)) > 0
+    ]
+    st.dataframe(
+        pd.DataFrame(rows),
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Score": st.column_config.NumberColumn(format="%.1f/100"),
+            "Model weight": st.column_config.NumberColumn(format="%.0f%%"),
+        },
+    )
 
 
 def render_line_chart(frame: pd.DataFrame | None, title: str) -> None:

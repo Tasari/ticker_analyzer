@@ -36,7 +36,7 @@ def analysis_fingerprint(config: dict[str, Any], data_as_of: str) -> dict[str, A
     return {
         "scoring_version": SCORING_VERSION,
         "config_version": int(config.get("version", 5)),
-        "calibration_version": str(config.get("calibration_version", "v5.1-calibration-2026Q3")),
+        "calibration_version": str(config.get("calibration_version", "v5.2-value-2026Q3")),
         "config_digest": config_digest(config),
         "provider_schema_version": PROVIDER_SCHEMA_VERSION,
         "metric_schema_version": METRIC_SCHEMA_VERSION,
@@ -72,7 +72,7 @@ def ranking_row(
         **(fingerprint or {
             "scoring_version": analysis.get("scoring_version", SCORING_VERSION),
             "config_version": analysis.get("config_version", 5),
-            "calibration_version": analysis.get("calibration_version", "v5.1-calibration-2026Q3"),
+            "calibration_version": analysis.get("calibration_version", "v5.2-value-2026Q3"),
         }),
     }
 

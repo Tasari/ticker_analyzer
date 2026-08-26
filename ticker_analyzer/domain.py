@@ -159,7 +159,7 @@ class StockAnalysis:
     warnings: list[str] = field(default_factory=list)
     scoring_version: int = 5
     config_version: int = 5
-    calibration_version: str = "v5-audit-2026Q3"
+    calibration_version: str = "v5.2-value-2026Q3"
     diagnostics: list[dict[str, str]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:

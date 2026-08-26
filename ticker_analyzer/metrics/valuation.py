@@ -334,11 +334,12 @@ def statement_aligned_ratio_vs_history_metric(
     fallback_current_ratio: Any = None,
     prefix: str = "",
 ) -> dict[str, Any]:
-    current = context.statement_aligned_current_ratio(ratio_name, info)
-    source = "statement-aligned current multiple"
-    if current is None:
-        current = clean_number(fallback_current_ratio)
-        source = "yfinance current multiple fallback"
+    current, source = current_valuation_multiple(
+        info,
+        ratio_name,
+        context,
+        fallback_current_ratio=fallback_current_ratio,
+    )
     ratios = context.historical_ratios(ratio_name)
     minimum = 1 if context.years == 1 else 2
     note = range_median_note(context.years, len(ratios), prefix)
@@ -350,4 +351,32 @@ def statement_aligned_ratio_vs_history_metric(
     historical = median_or_none(ratios)
     if historical in (None, 0):
         return metric_value(None, f"{note}; historical median unavailable")
-    return metric_value((current - historical) / abs(historical) * 100, note)
+    comparison = f"current {current:.2f}x vs selected-range median {historical:.2f}x"
+    return metric_value((current - historical) / abs(historical) * 100, f"{note}; {comparison}")
+
+
+def current_valuation_multiple(
+    info: dict[str, Any],
+    ratio_name: str,
+    context: HistoricalRatioContext,
+    *,
+    fallback_current_ratio: Any = None,
+) -> tuple[float | None, str]:
+    current = context.statement_aligned_current_ratio(ratio_name, info)
+    source = "statement-aligned current multiple"
+    if current is None:
+        current = clean_number(fallback_current_ratio)
+        source = "yfinance current multiple fallback"
+    if current is None or current <= 0:
+        return None, source
+    return current, source
+
+
+def current_absolute_multiple(reported: Any, statement_aligned: Any) -> tuple[float | None, str]:
+    current = clean_number(reported)
+    if current is not None and current > 0:
+        return current, "yfinance reported current multiple"
+    current = clean_number(statement_aligned)
+    if current is not None and current > 0:
+        return current, "statement-aligned current multiple fallback"
+    return None, "positive current multiple unavailable"

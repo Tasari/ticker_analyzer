@@ -109,7 +109,7 @@ Add `--profile` to a normal build to store the same measurements in its snapshot
 - EPS estimates crossing zero are treated as a turnaround and excluded from percentage-growth scoring.
 - Industrial companies use balance-sheet, liquidity, cash-flow, interest-coverage, and distress metrics.
 - Financial companies use a separate profile with financial-sector metrics such as equity to assets, return on assets, return on equity, net margin, P/E vs historical median, and P/B vs historical median.
-- Value metrics compare statement-aligned current valuation multiples against point-in-time historical medians. Explicit filing dates are used when available; secondary statements use a conservative 90-day availability lag.
+- Value combines statement-aligned historical comparisons with absolute P/S, P/E, EV/EBITDA, P/B for financials, cash yield, and forward context. Explicit filing dates are used when available; secondary statements use a conservative 90-day availability lag.
 - Multi-year Fundamentals and Value medians require at least two valid historical observations and report the actual observation count used.
 - Industrial Value includes Free Cash Flow Yield.
 - Industrial Growth includes operating- and gross-margin trends plus share-count CAGR; price momentum has only a small weight.

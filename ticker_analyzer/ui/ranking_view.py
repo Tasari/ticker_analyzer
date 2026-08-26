@@ -100,7 +100,7 @@ def _render_all_ranking_controls() -> None:
 
 
 def _render_stock_ranking() -> None:
-    st.subheader("Large Cap Ranking — Scoring v5.1")
+    st.subheader("Large Cap Ranking — Scoring v5.2")
     payload = load_ranking()
     _render_snapshot_transfer(payload)
     metadata = payload.get("metadata", {})

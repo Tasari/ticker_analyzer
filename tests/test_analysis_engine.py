@@ -124,6 +124,13 @@ class AnalysisEngineTest(unittest.TestCase):
         )
         self.assertEqual(provider.calls[0][0], "TEST")
         self.assertEqual(provider.calls[0][1].as_dict(), {"Growth": "2Y", "Fundamentals": "2Y", "Value": "2Y"})
+        value_metrics = {metric.id: metric for metric in result.tabs["Value"]["metrics"]}
+        self.assertIn("pe_current", value_metrics)
+        self.assertIn("price_to_sales_current", value_metrics)
+        self.assertEqual(value_metrics["pe_current"].value, 20)
+        self.assertIn("current", value_metrics["pe_vs_selected_median"].note)
+        self.assertIn("selected-range median", value_metrics["pe_vs_selected_median"].note)
+        self.assertLess(result.tabs["Value"]["score"], 100)
 
     def test_engine_selects_financial_profile(self):
         result = StockAnalysisEngine(provider=FakeProvider(market_data(industry="Banks - Diversified"))).analyze(
@@ -135,6 +142,8 @@ class AnalysisEngineTest(unittest.TestCase):
         self.assertEqual(result.profile, "FinancialBank")
         value_metric_ids = {metric.id for metric in result.tabs["Value"]["metrics"]}
         self.assertIn("pb_vs_selected_median", value_metric_ids)
+        self.assertIn("pe_current", value_metric_ids)
+        self.assertIn("pb_current", value_metric_ids)
         self.assertNotIn("ev_ebitda_vs_selected_median", value_metric_ids)
 
     def test_profile_override_precedes_provider_industry(self):

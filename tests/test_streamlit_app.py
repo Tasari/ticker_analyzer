@@ -68,7 +68,7 @@ class StreamlitAppTest(unittest.TestCase):
         app.run()
 
         self.assertFalse(app.exception)
-        self.assertEqual(app.subheader[0].value, "Large Cap Ranking — Scoring v5.1")
+        self.assertEqual(app.subheader[0].value, "Large Cap Ranking — Scoring v5.2")
 
         app.session_state["selected_tickers"] = []
         app.session_state["analysis_results"] = {}
