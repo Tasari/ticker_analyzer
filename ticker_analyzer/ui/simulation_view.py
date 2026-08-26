@@ -15,7 +15,12 @@ from ticker_analyzer.portfolio.returns import (
     ReturnsTableError,
     analyze_returns_range,
 )
-from ticker_analyzer.portfolio.simulation import SimulationError, SimulationResult, simulate_buy_and_hold
+from ticker_analyzer.portfolio.simulation import (
+    TRAILING_RETURN_PERIODS,
+    SimulationError,
+    SimulationResult,
+    simulate_buy_and_hold,
+)
 from ticker_analyzer.providers.market_data import retry_transient
 
 BASE_CURRENCIES = ("USD", "EUR", "PLN")
@@ -161,20 +166,21 @@ def _fetch_simulation_histories(
 ) -> tuple[dict[str, pd.Series], list[str]]:
     histories: dict[str, pd.Series] = {}
     warnings: list[str] = []
+    history_start = _simulation_history_start(start_date, end_date)
 
     def fetch_one(ticker: str) -> tuple[str, pd.Series, str | None]:
         try:
             if ticker == ACCOUNT_STATEMENT_TICKER:
                 if account_returns is None:
                     raise ReturnsTableError("the imported returns table is no longer available.")
-                return ticker, _account_statement_prices(account_returns, start_date, end_date), None
-            prices = _cached_adjusted_prices(ticker, start_date, end_date)
+                return ticker, _account_statement_prices(account_returns, history_start, end_date), None
+            prices = _cached_adjusted_prices(ticker, history_start, end_date)
             currency = str(results[ticker].get("currency") or base_currency)
             converted = _convert_to_base_currency(
                 prices,
                 currency,
                 base_currency,
-                start_date,
+                history_start,
                 end_date,
             )
             return ticker, converted, None
@@ -194,15 +200,29 @@ def _fetch_simulation_histories(
     return {ticker: histories.get(ticker, pd.Series(dtype=float)) for ticker in tickers}, warnings
 
 
+def _simulation_history_start(start_date: date, end_date: date) -> date:
+    longest_period_months = max(months for _, months in TRAILING_RETURN_PERIODS)
+    boundary = pd.Timestamp(end_date) - pd.DateOffset(months=longest_period_months)
+    return min(start_date, boundary.date() - timedelta(days=7))
+
+
 def _account_statement_prices(
     returns_table: ReturnsTable,
     start_date: date,
     end_date: date,
 ) -> pd.Series:
+    available_start = max(start_date, returns_table.first_month)
+    last_month = returns_table.last_month
+    available_end = min(
+        end_date,
+        date(last_month.year, last_month.month, monthrange(last_month.year, last_month.month)[1]),
+    )
+    if available_end < available_start:
+        raise ReturnsTableError("the imported returns table does not overlap the requested history.")
     analysis = analyze_returns_range(
         returns_table,
-        start_date,
-        end_date,
+        available_start,
+        available_end,
         initial_capital=100.0,
     )
     return pd.Series(
@@ -318,7 +338,11 @@ def _render_simulation_result(
                 "Final price": position.final_price,
                 "Final value": position.final_value,
                 "P/L": position.profit_loss,
-                "Return": position.return_value * 100,
+                "Selected range return": position.return_value * 100,
+                **{
+                    label: value * 100 if value is not None else None
+                    for label, value in position.trailing_returns
+                },
                 "Portfolio return contribution": position.profit_loss / result.initial_capital * 100,
                 "Share of total P/L": (
                     position.profit_loss / result.profit_loss * 100
@@ -329,6 +353,10 @@ def _render_simulation_result(
             }
             for position in result.positions
         ]
+    )
+    st.caption(
+        "Rolling returns are measured backward from the selected end date and are independent of the chart range. "
+        "N/A means the ticker has no price at or before the required boundary."
     )
     st.dataframe(
         frame,
@@ -342,7 +370,11 @@ def _render_simulation_result(
             "Final price": st.column_config.NumberColumn(format="%.4f"),
             "Final value": st.column_config.NumberColumn(format=f"%.2f {currency}"),
             "P/L": st.column_config.NumberColumn(format=f"%.2f {currency}"),
-            "Return": st.column_config.NumberColumn(format="%.2f%%"),
+            "Selected range return": st.column_config.NumberColumn(format="%.2f%%"),
+            **{
+                label: st.column_config.NumberColumn(format="%.2f%%")
+                for label, _ in TRAILING_RETURN_PERIODS
+            },
             "Portfolio return contribution": st.column_config.NumberColumn(format="%.2f pp"),
             "Share of total P/L": st.column_config.NumberColumn(format="%.2f%%"),
         },

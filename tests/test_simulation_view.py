@@ -11,16 +11,36 @@ from ticker_analyzer.ui.simulation_view import (
     _cached_fx_factor,
     _convert_to_base_currency,
     _fetch_simulation_histories,
+    _simulation_history_start,
 )
 
 
 class SimulationViewTest(unittest.TestCase):
+    def test_history_fetch_extends_to_five_year_window_without_changing_selection(self):
+        self.assertEqual(
+            _simulation_history_start(date(2024, 1, 1), date(2025, 12, 31)),
+            date(2020, 12, 24),
+        )
+        self.assertEqual(
+            _simulation_history_start(date(2018, 1, 1), date(2025, 12, 31)),
+            date(2018, 1, 1),
+        )
+
     def test_account_statement_pseudo_ticker_uses_imported_monthly_returns(self):
         table = ReturnsTable({(2024, 1): 0.10, (2024, 2): -0.05})
 
         prices = _account_statement_prices(table, date(2024, 1, 1), date(2024, 2, 29))
 
         self.assertEqual(prices.index[0], pd.Timestamp("2024-01-01"))
+        self.assertAlmostEqual(prices.iloc[-1], 104.5)
+
+    def test_account_statement_history_is_clamped_to_available_months(self):
+        table = ReturnsTable({(2024, 1): 0.10, (2024, 2): -0.05})
+
+        prices = _account_statement_prices(table, date(2019, 1, 1), date(2025, 1, 1))
+
+        self.assertEqual(prices.index[0], pd.Timestamp("2024-01-01"))
+        self.assertEqual(prices.index[-1], pd.Timestamp("2024-02-29"))
         self.assertAlmostEqual(prices.iloc[-1], 104.5)
 
     def test_account_statement_pseudo_ticker_does_not_fetch_yahoo_prices(self):

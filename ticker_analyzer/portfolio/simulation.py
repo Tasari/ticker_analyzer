@@ -6,6 +6,17 @@ from math import sqrt
 
 import pandas as pd
 
+TRAILING_RETURN_PERIODS = (
+    ("1M", 1),
+    ("3M", 3),
+    ("6M", 6),
+    ("1Y", 12),
+    ("2Y", 24),
+    ("3Y", 36),
+    ("4Y", 48),
+    ("5Y", 60),
+)
+
 
 class SimulationError(ValueError):
     pass
@@ -23,6 +34,7 @@ class SimulationPosition:
     final_value: float
     profit_loss: float
     return_value: float
+    trailing_returns: tuple[tuple[str, float | None], ...]
     status: str
 
 
@@ -69,7 +81,9 @@ def simulate_buy_and_hold(
 
     for ticker, weight in weights.items():
         allocation = initial_capital * weight
-        prices = _clean_prices(price_histories.get(ticker), start_date, end_date)
+        history = price_histories.get(ticker)
+        prices = _clean_prices(history, start_date, end_date)
+        trailing_returns = calculate_trailing_returns(history, end_date)
         if prices.empty:
             values = pd.Series(allocation, index=calendar, dtype=float)
             position_values[ticker] = values
@@ -85,6 +99,7 @@ def simulate_buy_and_hold(
                     final_value=allocation,
                     profit_loss=0.0,
                     return_value=0.0,
+                    trailing_returns=trailing_returns,
                     status="Cash: no usable prices",
                 )
             )
@@ -112,6 +127,7 @@ def simulate_buy_and_hold(
                 final_value=final_value,
                 profit_loss=final_value - allocation,
                 return_value=final_value / allocation - 1 if allocation > 0 else 0.0,
+                trailing_returns=trailing_returns,
                 status="Invested",
             )
         )
@@ -142,12 +158,42 @@ def simulate_buy_and_hold(
     )
 
 
-def _clean_prices(series: pd.Series | None, start_date: date, end_date: date) -> pd.Series:
+def calculate_trailing_returns(
+    series: pd.Series | None,
+    end_date: date,
+) -> tuple[tuple[str, float | None], ...]:
+    prices = _normalize_prices(series)
+    if prices.empty:
+        return tuple((label, None) for label, _ in TRAILING_RETURN_PERIODS)
+    prices = prices[prices.index.date <= end_date]
+    if prices.empty:
+        return tuple((label, None) for label, _ in TRAILING_RETURN_PERIODS)
+    final_price = float(prices.iloc[-1])
+    final_timestamp = prices.index[-1]
+    returns: list[tuple[str, float | None]] = []
+    for label, months in TRAILING_RETURN_PERIODS:
+        boundary = pd.Timestamp(end_date) - pd.DateOffset(months=months)
+        boundary_prices = prices[prices.index <= boundary]
+        value = None
+        if not boundary_prices.empty and final_timestamp > boundary:
+            value = final_price / float(boundary_prices.iloc[-1]) - 1
+        returns.append((label, value))
+    return tuple(returns)
+
+
+def _normalize_prices(series: pd.Series | None) -> pd.Series:
     if series is None or series.empty:
         return pd.Series(dtype=float)
     prices = pd.to_numeric(series, errors="coerce").dropna()
     index = pd.to_datetime(prices.index, errors="coerce", utc=True).tz_convert(None).normalize()
     prices.index = index
     prices = prices[~prices.index.duplicated(keep="last")].sort_index()
-    prices = prices[(prices.index.date >= start_date) & (prices.index.date <= end_date)]
     return prices[prices > 0]
+
+
+def _clean_prices(series: pd.Series | None, start_date: date, end_date: date) -> pd.Series:
+    prices = _normalize_prices(series)
+    if prices.empty:
+        return prices
+    prices = prices[(prices.index.date >= start_date) & (prices.index.date <= end_date)]
+    return prices
