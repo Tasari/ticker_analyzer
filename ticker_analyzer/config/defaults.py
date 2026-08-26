@@ -19,6 +19,7 @@ LEGACY_METRIC_IDS = {
     "ev_ebitda_vs_5y_median": "ev_ebitda_vs_selected_median",
     "price_to_cfo_vs_5y_median": "price_to_cfo_vs_selected_median",
 }
+LEGACY_VALUE_CALIBRATIONS = {"v5.1-calibration-2026Q3"}
 
 
 def migrate_v3_to_v4(config: dict[str, Any]) -> dict[str, Any]:
@@ -113,6 +114,8 @@ def ensure_v5_defaults(migrated: dict[str, Any]) -> None:
         },
     )
     migrated.setdefault("profile_metrics", {})
+    if migrated.get("calibration_version") in LEGACY_VALUE_CALIBRATIONS:
+        migrate_value_v51_to_v52(migrated)
     migrated.setdefault("model_applicability", {
         "native": 90,
         "generic_financial_maximum": 65,
@@ -137,6 +140,155 @@ def ensure_v5_defaults(migrated: dict[str, Any]) -> None:
     migrated.setdefault("profile_rules", {})
     for profile, rules in default_profile_rules().items():
         migrated["profile_rules"].setdefault(profile, rules)
+
+
+def migrate_value_v51_to_v52(migrated: dict[str, Any]) -> None:
+    """Upgrade persisted v5.1 configs before v5.2 groups are validated."""
+    industrial_value = migrated.get("metrics", {}).get("Value")
+    if isinstance(industrial_value, list):
+        _patch_metrics(
+            industrial_value,
+            updates={
+                "ps_vs_selected_median": {"warn": 20, "good": -40},
+                "pe_vs_selected_median": {"warn": 20, "good": -40},
+                "ev_ebitda_vs_selected_median": {"warn": 20, "good": -40},
+                "price_to_cfo_vs_selected_median": {"warn": 20, "good": -40},
+                "fcf_yield_ttm": {"good": 10},
+                "valuation_growth_adjustment": {"warn": 2.5},
+                "price_target": {"warn": -5, "good": 35},
+            },
+            additions=industrial_absolute_value_metrics(),
+        )
+
+    profiles = migrated.get("profile_metrics", {})
+    financial_profiles = ["Financial", *specialized_financial_profiles()]
+    for profile in financial_profiles:
+        metrics_by_tab = profiles.get(profile, {})
+        financial_value = metrics_by_tab.get("Value") if isinstance(metrics_by_tab, dict) else None
+        if isinstance(financial_value, list):
+            _patch_metrics(
+                financial_value,
+                updates={
+                    "pe_vs_selected_median": {"warn": 20, "good": -40},
+                    "pb_vs_selected_median": {"warn": 20, "good": -40},
+                    "price_target": {"warn": -5, "good": 35},
+                },
+                additions=financial_absolute_value_metrics(),
+            )
+
+    tab_groups = migrated.setdefault("tab_groups", {})
+    tab_groups["Value"] = industrial_value_groups()
+    profile_groups = migrated.setdefault("profile_tab_groups", {})
+    for profile in financial_profiles:
+        if profile in profiles or profile == "Financial":
+            profile_groups.setdefault(profile, {})["Value"] = financial_groups(profile)["Value"]
+
+    rules_by_profile = migrated.setdefault("profile_rules", {})
+    defaults = default_profile_rules()
+    for profile in ["Industrial", *financial_profiles]:
+        if profile in rules_by_profile:
+            rules_by_profile[profile]["Value"] = deepcopy(defaults[profile]["Value"])
+    migrated["calibration_version"] = CALIBRATION_VERSION
+
+
+def _patch_metrics(
+    metrics: list[dict[str, Any]],
+    *,
+    updates: dict[str, dict[str, Any]],
+    additions: list[dict[str, Any]],
+) -> None:
+    by_id = {metric.get("id"): metric for metric in metrics if isinstance(metric, dict)}
+    for metric_id, values in updates.items():
+        if metric_id in by_id:
+            by_id[metric_id].update(values)
+    for metric in additions:
+        if metric["id"] not in by_id:
+            metrics.append(deepcopy(metric))
+
+
+def industrial_absolute_value_metrics() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "price_to_sales_current",
+            "name": "Current P/S Ratio",
+            "weight": 0.8,
+            "direction": "lower",
+            "warn": 8,
+            "good": 2,
+            "unit": "x",
+            "description": "Current positive price-to-sales ratio used as an absolute valuation anchor.",
+        },
+        {
+            "id": "pe_current",
+            "name": "Current P/E Ratio",
+            "weight": 1.0,
+            "direction": "lower",
+            "warn": 28,
+            "good": 12,
+            "unit": "x",
+            "description": "Current positive price-to-earnings ratio used as an absolute valuation anchor.",
+        },
+        {
+            "id": "ev_ebitda_current",
+            "name": "Current EV/EBITDA",
+            "weight": 1.2,
+            "direction": "lower",
+            "warn": 20,
+            "good": 8,
+            "unit": "x",
+            "description": "Current positive EV/EBITDA used as an absolute operating valuation anchor.",
+        },
+    ]
+
+
+def financial_absolute_value_metrics() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "pe_current",
+            "name": "Current P/E Ratio",
+            "weight": 1.0,
+            "direction": "lower",
+            "warn": 28,
+            "good": 12,
+            "unit": "x",
+            "description": "Current positive price-to-earnings ratio used as an absolute valuation anchor.",
+        },
+        {
+            "id": "pb_current",
+            "name": "Current P/B Ratio",
+            "weight": 1.0,
+            "direction": "lower",
+            "warn": 3,
+            "good": 1.2,
+            "unit": "x",
+            "description": "Current positive price-to-book ratio used as a financial valuation anchor.",
+        },
+    ]
+
+
+def industrial_value_groups() -> dict[str, Any]:
+    return {
+        "historical_multiples": {
+            "weight": 0.25,
+            "metrics": [
+                "ps_vs_selected_median",
+                "pe_vs_selected_median",
+                "ev_ebitda_vs_selected_median",
+                "price_to_cfo_vs_selected_median",
+            ],
+        },
+        "absolute_multiples": {
+            "weight": 0.25,
+            "metrics": ["price_to_sales_current", "pe_current", "ev_ebitda_current"],
+        },
+        "absolute_cash_yield": {"weight": 0.30, "metrics": ["fcf_yield_ttm"]},
+        "peer_relative": {
+            "weight": 0.00,
+            "metrics": ["pe_vs_profile_median", "ev_ebitda_vs_profile_median", "fcf_yield_vs_profile_median"],
+        },
+        "analyst_context": {"weight": 0.05, "metrics": ["price_target"]},
+        "forward_normalized": {"weight": 0.15, "metrics": ["valuation_growth_adjustment"]},
+    }
 
 
 def specialized_financial_profiles() -> list[str]:

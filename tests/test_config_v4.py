@@ -68,6 +68,39 @@ class ConfigV4Test(unittest.TestCase):
         self.assertEqual(normalized["data_quality"]["component_weights"], active_weights)
         self.assertIn("profile_fit", normalized["data_quality"]["weights"])
 
+    def test_v51_value_config_is_migrated_before_group_validation(self):
+        config = json.loads(Path("metrics_config.json").read_text(encoding="utf-8"))
+        config["calibration_version"] = "v5.1-calibration-2026Q3"
+        new_metric_ids = {"price_to_sales_current", "pe_current", "ev_ebitda_current"}
+        config["metrics"]["Value"] = [
+            metric for metric in config["metrics"]["Value"] if metric["id"] not in new_metric_ids
+        ]
+        config["profile_metrics"]["Financial"]["Value"] = [
+            metric
+            for metric in config["profile_metrics"]["Financial"]["Value"]
+            if metric["id"] not in {"pe_current", "pb_current"}
+        ]
+        config["profile_tab_groups"]["Financial"]["Value"] = {
+            "historical_or_peer": {
+                "weight": 0.90,
+                "metrics": ["pe_vs_selected_median", "pb_vs_selected_median"],
+            },
+            "analyst_context": {"weight": 0.10, "metrics": ["price_target"]},
+        }
+
+        normalized = normalize_config(config)
+
+        self.assertEqual(normalized["calibration_version"], "v5.2-value-2026Q3")
+        self.assertIn("pe_current", {metric["id"] for metric in normalized["metrics"]["Value"]})
+        financial_ids = {
+            metric["id"] for metric in normalized["profile_metrics"]["Financial"]["Value"]
+        }
+        self.assertTrue({"pe_current", "pb_current"}.issubset(financial_ids))
+        self.assertIn(
+            "absolute_multiples",
+            normalized["profile_tab_groups"]["Financial"]["Value"],
+        )
+
     def test_save_config_round_trips_atomically(self):
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "nested" / "config.json"
