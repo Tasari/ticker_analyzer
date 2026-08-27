@@ -37,6 +37,7 @@ _EXPORTS = {
     "render_account_statement": "ticker_analyzer.ui.account_statement_view",
     "render_config_editor": "ticker_analyzer.ui.config_view",
     "render_simulation": "ticker_analyzer.ui.simulation_view",
+    "render_watchlist": "ticker_analyzer.ui.watchlist_view",
     "mutation_allowed": "ticker_analyzer.ui.config_view",
 }
 

@@ -239,6 +239,41 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertTrue(any(tab.label == "Simulation" for tab in app.tabs))
         self.assertTrue(any("ACC_STMT represents" in item.value for item in app.info))
 
+    def test_watchlist_is_a_separate_top_level_page(self):
+        app = AppTest.from_file("app.py", default_timeout=10)
+        app.session_state["_site_access_authenticated"] = True
+        app.run()
+
+        next(widget for widget in app.sidebar.radio if widget.label == "View").set_value("Watchlist").run()
+
+        self.assertFalse(app.exception)
+        self.assertTrue(any(header.value == "Watchlist and Alerts" for header in app.subheader))
+        self.assertTrue(any("independent of Stock Analyzer" in caption.value for caption in app.caption))
+
+    def test_watchlist_refresh_persists_snapshot_and_threshold_alert(self):
+        app = AppTest.from_file("app.py", default_timeout=10)
+        app.session_state["_site_access_authenticated"] = True
+        app.session_state["page"] = "Watchlist"
+        app.session_state["watchlist"] = [{"ticker": "AAPL", "price_above": 150}]
+        result = {
+            "ticker": "AAPL",
+            "company_name": "Apple",
+            "current_price": 160,
+            "overall_score": 82,
+            "rating": "Buy",
+            "missing": [],
+        }
+        with patch(
+            "ticker_analyzer.ui.watchlist_view.analyze_selected_tickers",
+            return_value=({"AAPL": result}, {}),
+        ):
+            app.run()
+            next(button for button in app.button if button.label == "Refresh all").click().run()
+
+        self.assertFalse(app.exception)
+        self.assertEqual(app.session_state["watchlist_snapshots"]["AAPL"]["price"], 160)
+        self.assertEqual(app.session_state["watchlist_alerts"][0]["kind"], "threshold")
+
     def test_imported_account_statement_ticker_can_be_selected_from_sidebar(self):
         app = AppTest.from_file("app.py", default_timeout=10)
         app.session_state["_site_access_authenticated"] = True

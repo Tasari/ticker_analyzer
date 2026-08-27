@@ -18,14 +18,20 @@ AnalysisError = str
 TickerAnalysisOutcome = tuple[AnalysisResult | None, AnalysisError | None]
 
 
-def analyze_selected_tickers(tickers: list[str], ranges: dict[str, str], config: dict) -> tuple[dict, dict]:
+def analyze_selected_tickers(
+    tickers: list[str],
+    ranges: dict[str, str],
+    config: dict,
+    *,
+    cache_token: int = 0,
+) -> tuple[dict, dict]:
     if len(tickers) <= 1:
-        return analyze_tickers_sequentially(tickers, ranges, config)
+        return analyze_tickers_sequentially(tickers, ranges, config, cache_token=cache_token)
 
     completed: dict[str, TickerAnalysisOutcome] = {}
     with ThreadPoolExecutor(max_workers=analysis_worker_count(tickers)) as executor:
         futures = {
-            executor.submit(analyze_one_ticker, ticker, ranges, config): ticker
+            executor.submit(analyze_one_ticker, ticker, ranges, config, cache_token): ticker
             for ticker in tickers
         }
         for future in as_completed(futures):
@@ -38,17 +44,28 @@ def analysis_worker_count(tickers: list[str]) -> int:
     return min(MAX_ANALYSIS_WORKERS, max(1, len(tickers)))
 
 
-def analyze_tickers_sequentially(tickers: list[str], ranges: dict[str, str], config: dict) -> tuple[dict, dict]:
+def analyze_tickers_sequentially(
+    tickers: list[str],
+    ranges: dict[str, str],
+    config: dict,
+    *,
+    cache_token: int = 0,
+) -> tuple[dict, dict]:
     completed = {
-        ticker: analyze_one_ticker(ticker, ranges, config)
+        ticker: analyze_one_ticker(ticker, ranges, config, cache_token)
         for ticker in tickers
     }
     return ordered_analysis_results(tickers, completed)
 
 
-def analyze_one_ticker(ticker: str, ranges: dict[str, str], config: dict) -> TickerAnalysisOutcome:
+def analyze_one_ticker(
+    ticker: str,
+    ranges: dict[str, str],
+    config: dict,
+    cache_token: int = 0,
+) -> TickerAnalysisOutcome:
     try:
-        return cached_ticker_analysis(ticker, ranges, config, id(analyze_ticker)), None
+        return cached_ticker_analysis(ticker, ranges, config, id(analyze_ticker), cache_token), None
     except ValueError as exc:
         return None, str(exc)
     except Exception:
@@ -62,9 +79,10 @@ def cached_ticker_analysis(
     ranges: dict[str, str],
     config: dict,
     analyzer_identity: int,
+    cache_token: int = 0,
 ) -> AnalysisResult:
     """Cache successful analyses independently so expanding a comparison is incremental."""
-    del analyzer_identity  # Included only to isolate patched/test analyzer implementations.
+    del analyzer_identity, cache_token  # Cache isolation keys; analysis itself does not use them.
     return analyze_ticker(ticker, ranges, config)
 
 

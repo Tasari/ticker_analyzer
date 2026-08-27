@@ -200,6 +200,17 @@ class UiActionsTest(unittest.TestCase):
         self.assertEqual(second_errors, {})
         self.assertEqual(analyze.call_count, 2)
 
+    def test_distinct_cache_tokens_force_fresh_watchlist_analysis(self):
+        cached_ticker_analysis.clear()
+        with patch(
+            "ticker_analyzer.ui.analysis_actions.analyze_ticker",
+            return_value={"ticker": "FRESH"},
+        ) as analyze:
+            analyze_selected_tickers(["FRESH"], {"Growth": "2Y"}, {}, cache_token=1)
+            analyze_selected_tickers(["FRESH"], {"Growth": "2Y"}, {}, cache_token=2)
+
+        self.assertEqual(analyze.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

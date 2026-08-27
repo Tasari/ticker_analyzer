@@ -9,11 +9,12 @@ from typing import Any
 import streamlit as st
 
 from ticker_analyzer.ticker_symbols import normalize_ticker
+from ticker_analyzer.watchlist import normalize_alerts, normalize_snapshots, normalize_watchlist
 
 PERSISTENCE_VERSION = 1
 PERSISTENCE_TTL = timedelta(days=30)
 STORAGE_KEY = "ticker_analyzer.preferences.v1"
-VALID_PAGES = {"Stock Analyzer", "Large Cap Ranking", "Account Statement"}
+VALID_PAGES = {"Stock Analyzer", "Watchlist", "Large Cap Ranking", "Account Statement"}
 VALID_RANGES = {"1Y", "2Y", "3Y"}
 RANGE_STATE_KEYS = {
     "Growth": "growth_range",
@@ -102,6 +103,11 @@ def build_snapshot(state: Mapping[str, Any], *, now: datetime | None = None) -> 
         tab: normalize_range(state.get(state_key))
         for tab, state_key in RANGE_STATE_KEYS.items()
     }
+    watchlist = normalize_watchlist(state.get("watchlist"))
+    watchlist_ranges = {
+        tab: normalize_range(state.get(f"watchlist_{state_key}"))
+        for tab, state_key in RANGE_STATE_KEYS.items()
+    }
     page = state.get("page")
     return {
         "version": PERSISTENCE_VERSION,
@@ -109,6 +115,10 @@ def build_snapshot(state: Mapping[str, Any], *, now: datetime | None = None) -> 
         "selected_tickers": tickers,
         "active_ticker": active_ticker,
         "ranges": ranges,
+        "watchlist": watchlist,
+        "watchlist_snapshots": normalize_snapshots(state.get("watchlist_snapshots"), watchlist),
+        "watchlist_alerts": normalize_alerts(state.get("watchlist_alerts")),
+        "watchlist_ranges": watchlist_ranges,
         "page": page if page in VALID_PAGES else "Stock Analyzer",
     }
 
@@ -139,6 +149,17 @@ def apply_snapshot(state: MutableMapping[str, Any], snapshot: Mapping[str, Any])
     ranges = snapshot.get("ranges") if isinstance(snapshot.get("ranges"), Mapping) else {}
     for tab, state_key in RANGE_STATE_KEYS.items():
         state[state_key] = normalize_range(ranges.get(tab))
+    watchlist = normalize_watchlist(snapshot.get("watchlist"))
+    state["watchlist"] = watchlist
+    state["watchlist_snapshots"] = normalize_snapshots(snapshot.get("watchlist_snapshots"), watchlist)
+    state["watchlist_alerts"] = normalize_alerts(snapshot.get("watchlist_alerts"))
+    watchlist_ranges = (
+        snapshot.get("watchlist_ranges")
+        if isinstance(snapshot.get("watchlist_ranges"), Mapping)
+        else {}
+    )
+    for tab, state_key in RANGE_STATE_KEYS.items():
+        state[f"watchlist_{state_key}"] = normalize_range(watchlist_ranges.get(tab))
     page = snapshot.get("page")
     state["page"] = page if page in VALID_PAGES else "Stock Analyzer"
     # Results deliberately stay session-only so a returning user gets fresh data.
@@ -148,11 +169,23 @@ def apply_snapshot(state: MutableMapping[str, Any], snapshot: Mapping[str, Any])
 
 def payload_to_state(payload: Mapping[str, Any]) -> dict[str, Any]:
     ranges = payload.get("ranges") if isinstance(payload.get("ranges"), Mapping) else {}
+    watchlist_ranges = (
+        payload.get("watchlist_ranges")
+        if isinstance(payload.get("watchlist_ranges"), Mapping)
+        else {}
+    )
     return {
         "selected_tickers": payload.get("selected_tickers"),
         "active_ticker": payload.get("active_ticker"),
         "page": payload.get("page"),
+        "watchlist": payload.get("watchlist"),
+        "watchlist_snapshots": payload.get("watchlist_snapshots"),
+        "watchlist_alerts": payload.get("watchlist_alerts"),
         **{state_key: ranges.get(tab) for tab, state_key in RANGE_STATE_KEYS.items()},
+        **{
+            f"watchlist_{state_key}": watchlist_ranges.get(tab)
+            for tab, state_key in RANGE_STATE_KEYS.items()
+        },
     }
 
 

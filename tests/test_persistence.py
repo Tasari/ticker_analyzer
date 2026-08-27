@@ -110,6 +110,34 @@ class PersistenceTest(unittest.TestCase):
         self.assertEqual(payload["selected_tickers"], ["FUTU"])
         self.assertNotIn("analysis_results", payload)
 
+    def test_watchlist_thresholds_snapshots_and_alerts_round_trip(self):
+        state = {
+            "watchlist": [{"ticker": "futu", "price_above": 150, "score_below": 70}],
+            "watchlist_snapshots": {
+                "FUTU": {"price": 140, "score": 80, "rating": "Buy", "status": "ok"}
+            },
+            "watchlist_alerts": [
+                {
+                    "ticker": "FUTU",
+                    "kind": "rating",
+                    "message": "Rating changed",
+                    "created_at": self.now.isoformat(),
+                }
+            ],
+            "watchlist_growth_range": "1Y",
+            "watchlist_fundamentals_range": "2Y",
+            "watchlist_value_range": "3Y",
+            "page": "Watchlist",
+        }
+
+        restored = parse_snapshot(json.dumps(build_snapshot(state, now=self.now)), now=self.now)
+
+        self.assertEqual(restored["page"], "Watchlist")
+        self.assertEqual(restored["watchlist"][0]["ticker"], "FUTU")
+        self.assertEqual(restored["watchlist_snapshots"]["FUTU"]["rating"], "Buy")
+        self.assertEqual(restored["watchlist_alerts"][0]["kind"], "rating")
+        self.assertEqual(restored["watchlist_ranges"]["Value"], "3Y")
+
 
 if __name__ == "__main__":
     unittest.main()

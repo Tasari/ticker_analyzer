@@ -31,12 +31,22 @@ def main() -> None:
     try:
         page = st.sidebar.radio(
             "View",
-            ["Stock Analyzer", "Large Cap Ranking", "Account Statement"],
+            ["Stock Analyzer", "Watchlist", "Large Cap Ranking", "Account Statement"],
             key="page",
         )
-        st.sidebar.caption("This browser remembers your companies and ranges for 30 days.")
+        unread_watchlist_alerts = sum(
+            1
+            for alert in st.session_state.get("watchlist_alerts", [])
+            if isinstance(alert, dict) and not alert.get("read")
+        )
+        st.sidebar.caption("This browser remembers your setup, watchlist and alerts for 30 days.")
+        if unread_watchlist_alerts:
+            st.sidebar.warning(f"Watchlist alerts: {unread_watchlist_alerts}")
         if page == "Large Cap Ranking":
             views.render_large_cap_ranking()
+            return
+        if page == "Watchlist":
+            views.render_watchlist()
             return
         if page == "Account Statement":
             views.render_account_statement()

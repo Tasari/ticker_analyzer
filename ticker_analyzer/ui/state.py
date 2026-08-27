@@ -22,6 +22,13 @@ def initialize_state() -> None:
         "automatic_analysis_attempted": False,
         "automatic_analysis_requested": False,
         "analysis_pending_since": None,
+        "watchlist": [],
+        "watchlist_snapshots": {},
+        "watchlist_alerts": [],
+        "watchlist_growth_range": "2Y",
+        "watchlist_fundamentals_range": "2Y",
+        "watchlist_value_range": "2Y",
+        "watchlist_auto_refresh_attempted": False,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
