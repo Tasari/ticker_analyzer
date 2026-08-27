@@ -138,6 +138,69 @@ class AdvancedSimulationTest(unittest.TestCase):
         self.assertEqual(result.final_value, 1_000)
         self.assertEqual(result.cash_values.iloc[-1], 1_000)
 
+    def test_risk_analytics_cover_tail_period_and_unrecovered_drawdown(self):
+        dates = pd.to_datetime(
+            ["2024-01-01", "2024-01-31", "2024-02-29", "2024-12-31", "2025-12-31"]
+        )
+        result = simulate_strategies(
+            {"A": pd.Series([100.0, 110.0, 88.0, 120.0, 90.0], index=dates)},
+            {},
+            {"A": 1.0},
+            1_000,
+            date(2024, 1, 1),
+            date(2025, 12, 31),
+            SimulationAssumptions(annual_risk_free_rate_percent=2),
+        ).buy_and_hold
+
+        self.assertIsNotNone(result.sharpe_ratio)
+        self.assertIsNotNone(result.sortino_ratio)
+        self.assertIsNotNone(result.calmar_ratio)
+        self.assertGreater(result.downside_deviation, 0)
+        self.assertGreaterEqual(result.value_at_risk_95, 0)
+        self.assertGreater(result.expected_shortfall_95, 0)
+        self.assertEqual(result.worst_month, "2025-12")
+        self.assertAlmostEqual(result.worst_month_return, -0.25)
+        self.assertEqual(result.worst_year, "2025")
+        self.assertAlmostEqual(result.worst_year_return, -0.25)
+        self.assertEqual(result.longest_drawdown_days, 307)
+        self.assertIsNone(result.maximum_drawdown_recovery_days)
+
+    def test_recovery_time_runs_from_maximum_drawdown_trough_to_prior_peak(self):
+        result = simulate_strategies(
+            {
+                "A": pd.Series(
+                    [100.0, 120.0, 60.0, 120.0],
+                    index=pd.to_datetime(["2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01"]),
+                )
+            },
+            {},
+            {"A": 1.0},
+            1_000,
+            date(2024, 1, 1),
+            date(2024, 4, 1),
+            SimulationAssumptions(),
+        ).buy_and_hold
+
+        self.assertEqual(result.maximum_drawdown_recovery_days, 31)
+        self.assertEqual(result.longest_drawdown_days, 32)
+
+    def test_component_correlation_uses_dividend_adjusted_returns(self):
+        dates = pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"])
+        result = simulate_strategies(
+            {
+                "DIVIDEND": pd.Series([100.0, 100.0, 100.0], index=dates),
+                "PRICE": pd.Series([100.0, 110.0, 110.0], index=dates),
+            },
+            {"DIVIDEND": pd.Series([10.0], index=dates[1:2])},
+            {"DIVIDEND": 0.5, "PRICE": 0.5},
+            1_000,
+            date(2024, 1, 1),
+            date(2024, 1, 3),
+            SimulationAssumptions(),
+        ).buy_and_hold
+
+        self.assertAlmostEqual(result.correlation_matrix.loc["DIVIDEND", "PRICE"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

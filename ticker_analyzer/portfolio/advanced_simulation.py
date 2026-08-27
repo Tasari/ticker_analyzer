@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from math import sqrt
-from typing import Literal
+from math import ceil, sqrt
+from typing import Any, Literal
 
 import pandas as pd
 
@@ -36,6 +36,7 @@ class SimulationAssumptions:
     capital_gains_tax_percent: float = 0.0
     dividend_tax_percent: float = 0.0
     annual_inflation_percent: float = 0.0
+    annual_risk_free_rate_percent: float = 0.0
     dividend_policy: DividendPolicy = "reinvest"
     cash_weight: float = 0.0
 
@@ -56,6 +57,18 @@ class AdvancedSimulationResult:
     real_time_weighted_return: float
     maximum_drawdown: float
     annualized_volatility: float | None
+    sharpe_ratio: float | None
+    sortino_ratio: float | None
+    calmar_ratio: float | None
+    downside_deviation: float | None
+    value_at_risk_95: float | None
+    expected_shortfall_95: float | None
+    worst_month: str | None
+    worst_month_return: float | None
+    worst_year: str | None
+    worst_year_return: float | None
+    longest_drawdown_days: int
+    maximum_drawdown_recovery_days: int | None
     fees_paid: float
     taxes_paid: float
     dividends_received: float
@@ -64,6 +77,7 @@ class AdvancedSimulationResult:
     real_portfolio_values: pd.Series
     cash_values: pd.Series
     position_values: pd.DataFrame
+    correlation_matrix: pd.DataFrame
     positions: tuple[SimulationPosition, ...]
 
 
@@ -241,6 +255,14 @@ def _simulate(
     real_twr = (1 + time_weighted_return) / float(inflation_factor[-1]) - 1
     drawdowns = performance_index.div(performance_index.cummax()).sub(1)
     volatility = float(daily_returns.std(ddof=1) * sqrt(252)) if len(daily_returns) >= 2 else None
+    risk = _risk_statistics(
+        daily_returns,
+        performance_index,
+        cagr,
+        float(drawdowns.min()),
+        assumptions.annual_risk_free_rate_percent,
+    )
+    correlation_matrix = _asset_correlation(prices, dividends)
     final_value = float(portfolio.iloc[-1])
 
     positions = tuple(
@@ -269,6 +291,18 @@ def _simulate(
         real_time_weighted_return=real_twr,
         maximum_drawdown=float(drawdowns.min()),
         annualized_volatility=volatility,
+        sharpe_ratio=risk["sharpe_ratio"],
+        sortino_ratio=risk["sortino_ratio"],
+        calmar_ratio=risk["calmar_ratio"],
+        downside_deviation=risk["downside_deviation"],
+        value_at_risk_95=risk["value_at_risk_95"],
+        expected_shortfall_95=risk["expected_shortfall_95"],
+        worst_month=risk["worst_month"],
+        worst_month_return=risk["worst_month_return"],
+        worst_year=risk["worst_year"],
+        worst_year_return=risk["worst_year_return"],
+        longest_drawdown_days=risk["longest_drawdown_days"],
+        maximum_drawdown_recovery_days=risk["maximum_drawdown_recovery_days"],
         fees_paid=fees_paid,
         taxes_paid=taxes_paid,
         dividends_received=dividends_received,
@@ -277,6 +311,7 @@ def _simulate(
         real_portfolio_values=real_portfolio,
         cash_values=cash_values,
         position_values=position_values,
+        correlation_matrix=correlation_matrix,
         positions=positions,
     )
 
@@ -302,6 +337,7 @@ def _validate_inputs(
         assumptions.capital_gains_tax_percent,
         assumptions.dividend_tax_percent,
         assumptions.annual_inflation_percent,
+        assumptions.annual_risk_free_rate_percent,
         assumptions.cash_weight,
         *weights.values(),
     ]
@@ -475,6 +511,110 @@ def _flow_adjusted_returns(portfolio: pd.Series, flows: pd.Series) -> pd.Series:
     returns = (portfolio - flows).div(previous).sub(1)
     returns.iloc[0] = portfolio.iloc[0] / float(flows.iloc[0] or portfolio.iloc[0]) - 1
     return returns.fillna(0)
+
+
+def _risk_statistics(
+    daily_returns: pd.Series,
+    performance_index: pd.Series,
+    cagr: float | None,
+    maximum_drawdown: float,
+    annual_risk_free_rate_percent: float,
+) -> dict[str, Any]:
+    usable = pd.to_numeric(daily_returns, errors="coerce").dropna()
+    risk_free_daily = (1 + annual_risk_free_rate_percent / 100) ** (1 / 252) - 1
+    excess = usable - risk_free_daily
+    standard_deviation = float(usable.std(ddof=1)) if len(usable) >= 2 else None
+    downside = excess.clip(upper=0)
+    downside_daily_value = float((downside.pow(2).mean()) ** 0.5) if not downside.empty else 0.0
+    downside_daily = downside_daily_value if downside_daily_value > 0 else None
+    sharpe = (
+        float(excess.mean() / standard_deviation * sqrt(252))
+        if standard_deviation is not None and standard_deviation > 0
+        else None
+    )
+    sortino = (
+        float(excess.mean() / downside_daily * sqrt(252))
+        if downside_daily is not None and downside_daily > 0
+        else None
+    )
+    calmar = cagr / abs(maximum_drawdown) if cagr is not None and maximum_drawdown < 0 else None
+    quantile = float(usable.quantile(0.05)) if len(usable) >= 2 else None
+    tail_count = max(1, ceil(len(usable) * 0.05))
+    tail = usable.nsmallest(tail_count) if quantile is not None else pd.Series(dtype=float)
+    value_at_risk = max(0.0, -quantile) if quantile is not None else None
+    expected_shortfall = max(0.0, -float(tail.mean())) if not tail.empty else None
+    monthly = _period_returns(performance_index, "ME")
+    yearly = _period_returns(performance_index, "YE")
+    worst_month_at, worst_month_return = _worst_period(monthly, "%Y-%m")
+    worst_year_at, worst_year_return = _worst_period(yearly, "%Y")
+    longest_drawdown, recovery = _drawdown_durations(performance_index)
+    return {
+        "sharpe_ratio": sharpe,
+        "sortino_ratio": sortino,
+        "calmar_ratio": calmar,
+        "downside_deviation": downside_daily * sqrt(252) if downside_daily is not None else None,
+        "value_at_risk_95": value_at_risk,
+        "expected_shortfall_95": expected_shortfall,
+        "worst_month": worst_month_at,
+        "worst_month_return": worst_month_return,
+        "worst_year": worst_year_at,
+        "worst_year_return": worst_year_return,
+        "longest_drawdown_days": longest_drawdown,
+        "maximum_drawdown_recovery_days": recovery,
+    }
+
+
+def _period_returns(performance_index: pd.Series, frequency: str) -> pd.Series:
+    if performance_index.empty:
+        return pd.Series(dtype=float)
+    period_end = performance_index.resample(frequency).last().dropna()
+    returns = period_end.pct_change()
+    if not returns.empty:
+        returns.iloc[0] = period_end.iloc[0] - 1
+    return returns.dropna()
+
+
+def _worst_period(returns: pd.Series, date_format: str) -> tuple[str | None, float | None]:
+    if returns.empty:
+        return None, None
+    timestamp = returns.idxmin()
+    return timestamp.strftime(date_format), float(returns.loc[timestamp])
+
+
+def _drawdown_durations(performance_index: pd.Series) -> tuple[int, int | None]:
+    if performance_index.empty:
+        return 0, None
+    running_peak = performance_index.cummax()
+    underwater = performance_index < running_peak
+    longest = 0
+    peak_date = performance_index.index[0]
+    in_drawdown = False
+    for timestamp, is_underwater in underwater.items():
+        if is_underwater:
+            in_drawdown = True
+        else:
+            if in_drawdown:
+                longest = max(longest, (timestamp - peak_date).days)
+                in_drawdown = False
+            peak_date = timestamp
+    if in_drawdown:
+        longest = max(longest, (performance_index.index[-1] - peak_date).days)
+
+    drawdowns = performance_index.div(running_peak).sub(1)
+    trough = drawdowns.idxmin()
+    peak_value = float(running_peak.loc[trough])
+    recovered = performance_index.loc[trough:]
+    recovered = recovered[recovered >= peak_value]
+    recovery_days = (recovered.index[0] - trough).days if not recovered.empty else None
+    return longest, recovery_days
+
+
+def _asset_correlation(prices: pd.DataFrame, dividends: pd.DataFrame) -> pd.DataFrame:
+    previous_prices = prices.shift(1)
+    total_returns = prices.add(dividends, fill_value=0).div(previous_prices).sub(1)
+    total_returns = total_returns.replace([float("inf"), float("-inf")], pd.NA)
+    usable = total_returns.dropna(how="all")
+    return usable.corr(min_periods=2)
 
 
 def _position_result(

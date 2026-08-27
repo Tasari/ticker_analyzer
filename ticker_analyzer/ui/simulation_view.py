@@ -9,6 +9,7 @@ import plotly.express as px
 import streamlit as st
 
 from ticker_analyzer.portfolio.advanced_simulation import (
+    AdvancedSimulationResult,
     SimulationAssumptions,
     SimulationComparison,
     simulate_strategies,
@@ -218,7 +219,7 @@ def _assumption_controls(contribution_amount: float) -> SimulationAssumptions:
             )
         ) / 100
 
-        costs = st.columns(6)
+        costs = st.columns(4)
         commission_percent = _percent_input(costs[0], "Commission (%)", "simulation_commission_percent")
         commission_fixed = float(
             costs[1].number_input(
@@ -230,9 +231,11 @@ def _assumption_controls(contribution_amount: float) -> SimulationAssumptions:
             )
         )
         spread_percent = _percent_input(costs[2], "Spread / trade (%)", "simulation_spread_percent")
-        capital_gains_tax = _percent_input(costs[3], "Capital gains tax (%)", "simulation_gains_tax")
-        dividend_tax = _percent_input(costs[4], "Dividend tax (%)", "simulation_dividend_tax")
-        inflation = _percent_input(costs[5], "Inflation p.a. (%)", "simulation_inflation")
+        inflation = _percent_input(costs[3], "Inflation p.a. (%)", "simulation_inflation")
+        risk = st.columns(3)
+        capital_gains_tax = _percent_input(risk[0], "Capital gains tax (%)", "simulation_gains_tax")
+        dividend_tax = _percent_input(risk[1], "Dividend tax (%)", "simulation_dividend_tax")
+        risk_free_rate = _percent_input(risk[2], "Risk-free rate p.a. (%)", "simulation_risk_free_rate")
         st.caption(
             "Tax is charged on estimated positive realized gains and dividends. No tax-lot optimization, allowances, "
             "loss carry-forward or broker-specific rounding is modeled."
@@ -247,6 +250,7 @@ def _assumption_controls(contribution_amount: float) -> SimulationAssumptions:
         capital_gains_tax_percent=capital_gains_tax,
         dividend_tax_percent=dividend_tax,
         annual_inflation_percent=inflation,
+        annual_risk_free_rate_percent=risk_free_rate,
         dividend_policy=dividend_policy,
         cash_weight=cash_weight,
     )
@@ -513,6 +517,13 @@ def _render_simulation_comparison(
                 "Real TWR": result.real_time_weighted_return * 100,
                 "Max drawdown": result.maximum_drawdown * 100,
                 "Volatility": result.annualized_volatility * 100 if result.annualized_volatility is not None else None,
+                "Sharpe": result.sharpe_ratio,
+                "Sortino": result.sortino_ratio,
+                "Calmar": result.calmar_ratio,
+                "VaR 95% (daily)": result.value_at_risk_95 * 100 if result.value_at_risk_95 is not None else None,
+                "Expected Shortfall 95%": (
+                    result.expected_shortfall_95 * 100 if result.expected_shortfall_95 is not None else None
+                ),
                 "Fees": result.fees_paid,
                 "Taxes": result.taxes_paid,
                 "Gross dividends": result.dividends_received,
@@ -536,6 +547,11 @@ def _render_simulation_comparison(
             "Real TWR": st.column_config.NumberColumn(format="%.2f%%"),
             "Max drawdown": st.column_config.NumberColumn(format="%.2f%%"),
             "Volatility": st.column_config.NumberColumn(format="%.2f%%"),
+            "Sharpe": st.column_config.NumberColumn(format="%.2f"),
+            "Sortino": st.column_config.NumberColumn(format="%.2f"),
+            "Calmar": st.column_config.NumberColumn(format="%.2f"),
+            "VaR 95% (daily)": st.column_config.NumberColumn(format="%.2f%%"),
+            "Expected Shortfall 95%": st.column_config.NumberColumn(format="%.2f%%"),
             "Fees": st.column_config.NumberColumn(format=f"%.2f {currency}"),
             "Taxes": st.column_config.NumberColumn(format=f"%.2f {currency}"),
             "Gross dividends": st.column_config.NumberColumn(format=f"%.2f {currency}"),
@@ -580,6 +596,8 @@ def _render_simulation_comparison(
     )
     figure.update_layout(yaxis_title=f"Value ({currency})", xaxis_title=None)
     st.plotly_chart(figure, width="stretch")
+
+    _render_risk_analytics(result)
 
     frame = pd.DataFrame(
         [
@@ -626,9 +644,67 @@ def _render_simulation_comparison(
     )
 
 
+def _render_risk_analytics(result: AdvancedSimulationResult) -> None:
+    st.markdown("#### Risk analytics")
+    ratios = st.columns(6)
+    ratios[0].metric("Sharpe", _ratio(result.sharpe_ratio))
+    ratios[1].metric("Sortino", _ratio(result.sortino_ratio))
+    ratios[2].metric("Calmar", _ratio(result.calmar_ratio))
+    ratios[3].metric("Downside deviation", _percent(result.downside_deviation))
+    ratios[4].metric("Daily VaR 95%", _percent(result.value_at_risk_95))
+    ratios[5].metric("Daily Expected Shortfall 95%", _percent(result.expected_shortfall_95))
+    st.caption(
+        "Sharpe and Sortino use the configured risk-free rate. VaR and Expected Shortfall are historical daily "
+        "loss estimates; they are not maximum-loss guarantees."
+    )
+
+    periods = st.columns(4)
+    periods[0].metric(
+        "Worst month",
+        result.worst_month or "N/A",
+        _percent(result.worst_month_return),
+        delta_color="off",
+    )
+    periods[1].metric(
+        "Worst year",
+        result.worst_year or "N/A",
+        _percent(result.worst_year_return),
+        delta_color="off",
+    )
+    periods[2].metric("Longest drawdown", f"{result.longest_drawdown_days} days")
+    periods[3].metric(
+        "Recovery from max drawdown",
+        (
+            f"{result.maximum_drawdown_recovery_days} days"
+            if result.maximum_drawdown_recovery_days is not None
+            else "Not recovered"
+        ),
+    )
+
+    correlation = result.correlation_matrix.dropna(axis=0, how="all").dropna(axis=1, how="all")
+    st.markdown("##### Component correlations")
+    if correlation.empty:
+        st.caption("Not enough overlapping observations to calculate component correlations.")
+        return
+    figure = px.imshow(
+        correlation,
+        text_auto=".2f",
+        zmin=-1,
+        zmax=1,
+        color_continuous_scale="RdBu_r",
+        aspect="auto",
+    )
+    figure.update_layout(coloraxis_colorbar_title="Correlation")
+    st.plotly_chart(figure, width="stretch")
+
+
 def _money(value: float, currency: str) -> str:
     return f"{value:,.2f} {currency}"
 
 
 def _percent(value: float | None) -> str:
     return "N/A" if value is None else f"{value:.2%}"
+
+
+def _ratio(value: float | None) -> str:
+    return "N/A" if value is None else f"{value:.2f}"

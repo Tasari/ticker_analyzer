@@ -224,6 +224,8 @@ class StreamlitAppTest(unittest.TestCase):
             app.session_state["simulation_output"]["result"].buy_and_hold.final_value,
             11_000,
         )
+        self.assertTrue(any("Risk analytics" in item.value for item in app.markdown))
+        self.assertTrue(any(metric.label == "Sharpe" for metric in app.metric))
 
     def test_account_statement_pseudo_ticker_can_open_simulation_without_stocks(self):
         app = AppTest.from_file("app.py", default_timeout=10)
