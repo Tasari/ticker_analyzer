@@ -11,6 +11,7 @@ from ticker_analyzer.ui.simulation_view import (
     _cached_fx_factor,
     _convert_to_base_currency,
     _fetch_simulation_histories,
+    _fetch_simulation_market_data,
     _simulation_history_start,
 )
 
@@ -79,6 +80,25 @@ class SimulationViewTest(unittest.TestCase):
             )
 
         self.assertEqual(list(converted), [120.0, 137.5])
+
+    def test_market_data_fetch_keeps_prices_and_dividends_separate(self):
+        index = pd.to_datetime(["2024-01-02", "2024-01-03"])
+        prices = pd.Series([100.0, 102.0], index=index)
+        dividends = pd.Series([1.5], index=index[1:])
+        with patch(
+            "ticker_analyzer.ui.simulation_view._cached_market_history",
+            return_value=(prices, dividends),
+        ):
+            fetched_prices, fetched_dividends, warnings = _fetch_simulation_market_data(
+                {"A": {"currency": "USD"}},
+                date(2024, 1, 1),
+                date(2024, 1, 3),
+                "USD",
+            )
+
+        self.assertEqual(list(fetched_prices["A"]), [100, 102])
+        self.assertEqual(list(fetched_dividends["A"]), [1.5])
+        self.assertEqual(warnings, [])
 
     def test_converts_london_pence_to_pounds_before_base_conversion(self):
         prices = pd.Series([250.0], index=pd.to_datetime(["2024-01-02"]))

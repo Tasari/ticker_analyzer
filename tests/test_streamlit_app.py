@@ -5,6 +5,7 @@ import textwrap
 import unittest
 from unittest.mock import patch
 
+import pandas as pd
 from streamlit.testing.v1 import AppTest
 from tests.test_account_statement import statement_workbook
 from ticker_analyzer.portfolio.returns import (
@@ -207,6 +208,22 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertTrue(any(tab.label == "Simulation" for tab in app.tabs))
         self.assertTrue(any(header.value == "Portfolio Simulation" for header in app.subheader))
+
+        def market_data(_results, start_date, end_date, _currency, **_kwargs):
+            prices = pd.Series([100.0, 110.0], index=pd.to_datetime([start_date, end_date]))
+            return {"AAPL": prices}, {"AAPL": pd.Series(dtype=float)}, []
+
+        with patch(
+            "ticker_analyzer.ui.simulation_view._fetch_simulation_market_data",
+            side_effect=market_data,
+        ):
+            next(button for button in app.button if button.label == "Run simulation").click().run()
+
+        self.assertFalse(app.exception)
+        self.assertAlmostEqual(
+            app.session_state["simulation_output"]["result"].buy_and_hold.final_value,
+            11_000,
+        )
 
     def test_account_statement_pseudo_ticker_can_open_simulation_without_stocks(self):
         app = AppTest.from_file("app.py", default_timeout=10)
