@@ -208,6 +208,7 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertTrue(any(tab.label == "Simulation" for tab in app.tabs))
         self.assertTrue(any(header.value == "Portfolio Simulation" for header in app.subheader))
+        self.assertTrue(any(tab.label == "Fair Value" for tab in app.tabs))
 
         def market_data(_results, start_date, end_date, _currency, **_kwargs):
             prices = pd.Series([100.0, 110.0], index=pd.to_datetime([start_date, end_date]))

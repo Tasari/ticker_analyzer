@@ -8,6 +8,7 @@ import streamlit as st
 
 from ticker_analyzer.analysis.explanations import analysis_insights
 from ticker_analyzer.scoring import format_metric_value
+from ticker_analyzer.ui.fair_value_view import render_fair_value
 
 
 def render_analysis_errors(errors: dict[str, str]) -> None:
@@ -261,7 +262,9 @@ def render_score_explanation(result: dict) -> None:
 
 
 def render_tabs(result: dict) -> None:
-    growth_tab, fundamentals_tab, value_tab = st.tabs(["Growth", "Fundamentals", "Value"])
+    growth_tab, fundamentals_tab, value_tab, fair_value_tab = st.tabs(
+        ["Growth", "Fundamentals", "Value", "Fair Value"]
+    )
     tab_map = {
         "Growth": growth_tab,
         "Fundamentals": fundamentals_tab,
@@ -270,6 +273,8 @@ def render_tabs(result: dict) -> None:
     for name, tab in tab_map.items():
         with tab:
             render_tab(name, result["tabs"].get(name, {}), result.get("charts", {}))
+    with fair_value_tab:
+        render_fair_value(result)
 
 
 def render_tab(name: str, tab_result: dict, charts: dict) -> None:

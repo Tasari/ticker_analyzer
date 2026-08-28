@@ -235,6 +235,14 @@ def build_raw_metrics(
         "pe_current": metric_value(current_pe, current_pe_source),
         "pb_current": metric_value(current_pb, current_pb_source),
         "ev_ebitda_current": metric_value(current_ev_ebitda, current_ev_ebitda_source),
+        "fair_value_eps": metric_value(
+            clean_number(info.get("trailingEps")),
+            "Trailing earnings per share used only by the independent Fair Value models",
+        ),
+        "fair_value_dividend_per_share": metric_value(
+            clean_number(info.get("dividendRate") or info.get("trailingAnnualDividendRate")),
+            "Annual dividend per share used only by the independent dividend discount model",
+        ),
         "fcf_yield": metric_value(fcf_yield(info, annual_cashflow), "Latest annual free cash flow divided by current market capitalization"),
         "fcf_yield_ttm": metric_value(
             fcf_yield_ttm,
