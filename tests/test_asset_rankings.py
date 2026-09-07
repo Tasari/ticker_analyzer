@@ -53,6 +53,7 @@ class AssetRankingTests(unittest.TestCase):
         self.assertTrue(response.checked)
         self.assertEqual(rows[0]["ticker"], "CSPX.L")
         self.assertEqual(rows[0]["name"], "iShares Core S&P 500")
+        self.assertEqual(rows[0]["currency"], "USD")
         self.assertEqual(rows[0]["return_1y"], 4.0)
         sent = request.call_args.kwargs["json"]
         self.assertEqual(sent["filter"][0]["right"], "fund")
@@ -81,10 +82,25 @@ class AssetRankingTests(unittest.TestCase):
         rows = fetch_crypto_market(100, request=request)
 
         self.assertEqual(rows[0]["ticker"], "BTC-USD")
+        self.assertEqual((rows[0]["market"], rows[0]["currency"]), ("Crypto", "USD"))
         self.assertEqual(rows[0]["volume_market_cap"], 0.1)
         self.assertEqual(rows[1]["ticker"], "BTC-WRAPPED-BITCOIN-USD")
         self.assertIsNone(rows[1]["volume_market_cap"])
         self.assertEqual(request.call_args.kwargs["params"]["per_page"], 100)
+
+    def test_fetch_etfs_converts_minor_quote_units(self):
+        response = Response(
+            {"data": [{"s": "LSE:TEST", "d": ["TEST", "Test", 12_345, "GBp", "LSE", "UK", 1, 2, 3, 4, 5, 1_000]}]}
+        )
+
+        rows = fetch_etfs_for_exchange(
+            1, scanner_market="uk", country="United Kingdom", market="London Stock Exchange",
+            yahoo_suffix=".L", request=Mock(return_value=response),
+        )
+
+        self.assertEqual(rows[0]["price"], 123.45)
+        self.assertEqual(rows[0]["currency"], "GBP")
+        self.assertEqual(rows[0]["traded_value"], 10.0)
 
     def test_fetch_crypto_skips_missing_symbols_and_caps_limit(self):
         request = Mock(return_value=Response([{"id": "blank", "symbol": ""}]))

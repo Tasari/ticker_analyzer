@@ -10,6 +10,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from ticker_analyzer.domain import AnalysisRanges, DataProvenance, MarketData
+from ticker_analyzer.markets import normalize_price_history, normalize_quote_info
 
 TIMESERIES_TYPES = {
     "annualTotalRevenue": ("income", "Total Revenue"),
@@ -99,7 +100,6 @@ class PublicYahooRankingProvider:
         )
         current_price = chart_meta.get("regularMarketPrice")
         currency = chart_meta.get("currency") or "USD"
-        value_history = _valuation_price_history(value_history, currency)
         info = {
             "symbol": ticker_symbol,
             "longName": profile.get("longname") or item.get("company_name") or profile.get("shortname") or ticker_symbol,
@@ -110,7 +110,13 @@ class PublicYahooRankingProvider:
             "sector": item.get("sector") or profile.get("sector") or profile.get("sectorDisp") or "",
             "quoteType": "EQUITY",
             "currency": currency,
+            "exchange": chart_meta.get("exchangeName") or item.get("exchange"),
+            "country": item.get("country"),
+            "exchangeTimezoneName": chart_meta.get("exchangeTimezoneName"),
         }
+        info = normalize_quote_info(info, ticker_symbol)
+        growth_history = normalize_price_history(growth_history, currency)
+        value_history = normalize_price_history(value_history, currency)
         shares = _latest_value(statements["balance"], "Ordinary Shares Number") or _latest_value(
             statements["balance"], "Share Issued"
         )
@@ -256,12 +262,7 @@ def _latest_value(frame: pd.DataFrame, row: str) -> float | None:
 
 
 def _valuation_price_history(history: pd.DataFrame, currency: Any) -> pd.DataFrame:
-    label = str(currency or "").strip()
-    if history.empty or "Close" not in history or not (label == "GBp" or label.upper() == "GBX"):
-        return history
-    normalized = history.copy()
-    normalized["Close"] = pd.to_numeric(normalized["Close"], errors="coerce") / 100
-    return normalized
+    return normalize_price_history(history, currency)
 
 
 def _years(label: str) -> int:

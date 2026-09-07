@@ -12,7 +12,7 @@ from typing import Any
 from ticker_analyzer.ranking.universe import UNIVERSE_SCHEMA_VERSION, market_counts
 
 SCORING_VERSION = 5
-PROVIDER_SCHEMA_VERSION = "providers-v2"
+PROVIDER_SCHEMA_VERSION = "providers-v3-markets"
 METRIC_SCHEMA_VERSION = "metrics-v5"
 
 
@@ -53,6 +53,13 @@ def ranking_row(
         **universe_item,
         "company_name": analysis.get("company_name") or universe_item.get("company_name"),
         "profile": analysis.get("profile"),
+        "currency": analysis.get("currency"),
+        "quote_currency": analysis.get("quote_currency"),
+        "quote_unit_scale": analysis.get("quote_unit_scale", 1),
+        "price": analysis.get("current_price"),
+        "market": universe_item.get("market") or analysis.get("market"),
+        "country": universe_item.get("country") or analysis.get("country"),
+        "exchange": universe_item.get("exchange") or analysis.get("exchange"),
         "overall_score": analysis.get("overall_score"),
         "rating": analysis.get("rating"),
         "rating_code": analysis.get("rating_code"),

@@ -3,34 +3,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from ticker_analyzer.markets import MARKET_SUFFIXES
 from ticker_analyzer.portfolio.returns import ACCOUNT_STATEMENT_TICKER
 
 TICKER_PATTERN = re.compile(r"^[A-Z0-9.^=-]{1,32}$")
-
-MARKET_SUFFIXES: dict[str, str] = {
-    "Full Yahoo symbol": "",
-    "United States / ADR": "",
-    "Poland (Warsaw)": ".WA",
-    "United Kingdom (London)": ".L",
-    "Germany (Xetra)": ".DE",
-    "France (Paris)": ".PA",
-    "Spain (Madrid)": ".MC",
-    "Italy (Milan)": ".MI",
-    "Portugal (Lisbon)": ".LS",
-    "Netherlands (Amsterdam)": ".AS",
-    "Belgium (Brussels)": ".BR",
-    "Austria (Vienna)": ".VI",
-    "Switzerland": ".SW",
-    "Denmark (Copenhagen)": ".CO",
-    "Finland (Helsinki)": ".HE",
-    "Norway (Oslo)": ".OL",
-    "Sweden (Stockholm)": ".ST",
-    "Hong Kong": ".HK",
-    "Japan (Tokyo)": ".T",
-    "Canada (Toronto)": ".TO",
-    "Australia": ".AX",
-}
-
 
 def normalize_ticker(value: Any) -> str | None:
     ticker = str(value or "").strip().upper().replace("/", "-")

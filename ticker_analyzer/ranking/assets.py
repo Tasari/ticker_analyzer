@@ -7,6 +7,7 @@ from typing import Any
 
 import requests
 
+from ticker_analyzer.markets import currency_convention
 from ticker_analyzer.numbers import clean_number
 from ticker_analyzer.ranking.storage import CRYPTO_RANKING_PATH, ETF_RANKING_PATH, save_ranking
 from ticker_analyzer.ranking.universe import XTB_EXCHANGE_MARKETS, yahoo_ticker_from_tradingview
@@ -58,6 +59,9 @@ def fetch_etfs_for_exchange(
         ticker = yahoo_ticker_from_tradingview(source.get("s") or values.get("name"), yahoo_suffix)
         if not ticker:
             continue
+        currency, unit_scale = currency_convention(values.get("currency"))
+        price = clean_number(values.get("close"))
+        traded_value = clean_number(values.get("Value.Traded"))
         rows.append(
             {
                 "ticker": ticker,
@@ -65,14 +69,16 @@ def fetch_etfs_for_exchange(
                 "exchange": values.get("exchange") or str(source.get("s") or "").partition(":")[0],
                 "country": values.get("country") or country,
                 "market": market,
-                "price": clean_number(values.get("close")),
-                "currency": values.get("currency"),
+                "price": price * unit_scale if price is not None else None,
+                "currency": currency,
+                "quote_currency": values.get("currency"),
+                "quote_unit_scale": unit_scale,
                 "return_1m": clean_number(values.get("Perf.1M")),
                 "return_3m": clean_number(values.get("Perf.3M")),
                 "return_6m": clean_number(values.get("Perf.6M")),
                 "return_1y": clean_number(values.get("Perf.Y")),
                 "volatility_1m": clean_number(values.get("Volatility.M")),
-                "traded_value": clean_number(values.get("Value.Traded")),
+                "traded_value": traded_value * unit_scale if traded_value is not None else None,
             }
         )
     return rows[:limit]
@@ -115,6 +121,8 @@ def fetch_crypto_market(
                 "coin_id": source.get("id"),
                 "name": source.get("name") or symbol,
                 "symbol": symbol,
+                "market": "Crypto",
+                "currency": "USD",
                 "price": clean_number(source.get("current_price")),
                 "market_cap": market_cap,
                 "market_cap_rank": source.get("market_cap_rank"),

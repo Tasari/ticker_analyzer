@@ -99,6 +99,7 @@ def render_company_cards(results: list[dict]) -> None:
         score = result.get("overall_score")
         with st.container(border=True):
             st.markdown(f"##### {result['company_name']} ({result['ticker']})")
+            st.caption(format_market_identity(result))
             columns = st.columns(7)
             columns[0].metric("Overall Score", "Missing" if score is None else f"{score:.1f}/100")
             columns[1].metric("Rating", result.get("rating", "Not Rated"))
@@ -121,6 +122,7 @@ def render_comparison_table(results: list[dict]) -> None:
             "Ticker": result["ticker"],
             "Company": result["company_name"],
             "Profile": result.get("profile", "Industrial"),
+            "Market": format_market_identity(result),
             "Price": format_company_price(result),
             "Overall Score": format_score(result.get("overall_score")),
             "Overall Rating": result.get("rating", "Not Rated"),
@@ -170,6 +172,15 @@ def format_company_price(result: dict) -> str:
     return "Missing" if price is None else f"{price:,.2f} {currency}".strip()
 
 
+def format_market_identity(result: dict) -> str:
+    parts = []
+    for value in (result.get("market") or result.get("exchange"), result.get("country")):
+        text = str(value or "").strip()
+        if text and text not in parts:
+            parts.append(text)
+    return " · ".join(parts) or "Market unavailable"
+
+
 def format_score(score: float | None) -> str:
     return "Missing" if score is None else f"{score:.1f}/100"
 
@@ -211,6 +222,7 @@ def render_summary(result: dict) -> None:
     score_label = "Not Rated" if score is None else f"{score:.1f}/100"
 
     st.subheader(f"{result['company_name']} ({result['ticker']})")
+    st.caption(format_market_identity(result))
     cols = st.columns(6)
     cols[0].metric("Overall Score", score_label)
     cols[1].metric("Rating", result.get("rating", "Not Rated"))

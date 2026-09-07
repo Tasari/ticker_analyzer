@@ -12,6 +12,12 @@ import pandas as pd
 import yfinance as yf
 
 from ticker_analyzer.domain import AnalysisRanges, DataProvenance, MarketData
+from ticker_analyzer.markets import (
+    currency_convention,
+    normalize_price_history,
+    normalize_price_targets,
+    normalize_quote_info,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +128,7 @@ class YFinanceProvider:
             growth_estimates=safe_frame(lambda: ticker.growth_estimates, label="growth estimates", diagnostics=diagnostics),
             diagnostics=diagnostics,
         )
-        result.value_history = valuation_price_history(result.value_history, result.info.get("currency"))
+        normalize_market_data(result)
         result.provenance = build_yfinance_provenance(result, fetched_at)
         fill_missing_core_data(result, ranges)
         return result
@@ -178,19 +184,25 @@ def statement_has_any_row(frame: pd.DataFrame, expected_rows: frozenset[str]) ->
 
 
 def valuation_price_history(history: pd.DataFrame, currency: Any) -> pd.DataFrame:
-    """Convert London pence quotes to the pounds used by financial statements."""
-    if history.empty or "Close" not in history or not is_minor_gbp_currency(currency):
-        return history
-    normalized = history.copy()
-    normalized["Close"] = pd.to_numeric(normalized["Close"], errors="coerce") / 100
-    if "Adj Close" in normalized:
-        normalized["Adj Close"] = pd.to_numeric(normalized["Adj Close"], errors="coerce") / 100
-    return normalized
+    """Compatibility wrapper for canonical major-currency price normalization."""
+    return normalize_price_history(history, currency)
 
 
 def is_minor_gbp_currency(currency: Any) -> bool:
-    label = str(currency or "").strip()
-    return label == "GBp" or label.upper() == "GBX"
+    canonical, scale = currency_convention(currency)
+    return canonical == "GBP" and scale != 1
+
+
+def normalize_market_data(data: MarketData) -> None:
+    """Normalize all quote prices and metadata to major currency units in-place."""
+    already_normalized = bool(data.info.get("quoteValuesNormalized"))
+    raw_currency = data.info.get("quoteCurrency") or data.info.get("currency")
+    data.info = normalize_quote_info(data.info, data.ticker)
+    if already_normalized:
+        return
+    data.growth_history = normalize_price_history(data.growth_history, raw_currency)
+    data.value_history = normalize_price_history(data.value_history, raw_currency)
+    data.analyst_targets = normalize_price_targets(data.analyst_targets, raw_currency)
 
 
 def clean_info_price(info: dict[str, Any]) -> float | None:

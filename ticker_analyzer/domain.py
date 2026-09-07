@@ -161,6 +161,12 @@ class StockAnalysis:
     config_version: int = 5
     calibration_version: str = "v5.2-value-2026Q3"
     diagnostics: list[dict[str, str]] = field(default_factory=list)
+    quote_currency: str = ""
+    quote_unit_scale: float = 1.0
+    market: str = ""
+    country: str = ""
+    exchange: str = ""
+    timezone: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -192,6 +198,12 @@ class StockAnalysis:
             "config_version": self.config_version,
             "calibration_version": self.calibration_version,
             "diagnostics": self.diagnostics,
+            "quote_currency": self.quote_currency,
+            "quote_unit_scale": self.quote_unit_scale,
+            "market": self.market,
+            "country": self.country,
+            "exchange": self.exchange,
+            "timezone": self.timezone,
         }
 
 

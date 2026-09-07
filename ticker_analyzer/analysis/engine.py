@@ -195,6 +195,12 @@ class StockAnalysisEngine:
             config_version=int(config.get("version", 5)),
             calibration_version=str(config.get("calibration_version", "v5.2-value-2026Q3")),
             diagnostics=data.diagnostics,
+            quote_currency=str(data.info.get("quoteCurrency") or data.info.get("currency") or ""),
+            quote_unit_scale=float(data.info.get("quoteUnitScale") or 1),
+            market=str(data.info.get("market") or ""),
+            country=str(data.info.get("country") or ""),
+            exchange=str(data.info.get("fullExchangeName") or data.info.get("exchange") or ""),
+            timezone=str(data.info.get("exchangeTimezoneName") or ""),
         )
 
     def _score_tabs(self, raw_metrics: dict[str, dict[str, Any]], config: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:

@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from ticker_analyzer.markets import currency_convention
 from ticker_analyzer.portfolio.advanced_simulation import (
     AdvancedSimulationResult,
     SimulationAssumptions,
@@ -290,7 +291,11 @@ def _fetch_simulation_market_data(
                 prices = _account_statement_prices(account_returns, history_start, end_date)
                 return ticker, prices, pd.Series(dtype=float), None
             prices, dividends = _cached_market_history(ticker, history_start, end_date)
-            currency = str(results[ticker].get("currency") or base_currency)
+            currency = str(
+                results[ticker].get("quote_currency")
+                or results[ticker].get("currency")
+                or base_currency
+            )
             return (
                 ticker,
                 _convert_to_base_currency(prices, currency, base_currency, history_start, end_date),
@@ -341,7 +346,11 @@ def _fetch_simulation_histories(
                     raise ReturnsTableError("the imported returns table is no longer available.")
                 return ticker, _account_statement_prices(account_returns, history_start, end_date), None
             prices = _cached_adjusted_prices(ticker, history_start, end_date)
-            currency = str(results[ticker].get("currency") or base_currency)
+            currency = str(
+                results[ticker].get("quote_currency")
+                or results[ticker].get("currency")
+                or base_currency
+            )
             converted = _convert_to_base_currency(
                 prices,
                 currency,
@@ -455,12 +464,10 @@ def _convert_to_base_currency(
     start_date: date,
     end_date: date,
 ) -> pd.Series:
-    raw_currency = source_currency.strip()
-    source = raw_currency.upper()
+    source, unit_scale = currency_convention(source_currency)
     converted = _daily_series(prices)
-    if raw_currency in {"GBp", "GBX"}:
-        converted = converted / 100
-        source = "GBP"
+    if unit_scale != 1:
+        converted = converted * unit_scale
     if not source or source == base_currency:
         return converted
     factor = _daily_series(_cached_fx_factor(source, base_currency, start_date, end_date))

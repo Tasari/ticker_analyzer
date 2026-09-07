@@ -7,25 +7,10 @@ from typing import Any
 import requests
 import yfinance as yf
 
-UNIVERSE_SCHEMA_VERSION = "xtb-exchanges-v6"
+from ticker_analyzer.markets import XTB_EXCHANGE_MARKETS as XTB_EXCHANGE_MARKETS
+
+UNIVERSE_SCHEMA_VERSION = "xtb-exchanges-v7"
 US_EXCHANGES = "US Exchanges"
-XTB_EXCHANGE_MARKETS: dict[str, tuple[str, str, str]] = {
-    "Warsaw Stock Exchange": ("poland", "Poland", ".WA"),
-    "London Stock Exchange": ("uk", "United Kingdom", ".L"),
-    "Xetra": ("germany", "Germany", ".DE"),
-    "Euronext Paris": ("france", "France", ".PA"),
-    "Bolsa de Madrid": ("spain", "Spain", ".MC"),
-    "Borsa Italiana": ("italy", "Italy", ".MI"),
-    "Euronext Lisbon": ("portugal", "Portugal", ".LS"),
-    "Euronext Amsterdam": ("netherlands", "Netherlands", ".AS"),
-    "Euronext Brussels": ("belgium", "Belgium", ".BR"),
-    "Vienna Stock Exchange": ("austria", "Austria", ".VI"),
-    "SIX Swiss Exchange": ("switzerland", "Switzerland", ".SW"),
-    "Nasdaq Copenhagen": ("denmark", "Denmark", ".CO"),
-    "Nasdaq Helsinki": ("finland", "Finland", ".HE"),
-    "Oslo Bors": ("norway", "Norway", ".OL"),
-    "Nasdaq Stockholm": ("sweden", "Sweden", ".ST"),
-}
 TRADINGVIEW_COLUMNS = (
     "name",
     "description",
