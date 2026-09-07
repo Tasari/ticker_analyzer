@@ -6,6 +6,9 @@ from ticker_analyzer.domain import AnalysisRanges
 from ticker_analyzer.providers.market_data import (
     YFinanceProvider,
     adjusted_price_history,
+    clean_info_price,
+    fill_missing_core_data,
+    is_transient_provider_error,
     normalize_statement,
     safe_dict,
     safe_frame,
@@ -94,6 +97,33 @@ class DataProviderTest(unittest.TestCase):
 
         self.assertTrue(result.empty)
         self.assertEqual(diagnostics, [])
+
+    def test_unauthorized_yahoo_response_is_transient(self):
+        self.assertTrue(is_transient_provider_error(RuntimeError("HTTP Error 401: Unauthorized")))
+
+    def test_clean_info_price_accepts_regular_market_fallback(self):
+        self.assertEqual(clean_info_price({"regularMarketPrice": "12.5"}), 12.5)
+
+    @patch("ticker_analyzer.ranking.provider.PublicYahooRankingProvider")
+    def test_missing_core_data_is_filled_from_public_yahoo(self, provider_class):
+        from ticker_analyzer.providers.sec import empty_market_data
+
+        primary = empty_market_data("ABC", info={"symbol": "ABC", "industry": "Industrials"})
+        fallback = empty_market_data(
+            "ABC",
+            info={"currentPrice": 12.0, "currency": "GBP"},
+            annual_income=pd.DataFrame({pd.Timestamp("2025-12-31"): [100.0]}, index=["Total Revenue"]),
+            value_history=pd.DataFrame({"Close": [12.0]}, index=[pd.Timestamp("2026-01-01")]),
+            diagnostics=[{"source": "batch provider", "kind": "fallback", "message": "public fallback"}],
+        )
+        provider_class.return_value.fetch.return_value = fallback
+
+        fill_missing_core_data(primary, AnalysisRanges.from_input("2Y"))
+
+        self.assertEqual(primary.info["currentPrice"], 12.0)
+        self.assertFalse(primary.annual_income.empty)
+        self.assertFalse(primary.value_history.empty)
+        self.assertEqual(primary.diagnostics[-1]["kind"], "fallback")
 
     def test_normalize_statement_preserves_callers_frame_by_default(self):
         original = pd.DataFrame({"2025-12-31": [1], "2024-12-31": [2]})

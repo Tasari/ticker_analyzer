@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 import pandas as pd
@@ -12,6 +14,26 @@ import yfinance as yf
 from ticker_analyzer.domain import AnalysisRanges, DataProvenance, MarketData
 
 logger = logging.getLogger(__name__)
+
+
+def configure_yfinance_cache() -> Path | None:
+    """Keep yfinance's SQLite caches in a location writable by hosted runtimes."""
+    cache_dir = Path(tempfile.gettempdir()) / "ticker-analyzer" / "yfinance"
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_module = getattr(yf, "cache", None)
+        setter = getattr(cache_module, "set_cache_location", None)
+        if setter is None:
+            setter = getattr(yf, "set_tz_cache_location", None)
+        if setter is not None:
+            setter(str(cache_dir))
+        return cache_dir
+    except (OSError, RuntimeError):
+        logger.warning("Could not configure the yfinance cache directory", exc_info=True)
+        return None
+
+
+YFINANCE_CACHE_DIR = configure_yfinance_cache()
 
 
 class MarketDataProvider(Protocol):
@@ -85,7 +107,55 @@ class YFinanceProvider:
             diagnostics=diagnostics,
         )
         result.provenance = build_yfinance_provenance(result, fetched_at)
+        fill_missing_core_data(result, ranges)
         return result
+
+
+def fill_missing_core_data(data: MarketData, ranges: AnalysisRanges) -> None:
+    """Recover core prices/statements when yfinance returns a partial response."""
+    annual_statements = (data.annual_income, data.annual_balance, data.annual_cashflow)
+    missing_prices = data.value_history.empty
+    missing_financials = sum(not frame.empty for frame in annual_statements) < 2
+    has_price = clean_info_price(data.info) is not None
+    needs_fallback = missing_prices or not has_price or missing_financials
+    if not needs_fallback:
+        return
+
+    try:
+        # The public chart and fundamentals-timeseries endpoints do not depend on
+        # yfinance's crumb/cookie state and are therefore a useful narrow fallback.
+        from ticker_analyzer.providers.merge import merge_market_data
+        from ticker_analyzer.ranking.provider import PublicYahooRankingProvider
+
+        fallback = PublicYahooRankingProvider(
+            {
+                data.ticker: {
+                    "company_name": data.info.get("longName") or data.info.get("shortName"),
+                    "market_cap": data.info.get("marketCap"),
+                    "industry": data.info.get("industry"),
+                    "sector": data.info.get("sector"),
+                }
+            }
+        ).fetch(data.ticker, ranges)
+        merge_market_data(data, fallback)
+        if missing_prices and "prices" in fallback.provenance:
+            data.provenance["prices"] = fallback.provenance["prices"]
+        if missing_financials and "financials" in fallback.provenance:
+            data.provenance["financials"] = fallback.provenance["financials"]
+        data.diagnostics.extend(fallback.diagnostics)
+    except Exception as exc:
+        record_fetch_failure("public Yahoo core-data fallback", exc, data.diagnostics)
+
+
+def clean_info_price(info: dict[str, Any]) -> float | None:
+    for key in ("currentPrice", "regularMarketPrice"):
+        try:
+            value = float(info.get(key))
+        except (TypeError, ValueError):
+            continue
+        if pd.notna(value):
+            return value
+    return None
 
 
 def adjusted_price_history(history: pd.DataFrame) -> pd.DataFrame:
@@ -169,6 +239,10 @@ def is_transient_provider_error(exc: Exception) -> bool:
             "network",
             "too many requests",
             "rate limit",
+            "unauthorized",
+            "invalid crumb",
+            "status code 401",
+            "http error 401",
             "status code 429",
             "status code 500",
             "status code 502",

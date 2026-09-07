@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import streamlit as st
 from ticker_analyzer.access_control import (
     render_access_gate,
@@ -82,6 +84,7 @@ def main() -> None:
                     market_tickers,
                     ranges,
                     config,
+                    cache_token=time.time_ns() if analyze_clicked else 0,
                 )
                 available_tickers = list(st.session_state.analysis_results)
                 if available_tickers and st.session_state.active_ticker not in available_tickers:

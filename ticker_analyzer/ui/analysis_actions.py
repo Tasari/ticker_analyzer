@@ -65,12 +65,26 @@ def analyze_one_ticker(
     cache_token: int = 0,
 ) -> TickerAnalysisOutcome:
     try:
-        return cached_ticker_analysis(ticker, ranges, config, id(analyze_ticker), cache_token), None
+        result = cached_ticker_analysis(ticker, ranges, config, id(analyze_ticker), cache_token)
+        if has_transient_data_failure(result):
+            # Do not preserve a temporarily degraded Yahoo response for 15 minutes.
+            # The current partial result remains visible, while the next analysis
+            # gets another chance to retrieve the missing endpoints.
+            cached_ticker_analysis.clear(ticker, ranges, config, id(analyze_ticker), cache_token)
+        return result, None
     except ValueError as exc:
         return None, str(exc)
     except Exception:
         logger.exception("Unexpected analysis failure for %s", ticker)
         return None, "Unexpected internal error. Check application logs."
+
+
+def has_transient_data_failure(result: AnalysisResult) -> bool:
+    return any(
+        item.get("kind") in {"network_error", "provider_error"}
+        for item in result.get("diagnostics", [])
+        if isinstance(item, dict)
+    )
 
 
 @st.cache_data(ttl=900, max_entries=MAX_ANALYSIS_CACHE_ENTRIES, show_spinner=False)

@@ -200,6 +200,26 @@ class UiActionsTest(unittest.TestCase):
         self.assertEqual(second_errors, {})
         self.assertEqual(analyze.call_count, 2)
 
+    def test_partial_provider_failure_is_not_cached(self):
+        cached_ticker_analysis.clear()
+        degraded = {
+            "ticker": "RETRY",
+            "diagnostics": [
+                {"source": "annual income statement", "kind": "provider_error", "message": "temporary"}
+            ],
+        }
+        healthy = {"ticker": "RETRY", "diagnostics": []}
+        with patch(
+            "ticker_analyzer.ui.analysis_actions.analyze_ticker",
+            side_effect=[degraded, healthy],
+        ) as analyze:
+            first, _ = analyze_selected_tickers(["RETRY"], {"Growth": "2Y"}, {})
+            second, _ = analyze_selected_tickers(["RETRY"], {"Growth": "2Y"}, {})
+
+        self.assertEqual(first["RETRY"], degraded)
+        self.assertEqual(second["RETRY"], healthy)
+        self.assertEqual(analyze.call_count, 2)
+
     def test_distinct_cache_tokens_force_fresh_watchlist_analysis(self):
         cached_ticker_analysis.clear()
         with patch(
