@@ -8,7 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from scripts.build_large_cap_ranking import SMOKE_OUTPUT_PATH, configure_run
+from scripts.build_large_cap_ranking import (
+    SMOKE_OUTPUT_PATH,
+    configure_run,
+    fetch_regional_market_universes,
+)
 from ticker_analyzer.ranking import (
     DEFAULT_RANKING_PATH,
     UNIVERSE_SCHEMA_VERSION,
@@ -89,6 +93,21 @@ class RankingTest(unittest.TestCase):
         self.assertEqual(markets, XTB_EXCHANGE_MARKETS)
         self.assertEqual(len(markets) + 1, 16)
         self.assertEqual(len({settings[2] for settings in markets.values()}), 15)
+
+    @patch("scripts.build_large_cap_ranking.time.sleep")
+    @patch("scripts.build_large_cap_ranking.fetch_tradingview_market_universe")
+    def test_one_unavailable_exchange_does_not_abort_other_stock_markets(self, fetch, _sleep):
+        fetch.side_effect = [[{"ticker": "AAA.L"}], RuntimeError("temporary scanner failure")]
+        exchanges = {
+            "London": ("uk", "United Kingdom", ".L"),
+            "Warsaw": ("poland", "Poland", ".WA"),
+        }
+
+        markets, warnings = fetch_regional_market_universes(exchanges, 100)
+
+        self.assertEqual(markets["London"], [{"ticker": "AAA.L"}])
+        self.assertEqual(markets["Warsaw"], [])
+        self.assertIn("Warsaw: RuntimeError: temporary scanner failure", warnings)
 
     def test_only_current_incomplete_universe_checkpoint_is_resumed(self):
         universe = [{"ticker": "A"}]

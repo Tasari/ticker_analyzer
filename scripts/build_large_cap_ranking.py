@@ -20,10 +20,10 @@ from ticker_analyzer.ranking import (
     fetch_large_cap_universe_nasdaq,
     fetch_tradingview_market_universe,
     load_ranking,
+    market_counts,
     normalize_ticker,
     save_ranking,
     select_exchange_listings,
-    validate_market_coverage,
 )
 from ticker_analyzer.ranking.provider import PublicYahooRankingProvider
 
@@ -61,6 +61,7 @@ def main() -> None:
 
     yf.set_tz_cache_location(str(Path(".yfinance_cache").resolve()))
     previous = None if args.restart else load_ranking(args.output)
+    universe_warnings = list((previous or {}).get("metadata", {}).get("universe_warnings", []))
     saved_universe = (previous or {}).get("universe", [])
     for item in saved_universe:
         item["ticker"] = normalize_ticker(item.get("ticker"))
@@ -94,24 +95,10 @@ def main() -> None:
         # Streamlit Cloud IPs are frequently rate-limited by Yahoo's screener.
         # TradingView provides the non-US exchange discovery data; Yahoo remains the
         # per-ticker analysis provider after symbols are mapped to its suffixes.
-        regional_by_name: dict[str, list[dict]] = {}
-        regional_errors: list[str] = []
-        for market, (scanner_market, country, yahoo_suffix) in selected_exchanges.items():
-            try:
-                regional_by_name[market] = fetch_tradingview_market_universe(
-                    args.market_limit,
-                    scanner_market=scanner_market,
-                    country=country,
-                    market=market,
-                    yahoo_suffix=yahoo_suffix,
-                )
-            except Exception as exc:
-                regional_by_name[market] = []
-                regional_errors.append(str(exc))
-            time.sleep(0.5)
-
-        if regional_errors:
-            raise RuntimeError("; ".join(regional_errors))
+        regional_by_name, universe_warnings = fetch_regional_market_universes(
+            selected_exchanges,
+            args.market_limit,
+        )
 
         regional_universes = [regional_by_name[name] for name in selected_exchanges]
         universe = combine_exchange_universes(
@@ -123,10 +110,13 @@ def main() -> None:
         )
         if not universe:
             raise RuntimeError("No ranking universe could be fetched from TradingView, Yahoo, or Nasdaq.")
-        validate_market_coverage(universe, [US_EXCHANGES, *required_markets])
+        counts = market_counts(universe)
+        missing_markets = [market for market in [US_EXCHANGES, *required_markets] if counts.get(market, 0) == 0]
+        if missing_markets:
+            universe_warnings.append("Temporarily unavailable markets: " + ", ".join(missing_markets))
         seed = previous or {"companies": [], "errors": []}
         seed["universe"] = universe
-        seed["metadata"] = {}
+        seed["metadata"] = {"universe_warnings": universe_warnings}
         save_ranking(seed, args.output)
     checkpoint = lambda payload: save_ranking(payload, args.output)  # noqa: E731
     analyzer = None
@@ -147,6 +137,7 @@ def main() -> None:
         data_as_of=args.data_as_of,
         **build_kwargs,
     )
+    result["metadata"]["universe_warnings"] = universe_warnings
     if profiling:
         _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
         tracemalloc.stop()
@@ -166,6 +157,29 @@ def configure_run(args: Any) -> dict[str, tuple[str, str, str]]:
     if args.output == DEFAULT_RANKING_PATH:
         args.output = SMOKE_OUTPUT_PATH
     return {market: XTB_EXCHANGE_MARKETS[market] for market in SMOKE_EXCHANGES}
+
+
+def fetch_regional_market_universes(
+    selected_exchanges: dict[str, tuple[str, str, str]],
+    market_limit: int,
+) -> tuple[dict[str, list[dict]], list[str]]:
+    """Fetch each market independently so one outage cannot abort all Stocks."""
+    regional_by_name: dict[str, list[dict]] = {}
+    warnings: list[str] = []
+    for market, (scanner_market, country, yahoo_suffix) in selected_exchanges.items():
+        try:
+            regional_by_name[market] = fetch_tradingview_market_universe(
+                market_limit,
+                scanner_market=scanner_market,
+                country=country,
+                market=market,
+                yahoo_suffix=yahoo_suffix,
+            )
+        except Exception as exc:
+            regional_by_name[market] = []
+            warnings.append(f"{market}: {type(exc).__name__}: {exc}")
+        time.sleep(0.5)
+    return regional_by_name, warnings
 
 
 if __name__ == "__main__":

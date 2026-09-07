@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from ticker_analyzer.ranking import (
+    DEFAULT_RANKING_PATH,
     RankingSnapshotError,
     import_ranking,
     load_ranking,
@@ -134,16 +135,36 @@ def _mark_ranking_restart_confirmed() -> None:
     st.session_state["ranking_restart_confirmed"] = True
 
 
+def _load_stock_ranking_for_display() -> tuple[dict, bool]:
+    snapshot = load_ranking()
+    if snapshot.get("companies"):
+        return snapshot, False
+    checkpoint_path = DEFAULT_RANKING_PATH.with_suffix(".refresh.json")
+    checkpoint = load_ranking(checkpoint_path)
+    if checkpoint.get("companies"):
+        return checkpoint, True
+    return snapshot, False
+
+
 def _render_stock_ranking() -> None:
     st.subheader("Large Cap Ranking — Scoring v5.2")
-    payload = load_ranking()
+    payload, is_checkpoint = _load_stock_ranking_for_display()
     _render_snapshot_transfer(payload)
     metadata = payload.get("metadata", {})
     companies = payload.get("companies", [])
     errors = payload.get("errors", [])
     if not companies:
-        st.info("Ranking data has not been generated yet.")
+        st.info("Ranking data has not been generated yet. Use Update all rankings to start it.")
         return
+    if is_checkpoint:
+        processed = int(metadata.get("processed", len(companies) + len(errors)) or 0)
+        requested = int(metadata.get("requested", 0) or 0)
+        st.warning(
+            f"Showing a saved in-progress Stocks checkpoint ({processed:,}/{requested:,}). "
+            "Use Update all rankings to resume it, or confirm Restart to discard it."
+        )
+    for warning in metadata.get("universe_warnings", []):
+        st.warning(f"Stock universe: {warning}")
     st.caption(
         f"{metadata.get('universe', 'Large-cap equities')} · generated {metadata.get('generated_at', 'unknown')} · "
         f"analyzed {metadata.get('analyzed', 0)}/{metadata.get('requested', 0)} · "

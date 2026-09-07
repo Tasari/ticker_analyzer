@@ -377,6 +377,21 @@ class StreamlitAppTest(unittest.TestCase):
         table = app.dataframe[0].value
         self.assertEqual(list(table["Ticker"]), ["PKN.WA"])
 
+    def test_stock_ranking_uses_partial_checkpoint_when_snapshot_is_missing(self):
+        from ticker_analyzer.ui import ranking_view
+
+        empty = {"metadata": {}, "companies": [], "errors": []}
+        checkpoint = {
+            "metadata": {"complete": False, "processed": 25, "requested": 100},
+            "companies": [{"ticker": "AAPL"}],
+            "errors": [],
+        }
+        with patch.object(ranking_view, "load_ranking", side_effect=[empty, checkpoint]):
+            payload, is_checkpoint = ranking_view._load_stock_ranking_for_display()
+
+        self.assertTrue(is_checkpoint)
+        self.assertEqual(payload["companies"][0]["ticker"], "AAPL")
+
 
 if __name__ == "__main__":
     unittest.main()

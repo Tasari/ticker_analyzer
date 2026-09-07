@@ -103,7 +103,8 @@ def refresh_large_cap_ranking(
                 time.sleep(0.5)
         if process.returncode != 0:
             detail = read_log_tail(log_path) or "Unknown generator error"
-            return False, f"Ranking update failed: {detail}", {}
+            checkpoint_metadata = load_ranking(refresh_path).get("metadata", {}) if refresh_path.exists() else {}
+            return False, f"Ranking update failed: {detail}", checkpoint_metadata
         payload = load_ranking(refresh_path)
         metadata = payload.get("metadata", {})
         if progress_callback:
