@@ -55,7 +55,12 @@ def merge_market_data(primary: MarketData, fallback: MarketData) -> None:
             if isinstance(other, pd.DataFrame) and not other.empty:
                 setattr(primary, name, merge_observations(current, other))
         elif isinstance(current, dict) and isinstance(other, dict):
-            setattr(primary, name, {**other, **{key: value for key, value in current.items() if value is not None}})
+            populated = {
+                key: value
+                for key, value in current.items()
+                if value is not None and value != ""
+            }
+            setattr(primary, name, {**other, **populated})
     primary.provenance = {**fallback.provenance, **primary.provenance}
     primary.official_ids = {**fallback.official_ids, **primary.official_ids}
 

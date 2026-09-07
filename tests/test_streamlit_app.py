@@ -61,6 +61,23 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertTrue(any(button.label == "Analyze" for button in app.sidebar.button))
         self.assertTrue(any("click Analyze now" in element.value for element in app.info))
 
+    def test_stale_in_session_analysis_is_refetched_after_provider_upgrade(self):
+        with patch(
+            "ticker_analyzer.ui.analysis_actions.analyze_selected_tickers",
+            return_value=({}, {}),
+        ) as analyze:
+            app = AppTest.from_file("app.py", default_timeout=10)
+            app.session_state["_site_access_authenticated"] = True
+            app.session_state["selected_tickers"] = ["BGEO.L"]
+            app.session_state["analysis_results"] = {"BGEO.L": {"overall_score": None}}
+            app.session_state["analysis_result_version"] = "providers-v3"
+            app.session_state["automatic_analysis_attempted"] = True
+            app.run()
+
+        self.assertFalse(app.exception)
+        analyze.assert_called_once()
+        self.assertEqual(app.session_state["analysis_result_version"], "providers-v4")
+
     def test_switches_from_ranking_to_empty_analyzer_without_fetching(self):
         app = AppTest.from_file("app.py", default_timeout=10)
         app.session_state["_site_access_authenticated"] = True
@@ -234,6 +251,7 @@ class StreamlitAppTest(unittest.TestCase):
         app.session_state["_site_access_authenticated"] = True
         app.session_state["selected_tickers"] = ["AAPL"]
         app.session_state["analysis_results"] = {"AAPL": result}
+        app.session_state["analysis_result_version"] = "providers-v4"
         app.session_state["analysis_errors"] = {}
         app.session_state["active_ticker"] = "AAPL"
 

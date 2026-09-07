@@ -8,11 +8,14 @@ from ticker_analyzer.providers.market_data import (
     adjusted_price_history,
     clean_info_price,
     fill_missing_core_data,
+    is_minor_gbp_currency,
     is_transient_provider_error,
     normalize_statement,
     safe_dict,
     safe_frame,
     safe_statement,
+    statement_has_any_row,
+    valuation_price_history,
 )
 
 
@@ -111,7 +114,7 @@ class DataProviderTest(unittest.TestCase):
         primary = empty_market_data("ABC", info={"symbol": "ABC", "industry": "Industrials"})
         fallback = empty_market_data(
             "ABC",
-            info={"currentPrice": 12.0, "currency": "GBP"},
+            info={"currentPrice": 12.0, "currency": "GBP", "sector": "Financial Services"},
             annual_income=pd.DataFrame({pd.Timestamp("2025-12-31"): [100.0]}, index=["Total Revenue"]),
             value_history=pd.DataFrame({"Close": [12.0]}, index=[pd.Timestamp("2026-01-01")]),
             diagnostics=[{"source": "batch provider", "kind": "fallback", "message": "public fallback"}],
@@ -121,9 +124,27 @@ class DataProviderTest(unittest.TestCase):
         fill_missing_core_data(primary, AnalysisRanges.from_input("2Y"))
 
         self.assertEqual(primary.info["currentPrice"], 12.0)
+        self.assertEqual(primary.info["sector"], "Financial Services")
         self.assertFalse(primary.annual_income.empty)
         self.assertFalse(primary.value_history.empty)
         self.assertEqual(primary.diagnostics[-1]["kind"], "fallback")
+        self.assertTrue(provider_class.call_args.kwargs["enrich_profile"])
+
+    def test_nonempty_but_irrelevant_statement_is_not_treated_as_core_data(self):
+        sparse = pd.DataFrame({pd.Timestamp("2025-12-31"): [1.0]}, index=["Tax Effect Of Unusual Items"])
+
+        self.assertFalse(statement_has_any_row(sparse, frozenset({"Total Revenue"})))
+
+    def test_london_pence_history_is_converted_for_valuation_only(self):
+        history = pd.DataFrame({"Close": [13_620.0], "Adj Close": [13_500.0]})
+
+        normalized = valuation_price_history(history, "GBp")
+
+        self.assertEqual(normalized["Close"].iloc[0], 136.2)
+        self.assertEqual(normalized["Adj Close"].iloc[0], 135.0)
+        self.assertEqual(history["Close"].iloc[0], 13_620.0)
+        self.assertTrue(is_minor_gbp_currency("GBX"))
+        self.assertFalse(is_minor_gbp_currency("GBP"))
 
     def test_normalize_statement_preserves_callers_frame_by_default(self):
         original = pd.DataFrame({"2025-12-31": [1], "2024-12-31": [2]})

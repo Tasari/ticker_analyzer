@@ -14,6 +14,7 @@ def initialize_state() -> None:
         "selected_tickers": ["AFRM"],
         "analysis_results": {},
         "analysis_errors": {},
+        "analysis_result_version": None,
         "active_ticker": "AFRM",
         "growth_range": "2Y",
         "fundamentals_range": "2Y",

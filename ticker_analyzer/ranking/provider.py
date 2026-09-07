@@ -46,9 +46,16 @@ TIMESERIES_TYPES = {
 class PublicYahooRankingProvider:
     """Minimal public-endpoint provider used when the crumb-based yfinance client is rate limited."""
 
-    def __init__(self, universe_by_ticker: dict[str, dict[str, Any]], timeout: int = 20) -> None:
+    def __init__(
+        self,
+        universe_by_ticker: dict[str, dict[str, Any]],
+        timeout: int = 20,
+        *,
+        enrich_profile: bool = False,
+    ) -> None:
         self.universe_by_ticker = universe_by_ticker
         self.timeout = timeout
+        self.enrich_profile = enrich_profile
         self._thread_local = threading.local()
         self._session_override: Any | None = None
 
@@ -84,27 +91,34 @@ class PublicYahooRankingProvider:
 
     def fetch(self, ticker_symbol: str, ranges: AnalysisRanges) -> MarketData:
         item = self.universe_by_ticker.get(ticker_symbol, {})
+        needs_profile = not (item.get("industry") or item.get("sector"))
+        profile = self._profile(ticker_symbol) if self.enrich_profile and needs_profile else {}
         statements = self._statements(ticker_symbol)
         growth_history, value_history, chart_meta = self._history(
             ticker_symbol, max(_years(value) for value in ranges.as_dict().values())
         )
         current_price = chart_meta.get("regularMarketPrice")
+        currency = chart_meta.get("currency") or "USD"
+        value_history = _valuation_price_history(value_history, currency)
         info = {
             "symbol": ticker_symbol,
-            "longName": item.get("company_name") or ticker_symbol,
+            "longName": profile.get("longname") or item.get("company_name") or profile.get("shortname") or ticker_symbol,
             "currentPrice": current_price,
             "regularMarketPrice": current_price,
             "marketCap": item.get("market_cap"),
-            "industry": item.get("industry") or "",
-            "sector": item.get("sector") or "",
+            "industry": item.get("industry") or profile.get("industry") or profile.get("industryDisp") or "",
+            "sector": item.get("sector") or profile.get("sector") or profile.get("sectorDisp") or "",
             "quoteType": "EQUITY",
-            "currency": chart_meta.get("currency") or "USD",
+            "currency": currency,
         }
         shares = _latest_value(statements["balance"], "Ordinary Shares Number") or _latest_value(
             statements["balance"], "Share Issued"
         )
+
         if shares is not None:
             info["sharesOutstanding"] = shares
+            if info["marketCap"] is None and not value_history.empty:
+                info["marketCap"] = float(value_history["Close"].dropna().iloc[-1]) * shares
         empty = pd.DataFrame()
         latest_statement_period = max(
             (
@@ -159,6 +173,26 @@ class PublicYahooRankingProvider:
                 ),
             },
         )
+
+    def _profile(self, ticker: str) -> dict[str, Any]:
+        try:
+            response = self.session.get(
+                "https://query2.finance.yahoo.com/v1/finance/search",
+                params={"q": ticker, "quotesCount": 5, "newsCount": 0},
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            normalized = ticker.strip().upper()
+            return next(
+                (
+                    quote
+                    for quote in response.json().get("quotes", []) or []
+                    if str(quote.get("symbol") or "").strip().upper() == normalized
+                ),
+                {},
+            )
+        except (requests.RequestException, TypeError, ValueError):
+            return {}
 
     def _statements(self, ticker: str) -> dict[str, pd.DataFrame]:
         now = int(datetime.now(UTC).timestamp())
@@ -219,6 +253,15 @@ def _latest_value(frame: pd.DataFrame, row: str) -> float | None:
         return None
     values = pd.to_numeric(frame.loc[row], errors="coerce").dropna()
     return float(values.iloc[-1]) if not values.empty else None
+
+
+def _valuation_price_history(history: pd.DataFrame, currency: Any) -> pd.DataFrame:
+    label = str(currency or "").strip()
+    if history.empty or "Close" not in history or not (label == "GBp" or label.upper() == "GBX"):
+        return history
+    normalized = history.copy()
+    normalized["Close"] = pd.to_numeric(normalized["Close"], errors="coerce") / 100
+    return normalized
 
 
 def _years(label: str) -> int:

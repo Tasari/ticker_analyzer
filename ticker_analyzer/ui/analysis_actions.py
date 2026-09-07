@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 MAX_ANALYSIS_WORKERS = 5
 MAX_ANALYSIS_CACHE_ENTRIES = 32
 MAX_SEARCH_CACHE_ENTRIES = 128
+ANALYSIS_RESULT_VERSION = "providers-v4"
 AnalysisResult = dict[str, Any]
 AnalysisError = str
 TickerAnalysisOutcome = tuple[AnalysisResult | None, AnalysisError | None]
@@ -80,11 +81,16 @@ def analyze_one_ticker(
 
 
 def has_transient_data_failure(result: AnalysisResult) -> bool:
-    return any(
+    provider_failure = any(
         item.get("kind") in {"network_error", "provider_error"}
         for item in result.get("diagnostics", [])
         if isinstance(item, dict)
     )
+    incomplete_tab = any(
+        isinstance(tab, dict) and tab.get("score") is None
+        for tab in result.get("tabs", {}).values()
+    )
+    return provider_failure or incomplete_tab or result.get("current_price") is None
 
 
 @st.cache_data(ttl=900, max_entries=MAX_ANALYSIS_CACHE_ENTRIES, show_spinner=False)

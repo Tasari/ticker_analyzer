@@ -158,19 +158,20 @@ class ProvidersTest(unittest.TestCase):
     def test_composite_keeps_primary_and_fills_missing_data(self):
         primary = empty_market_data(
             "ABC",
-            info={"longName": "Primary Name"},
+            info={"longName": "Primary Name", "currency": "", "sector": None},
             official_ids={"cik": "123"},
             provenance={"financials": DataProvenance(provider="SEC", is_primary_source=True)},
         )
         fallback = empty_market_data(
             "ABC",
-            info={"longName": "Fallback Name", "currency": "USD"},
+            info={"longName": "Fallback Name", "currency": "USD", "sector": "Technology"},
             growth_history=pd.DataFrame({"Close": [10.0]}),
             provenance={"prices": DataProvenance(provider="yfinance", fallback_level="secondary_source")},
         )
         result = CompositeProvider([Provider(primary), Provider(fallback)]).fetch("ABC", AnalysisRanges.from_input("2Y"))
         self.assertEqual(result.info["longName"], "Primary Name")
         self.assertEqual(result.info["currency"], "USD")
+        self.assertEqual(result.info["sector"], "Technology")
         self.assertFalse(result.growth_history.empty)
         self.assertEqual(set(result.provenance), {"financials", "prices"})
 

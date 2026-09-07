@@ -233,7 +233,12 @@ class UiActionsTest(unittest.TestCase):
         cached_ticker_analysis.clear()
         with patch(
             "ticker_analyzer.ui.analysis_actions.analyze_ticker",
-            return_value={"ticker": "CACHED"},
+            return_value={
+                "ticker": "CACHED",
+                "current_price": 10,
+                "diagnostics": [],
+                "tabs": {"Value": {"score": 60}},
+            },
         ) as analyze:
             first, first_errors = analyze_selected_tickers(["CACHED"], {"Growth": "2Y"}, {})
             second, second_errors = analyze_selected_tickers(["CACHED"], {"Growth": "2Y"}, {})
@@ -266,6 +271,31 @@ class UiActionsTest(unittest.TestCase):
             ],
         }
         healthy = {"ticker": "RETRY", "diagnostics": []}
+        with patch(
+            "ticker_analyzer.ui.analysis_actions.analyze_ticker",
+            side_effect=[degraded, healthy],
+        ) as analyze:
+            first, _ = analyze_selected_tickers(["RETRY"], {"Growth": "2Y"}, {})
+            second, _ = analyze_selected_tickers(["RETRY"], {"Growth": "2Y"}, {})
+
+        self.assertEqual(first["RETRY"], degraded)
+        self.assertEqual(second["RETRY"], healthy)
+        self.assertEqual(analyze.call_count, 2)
+
+    def test_not_rated_partial_analysis_is_not_cached(self):
+        cached_ticker_analysis.clear()
+        degraded = {
+            "ticker": "RETRY",
+            "current_price": 10,
+            "diagnostics": [],
+            "tabs": {"Value": {"score": None}},
+        }
+        healthy = {
+            "ticker": "RETRY",
+            "current_price": 10,
+            "diagnostics": [],
+            "tabs": {"Value": {"score": 60}},
+        }
         with patch(
             "ticker_analyzer.ui.analysis_actions.analyze_ticker",
             side_effect=[degraded, healthy],

@@ -60,7 +60,7 @@ def main() -> None:
             ACCOUNT_STATEMENT_TICKER,
             ReturnsTable,
         )
-        from ticker_analyzer.ui.analysis_actions import analyze_selected_tickers
+        from ticker_analyzer.ui.analysis_actions import ANALYSIS_RESULT_VERSION, analyze_selected_tickers
 
         config = load_config()
         ranges, analyze_clicked = views.render_sidebar(config)
@@ -73,7 +73,14 @@ def main() -> None:
             and not st.session_state.analysis_pending_changes
             and not st.session_state.automatic_analysis_attempted
         )
-        automatic_analysis = st.session_state.automatic_analysis_requested or restored_setup_analysis
+        stale_runtime_results = bool(st.session_state.analysis_results) and (
+            st.session_state.analysis_result_version != ANALYSIS_RESULT_VERSION
+        )
+        automatic_analysis = (
+            st.session_state.automatic_analysis_requested
+            or restored_setup_analysis
+            or stale_runtime_results
+        )
         if analyze_clicked or automatic_analysis:
             st.session_state.automatic_analysis_attempted = True
             st.session_state.automatic_analysis_requested = False
@@ -86,6 +93,7 @@ def main() -> None:
                     config,
                     cache_token=time.time_ns() if analyze_clicked else 0,
                 )
+                st.session_state.analysis_result_version = ANALYSIS_RESULT_VERSION
                 available_tickers = list(st.session_state.analysis_results)
                 if available_tickers and st.session_state.active_ticker not in available_tickers:
                     st.session_state.active_ticker = available_tickers[0]

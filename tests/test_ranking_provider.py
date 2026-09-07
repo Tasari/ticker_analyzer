@@ -35,6 +35,31 @@ class FakeSession:
 
 
 class RankingProviderTest(unittest.TestCase):
+    def test_profile_enrichment_uses_exact_search_match(self):
+        provider = PublicYahooRankingProvider({}, enrich_profile=True)
+        provider.session = FakeSession(
+            [
+                {
+                    "quotes": [
+                        {"symbol": "OTHER", "sector": "Technology"},
+                        {
+                            "symbol": "BGEO.L",
+                            "longname": "Lion Finance Group PLC",
+                            "sector": "Financial Services",
+                            "industry": "Banks - Regional",
+                        },
+                    ]
+                },
+                {"timeseries": {"result": []}},
+                {"chart": {"result": []}},
+            ]
+        )
+
+        result = provider.fetch("BGEO.L", AnalysisRanges.from_input("2Y"))
+
+        self.assertEqual(result.info["longName"], "Lion Finance Group PLC")
+        self.assertEqual(result.info["sector"], "Financial Services")
+        self.assertEqual(result.info["industry"], "Banks - Regional")
     def test_public_provider_builds_market_data_from_public_payloads(self):
         statements = {
             "timeseries": {

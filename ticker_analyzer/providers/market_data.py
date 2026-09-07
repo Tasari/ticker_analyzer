@@ -15,6 +15,22 @@ from ticker_analyzer.domain import AnalysisRanges, DataProvenance, MarketData
 
 logger = logging.getLogger(__name__)
 
+CORE_STATEMENT_ROWS = (
+    frozenset({"Total Revenue", "Operating Revenue", "Net Income", "Operating Income"}),
+    frozenset({"Total Assets", "Stockholders Equity", "Total Debt"}),
+    frozenset({"Operating Cash Flow", "Total Cash From Operating Activities", "Free Cash Flow"}),
+)
+CORE_INFO_FIELDS = frozenset(
+    {
+        "marketCap",
+        "trailingPE",
+        "priceToBook",
+        "enterpriseToEbitda",
+        "totalRevenue",
+        "returnOnEquity",
+    }
+)
+
 
 def configure_yfinance_cache() -> Path | None:
     """Keep yfinance's SQLite caches in a location writable by hosted runtimes."""
@@ -106,6 +122,7 @@ class YFinanceProvider:
             growth_estimates=safe_frame(lambda: ticker.growth_estimates, label="growth estimates", diagnostics=diagnostics),
             diagnostics=diagnostics,
         )
+        result.value_history = valuation_price_history(result.value_history, result.info.get("currency"))
         result.provenance = build_yfinance_provenance(result, fetched_at)
         fill_missing_core_data(result, ranges)
         return result
@@ -115,9 +132,15 @@ def fill_missing_core_data(data: MarketData, ranges: AnalysisRanges) -> None:
     """Recover core prices/statements when yfinance returns a partial response."""
     annual_statements = (data.annual_income, data.annual_balance, data.annual_cashflow)
     missing_prices = data.value_history.empty
-    missing_financials = sum(not frame.empty for frame in annual_statements) < 2
+    meaningful_statements = sum(
+        statement_has_any_row(frame, expected_rows)
+        for frame, expected_rows in zip(annual_statements, CORE_STATEMENT_ROWS, strict=True)
+    )
+    missing_financials = meaningful_statements < 2
     has_price = clean_info_price(data.info) is not None
-    needs_fallback = missing_prices or not has_price or missing_financials
+    missing_profile = not (data.info.get("industry") or data.info.get("industryDisp") or data.info.get("sector"))
+    sparse_info = sum(data.info.get(field) is not None for field in CORE_INFO_FIELDS) < 2
+    needs_fallback = missing_prices or not has_price or missing_financials or missing_profile or sparse_info
     if not needs_fallback:
         return
 
@@ -135,7 +158,8 @@ def fill_missing_core_data(data: MarketData, ranges: AnalysisRanges) -> None:
                     "industry": data.info.get("industry"),
                     "sector": data.info.get("sector"),
                 }
-            }
+            },
+            enrich_profile=True,
         ).fetch(data.ticker, ranges)
         merge_market_data(data, fallback)
         if missing_prices and "prices" in fallback.provenance:
@@ -145,6 +169,28 @@ def fill_missing_core_data(data: MarketData, ranges: AnalysisRanges) -> None:
         data.diagnostics.extend(fallback.diagnostics)
     except Exception as exc:
         record_fetch_failure("public Yahoo core-data fallback", exc, data.diagnostics)
+
+
+def statement_has_any_row(frame: pd.DataFrame, expected_rows: frozenset[str]) -> bool:
+    if frame.empty:
+        return False
+    return any(str(row) in expected_rows for row in frame.index)
+
+
+def valuation_price_history(history: pd.DataFrame, currency: Any) -> pd.DataFrame:
+    """Convert London pence quotes to the pounds used by financial statements."""
+    if history.empty or "Close" not in history or not is_minor_gbp_currency(currency):
+        return history
+    normalized = history.copy()
+    normalized["Close"] = pd.to_numeric(normalized["Close"], errors="coerce") / 100
+    if "Adj Close" in normalized:
+        normalized["Adj Close"] = pd.to_numeric(normalized["Adj Close"], errors="coerce") / 100
+    return normalized
+
+
+def is_minor_gbp_currency(currency: Any) -> bool:
+    label = str(currency or "").strip()
+    return label == "GBp" or label.upper() == "GBX"
 
 
 def clean_info_price(info: dict[str, Any]) -> float | None:
