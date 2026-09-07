@@ -16,7 +16,7 @@ from ticker_analyzer.ranking.filters import RankingFilters, filter_ranking_compa
 from ticker_analyzer.ranking.quality import build_ranking_quality_report
 from ticker_analyzer.ui.config_view import mutation_allowed
 from ticker_analyzer.ui.market_ranking_view import render_crypto_ranking, render_etf_ranking
-from ticker_analyzer.ui.ranking_actions import refresh_large_cap_ranking
+from ticker_analyzer.ui.ranking_actions import ranking_refresh_is_running, refresh_large_cap_ranking
 from ticker_analyzer.ui.state import add_tickers_to_state
 
 
@@ -33,6 +33,7 @@ def render_large_cap_ranking() -> None:
 
 def _render_all_ranking_controls() -> None:
     refresh_allowed = mutation_allowed("ALLOW_RANKING_REFRESH")
+    restart_confirmed = bool(st.session_state.pop("ranking_restart_confirmed", False))
     update_col, download_col, note_col = st.columns([1, 1, 2])
     update_clicked = update_col.button(
         "Update all rankings",
@@ -52,7 +53,10 @@ def _render_all_ranking_controls() -> None:
     note_col.caption("Updates replace each snapshot only after that ranking completes successfully.")
     if not refresh_allowed:
         note_col.caption("Ranking refresh is read-only in production unless explicitly enabled by an administrator.")
-    if not update_clicked:
+    if update_clicked and ranking_refresh_is_running():
+        _confirm_ranking_restart()
+        return
+    if not update_clicked and not restart_confirmed:
         return
 
     progress_bar = st.progress(0.0, text="Preparing the stock universe...")
@@ -73,8 +77,19 @@ def _render_all_ranking_controls() -> None:
 
     outcomes: list[tuple[str, bool, str]] = []
     with st.spinner("Updating all rankings; keep this page open..."):
-        success, message, _metadata = refresh_large_cap_ranking(progress_callback=update_progress)
+        success, message, metadata = refresh_large_cap_ranking(
+            progress_callback=update_progress,
+            restart_running=restart_confirmed,
+        )
         outcomes.append(("Stocks", success, message))
+        if metadata.get("cancelled"):
+            progress_bar.progress(0.0, text="Previous ranking update stopped.")
+            st.info(message)
+            return
+        if metadata.get("restart_failed"):
+            progress_bar.progress(0.0, text="Could not restart the ranking update.")
+            st.error(message)
+            return
         from ticker_analyzer.ranking.assets import refresh_crypto_ranking, refresh_etf_ranking
 
         for label, fraction, refresh in (
@@ -97,6 +112,26 @@ def _render_all_ranking_controls() -> None:
         st.error("Failed: " + "; ".join(f"{label} — {message}" for label, message in failures))
     if not failures:
         st.rerun()
+
+
+@st.dialog("Restart the ranking update?")
+def _confirm_ranking_restart() -> None:
+    st.warning(
+        "A ranking update is already running. Restarting will stop that process, "
+        "discard its unfinished checkpoint, and begin all rankings again from 0%."
+    )
+    confirm_col, keep_col = st.columns(2)
+    confirm_col.button(
+        "Yes, restart",
+        type="primary",
+        width="stretch",
+        on_click=_mark_ranking_restart_confirmed,
+    )
+    keep_col.button("No, keep running", width="stretch")
+
+
+def _mark_ranking_restart_confirmed() -> None:
+    st.session_state["ranking_restart_confirmed"] = True
 
 
 def _render_stock_ranking() -> None:

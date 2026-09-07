@@ -89,6 +89,38 @@ class StreamlitAppTest(unittest.TestCase):
             any("Remembered setup overwritten" in element.value for element in app.sidebar.success)
         )
 
+    def test_running_ranking_update_asks_before_restarting(self):
+        app = AppTest.from_string(
+            textwrap.dedent(
+                """
+                import streamlit as st
+                from ticker_analyzer.ui import ranking_view
+
+                ranking_view.mutation_allowed = lambda _: True
+                ranking_view.ranking_refresh_is_running = lambda: True
+                ranking_view.available_ranking_snapshots = lambda: 0
+                def fake_refresh(**kwargs):
+                    st.session_state["restart_argument"] = kwargs.get("restart_running")
+                    return False, "stopped", {"restart_failed": True}
+                ranking_view.refresh_large_cap_ranking = fake_refresh
+                ranking_view._render_all_ranking_controls()
+                """
+            ),
+            default_timeout=10,
+        ).run()
+
+        next(button for button in app.button if button.label == "Update all rankings").click().run()
+
+        self.assertFalse(app.exception)
+        self.assertTrue(any(button.label == "Yes, restart" for button in app.button))
+        self.assertTrue(any(button.label == "No, keep running" for button in app.button))
+        self.assertTrue(any("discard its unfinished checkpoint" in item.value for item in app.warning))
+
+        next(button for button in app.button if button.label == "Yes, restart").click().run()
+
+        self.assertFalse(app.exception)
+        self.assertTrue(app.session_state["restart_argument"])
+
     def test_account_statement_page_renders_uploader_without_market_fetch(self):
         app = AppTest.from_file("app.py", default_timeout=10)
         app.session_state["_site_access_authenticated"] = True

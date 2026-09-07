@@ -14,8 +14,11 @@ from ticker_analyzer.ui.actions import (
     analyze_selected_tickers,
     cached_ticker_analysis,
     ranking_refresh_is_complete,
+    ranking_refresh_is_running,
     read_log_tail,
+    read_refresh_lock,
     refresh_large_cap_ranking,
+    request_running_refresh_stop,
     search_tickers,
 )
 
@@ -49,23 +52,49 @@ class UiActionsTest(unittest.TestCase):
             }
             save_ranking(payload, refresh)
             progress = []
-            with patch(
-                "ticker_analyzer.ui.ranking_actions.subprocess.run",
-                return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
-            ) as run:
+            process = SimpleNamespace(pid=1234, returncode=0, poll=lambda: 0)
+            with patch("ticker_analyzer.ui.ranking_actions.subprocess.Popen", return_value=process) as popen:
                 success, message, _ = refresh_large_cap_ranking(
                     output, limit=1, market_limit=2, progress_callback=progress.append
                 )
 
             self.assertTrue(success)
-            command = run.call_args.args[0]
+            command = popen.call_args.args[0]
             self.assertEqual(command[1:3], ["-m", "scripts.build_large_cap_ranking"])
             self.assertEqual(command[command.index("--market-limit") + 1], "2")
-            self.assertEqual(run.call_args.kwargs["cwd"], Path(__file__).resolve().parents[1])
+            self.assertEqual(popen.call_args.kwargs["cwd"], Path(__file__).resolve().parents[1])
             self.assertIn("Ranking updated", message)
             self.assertFalse(refresh.exists())
             self.assertIn('"NEW"', output.read_text(encoding="utf-8"))
             self.assertEqual(progress[-1]["requested"], 1)
+
+    def test_confirmed_restart_discards_checkpoint_and_passes_restart_flag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "ranking.json"
+            refresh = output.with_suffix(".refresh.json")
+            save_ranking({"metadata": {"complete": True}, "companies": [], "errors": []}, output)
+            save_ranking(
+                {"metadata": {"complete": False}, "companies": [{"ticker": "OLD"}], "errors": []},
+                refresh,
+            )
+            payload = {
+                "metadata": {"complete": True, "requested": 1, "scored": 1, "insufficient_data": 0},
+                "companies": [{"ticker": "NEW"}],
+                "errors": [],
+            }
+            process = SimpleNamespace(pid=1234, returncode=0, poll=lambda: 0)
+
+            def launch(*_args, **_kwargs):
+                save_ranking(payload, refresh)
+                return process
+
+            with patch("ticker_analyzer.ui.ranking_actions.subprocess.Popen", side_effect=launch) as popen:
+                success, _, _ = refresh_large_cap_ranking(output, limit=1, restart_running=True)
+
+            self.assertTrue(success)
+            self.assertIn("--restart", popen.call_args.args[0])
+            self.assertIn('"NEW"', output.read_text(encoding="utf-8"))
+            self.assertNotIn('"OLD"', output.read_text(encoding="utf-8"))
 
     def test_refresh_ranking_rejects_concurrent_run(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -82,7 +111,35 @@ class UiActionsTest(unittest.TestCase):
             lock.write_text("999999999", encoding="utf-8")
 
             self.assertTrue(acquire_refresh_lock(lock))
-            self.assertEqual(lock.read_text(encoding="utf-8"), str(os.getpid()))
+            self.assertEqual(read_refresh_lock(lock)["owner_pid"], os.getpid())
+
+    def test_running_refresh_is_detected_from_live_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "ranking.json"
+            lock = output.with_suffix(".refresh.lock")
+            self.assertTrue(acquire_refresh_lock(lock))
+
+            self.assertTrue(ranking_refresh_is_running(output))
+
+    def test_restart_request_signals_running_refresh_and_waits_for_lock_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "ranking.json"
+            lock = output.with_suffix(".refresh.lock")
+            cancel = output.with_suffix(".refresh.cancel")
+            self.assertTrue(acquire_refresh_lock(lock))
+
+            def acknowledge_cancel():
+                while not cancel.exists():
+                    time.sleep(0.01)
+                lock.unlink()
+
+            worker = threading.Thread(target=acknowledge_cancel)
+            worker.start()
+            stopped = request_running_refresh_stop(lock, cancel, timeout=1)
+            worker.join(timeout=1)
+
+            self.assertTrue(stopped)
+            self.assertEqual(cancel.read_text(encoding="utf-8"), "restart")
 
     def test_log_tail_reads_only_last_message(self):
         with tempfile.TemporaryDirectory() as directory:
