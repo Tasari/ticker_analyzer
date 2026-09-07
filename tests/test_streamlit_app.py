@@ -99,6 +99,11 @@ class StreamlitAppTest(unittest.TestCase):
                 ranking_view.mutation_allowed = lambda _: True
                 ranking_view.ranking_refresh_is_running = lambda: True
                 ranking_view.available_ranking_snapshots = lambda: 0
+                ranking_view.load_ranking = lambda *args: {
+                    "metadata": {"requested": 100, "processed": 25},
+                    "companies": [],
+                    "errors": [],
+                }
                 def fake_refresh(**kwargs):
                     st.session_state["restart_argument"] = kwargs.get("restart_running")
                     return False, "stopped", {"restart_failed": True}
@@ -108,6 +113,10 @@ class StreamlitAppTest(unittest.TestCase):
             ),
             default_timeout=10,
         ).run()
+
+        progress = app.get("progress")[0]
+        self.assertEqual(progress.value, 25)
+        self.assertIn("25/100 processed", progress.proto.text)
 
         next(button for button in app.button if button.label == "Update all rankings").click().run()
 

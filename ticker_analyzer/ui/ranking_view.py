@@ -35,6 +35,7 @@ def render_large_cap_ranking() -> None:
 def _render_all_ranking_controls() -> None:
     refresh_allowed = mutation_allowed("ALLOW_RANKING_REFRESH")
     restart_confirmed = bool(st.session_state.pop("ranking_restart_confirmed", False))
+    refresh_running = ranking_refresh_is_running()
     update_col, download_col, note_col = st.columns([1, 1, 2])
     update_clicked = update_col.button(
         "Update all rankings",
@@ -54,7 +55,9 @@ def _render_all_ranking_controls() -> None:
     note_col.caption("Updates replace each snapshot only after that ranking completes successfully.")
     if not refresh_allowed:
         note_col.caption("Ranking refresh is read-only in production unless explicitly enabled by an administrator.")
-    if update_clicked and ranking_refresh_is_running():
+    if refresh_running:
+        _render_running_stock_progress()
+    if update_clicked and refresh_running:
         _confirm_ranking_restart()
         return
     if not update_clicked and not restart_confirmed:
@@ -133,6 +136,30 @@ def _confirm_ranking_restart() -> None:
 
 def _mark_ranking_restart_confirmed() -> None:
     st.session_state["ranking_restart_confirmed"] = True
+
+
+@st.fragment(run_every=1)
+def _render_running_stock_progress() -> None:
+    if not ranking_refresh_is_running():
+        st.rerun()
+        return
+    checkpoint_path = DEFAULT_RANKING_PATH.with_suffix(".refresh.json")
+    metadata = load_ranking(checkpoint_path).get("metadata", {})
+    requested = int(metadata.get("requested", 0) or 0)
+    processed = int(
+        metadata.get(
+            "processed",
+            int(metadata.get("analyzed", 0) or 0) + int(metadata.get("failed", 0) or 0),
+        ) or 0
+    )
+    fraction = min(1.0, processed / requested) if requested else 0.0
+    text = (
+        f"Stocks update is running: {processed:,}/{requested:,} processed ({fraction:.1%})"
+        if requested
+        else "Stocks update is running: preparing the exchange universe..."
+    )
+    st.progress(fraction, text=text)
+    st.caption("The update is still active. Click Update all rankings if you want to stop it and restart from 0%.")
 
 
 def _load_stock_ranking_for_display() -> tuple[dict, bool]:
