@@ -53,6 +53,14 @@ def merge_market_data(primary: MarketData, fallback: MarketData) -> None:
         other = getattr(fallback, name)
         if isinstance(current, pd.DataFrame):
             if isinstance(other, pd.DataFrame) and not other.empty:
+                left_currency = current.attrs.get("financial_currency")
+                right_currency = other.attrs.get("financial_currency")
+                if not current.empty and left_currency != right_currency and (left_currency or right_currency):
+                    primary.diagnostics.append({
+                        "source": name, "kind": "currency_mismatch",
+                        "message": f"Fallback statement not merged: {left_currency or 'unknown'} vs {right_currency or 'unknown'}.",
+                    })
+                    continue
                 setattr(primary, name, merge_observations(current, other))
         elif isinstance(current, dict) and isinstance(other, dict):
             populated = {

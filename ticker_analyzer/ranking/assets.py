@@ -9,6 +9,7 @@ import requests
 
 from ticker_analyzer.markets import currency_convention
 from ticker_analyzer.numbers import clean_number
+from ticker_analyzer.ranking.currencies import usd_amount_fields
 from ticker_analyzer.ranking.storage import CRYPTO_RANKING_PATH, ETF_RANKING_PATH, save_ranking
 from ticker_analyzer.ranking.universe import XTB_EXCHANGE_MARKETS, yahoo_ticker_from_tradingview
 
@@ -41,6 +42,7 @@ def fetch_etfs_for_exchange(
         "markets": [scanner_market],
         "symbols": {"query": {"types": []}, "tickers": []},
         "options": {"lang": "en"},
+        "price_conversion": {"to_symbol": False, "to_currency": "USD"},
         "columns": list(ETF_COLUMNS),
         "filter": [{"left": "type", "operation": "equal", "right": "fund"}],
         "sort": {"sortBy": "Value.Traded", "sortOrder": "desc", "nullsFirst": False},
@@ -78,7 +80,7 @@ def fetch_etfs_for_exchange(
                 "return_6m": clean_number(values.get("Perf.6M")),
                 "return_1y": clean_number(values.get("Perf.Y")),
                 "volatility_1m": clean_number(values.get("Volatility.M")),
-                "traded_value": traded_value * unit_scale if traded_value is not None else None,
+                **usd_amount_fields("traded_value", traded_value, "USD"),
             }
         )
     return rows[:limit]
@@ -124,7 +126,7 @@ def fetch_crypto_market(
                 "market": "Crypto",
                 "currency": "USD",
                 "price": clean_number(source.get("current_price")),
-                "market_cap": market_cap,
+                **usd_amount_fields("market_cap", market_cap, "USD"),
                 "market_cap_rank": source.get("market_cap_rank"),
                 "total_volume": volume,
                 "volume_market_cap": volume / market_cap if volume is not None and market_cap else None,
@@ -201,7 +203,8 @@ def _payload(asset_class: str, rows: list[dict[str, Any]], errors: list[dict[str
             "scored": sum(row.get("overall_score") is not None for row in rows),
             "failed": len(errors),
             "complete": True,
-            "scoring_model": "cross-sectional market performance, risk and liquidity v1",
+            "scoring_model": "cross-sectional market performance, risk and liquidity v2-USD",
+            "comparison_currency": "USD",
         },
         "companies": rows,
         "errors": errors,

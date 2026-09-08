@@ -223,6 +223,16 @@ def render_summary(result: dict) -> None:
 
     st.subheader(f"{result['company_name']} ({result['ticker']})")
     st.caption(format_market_identity(result))
+    basis = result.get("valuation_basis", {})
+    if basis:
+        with st.expander("Valuation currencies and share units", expanded=False):
+            st.write({
+                "Price currency": basis.get("quote_currency"),
+                "Statement currency": basis.get("reporting_currency") or "Unknown",
+                "Ordinary shares per listed unit": basis.get("ordinary_shares_per_receipt"),
+                "Quote-to-statement FX": basis.get("quote_to_reporting_fx"),
+                "Share conversion source": basis.get("share_ratio_source"),
+            })
     cols = st.columns(6)
     cols[0].metric("Overall Score", score_label)
     cols[1].metric("Rating", result.get("rating", "Not Rated"))

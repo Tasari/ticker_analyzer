@@ -9,10 +9,11 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import UTC, datetime
 from typing import Any
 
+from ticker_analyzer.ranking.currencies import usd_market_cap
 from ticker_analyzer.ranking.universe import UNIVERSE_SCHEMA_VERSION, market_counts
 
 SCORING_VERSION = 5
-PROVIDER_SCHEMA_VERSION = "providers-v3-markets"
+PROVIDER_SCHEMA_VERSION = "providers-v4-fx-adr"
 METRIC_SCHEMA_VERSION = "metrics-v5"
 
 
@@ -91,7 +92,7 @@ def sort_ranking(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             row.get("overall_score") is not None,
             float(row.get("overall_score") or -1),
             float(row.get("data_quality", row.get("confidence")) or -1),
-            float(row.get("market_cap") or -1),
+            usd_market_cap(row) or -1,
         ),
         reverse=True,
     )
@@ -228,6 +229,7 @@ def ranking_payload(
             "failed": len(unique_errors),
             "ranges": ranges,
             "universe_schema_version": UNIVERSE_SCHEMA_VERSION,
+            "comparison_currency": "USD",
             **fingerprint,
             "code_commit": os.getenv("GIT_COMMIT", "unknown"),
             "complete": complete,

@@ -47,6 +47,8 @@ class RankingFiltersTest(unittest.TestCase):
         ]
 
     def test_combines_text_choices_scores_quality_and_market_cap(self):
+        for row in self.companies:
+            row["market_cap_currency"] = "USD"
         filters = RankingFilters(
             query="bank",
             countries=("Poland",),

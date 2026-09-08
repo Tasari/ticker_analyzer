@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ticker_analyzer.numbers import clean_number
+from ticker_analyzer.ranking.currencies import usd_market_cap
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,7 @@ def filter_ranking_companies(
             row.get("data_quality", row.get("confidence")),
             filters.minimum_quality,
         )
-        and _meets_minimum(row.get("market_cap"), filters.minimum_market_cap)
+        and _meets_minimum(usd_market_cap(row), filters.minimum_market_cap)
     ]
 
 

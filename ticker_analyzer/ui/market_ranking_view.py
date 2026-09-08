@@ -23,6 +23,7 @@ def render_etf_ranking() -> None:
             "overall_score": "Market Score", "rating": "Signal", "data_coverage": "Coverage",
             "return_1m": "1M", "return_3m": "3M", "return_6m": "6M", "return_1y": "1Y",
             "volatility_1m": "Volatility 1M", "traded_value": "Traded Value",
+            "traded_value_currency": "Turnover Currency",
         },
     )
 

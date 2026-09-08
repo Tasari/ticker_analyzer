@@ -100,7 +100,8 @@ class AssetRankingTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["price"], 123.45)
         self.assertEqual(rows[0]["currency"], "GBP")
-        self.assertEqual(rows[0]["traded_value"], 10.0)
+        self.assertEqual(rows[0]["traded_value"], 1_000.0)
+        self.assertEqual(rows[0]["traded_value_currency"], "USD")
 
     def test_fetch_crypto_skips_missing_symbols_and_caps_limit(self):
         request = Mock(return_value=Response([{"id": "blank", "symbol": ""}]))

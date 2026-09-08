@@ -30,6 +30,9 @@ Set `SEC_USER_AGENT` to an application name and contact email (for example `Tick
 
 ## Tests
 
+Cross-market currency, ADR and ranking amount rules are described in
+[Valuation currencies and share units](docs/valuation_currencies.md).
+
 ```powershell
 pip install -e ".[dev]"
 ruff check .

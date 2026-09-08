@@ -8,8 +8,9 @@ import requests
 import yfinance as yf
 
 from ticker_analyzer.markets import XTB_EXCHANGE_MARKETS as XTB_EXCHANGE_MARKETS
+from ticker_analyzer.ranking.currencies import usd_amount_fields, usd_market_cap
 
-UNIVERSE_SCHEMA_VERSION = "xtb-exchanges-v7"
+UNIVERSE_SCHEMA_VERSION = "xtb-exchanges-v8-currencies"
 US_EXCHANGES = "US Exchanges"
 TRADINGVIEW_COLUMNS = (
     "name",
@@ -61,7 +62,7 @@ def fetch_large_cap_universe(
                 {
                     "ticker": ticker,
                     "company_name": quote.get("longName") or quote.get("shortName") or ticker,
-                    "market_cap": quote.get("marketCap"),
+                    **usd_amount_fields("market_cap", quote.get("marketCap"), quote.get("currency") or ("USD" if region == "us" else "")),
                     "exchange": quote.get("fullExchangeName") or quote.get("exchange"),
                     "country": quote.get("country") or country,
                     "market": market,
@@ -95,6 +96,7 @@ def fetch_tradingview_market_universe(
         "markets": [scanner_market],
         "symbols": {"query": {"types": []}, "tickers": []},
         "options": {"lang": "en"},
+        "price_conversion": {"to_symbol": False, "to_currency": "USD"},
         "columns": list(TRADINGVIEW_COLUMNS),
         "filter": [
             {"left": "is_primary", "operation": "equal", "right": True},
@@ -129,7 +131,7 @@ def fetch_tradingview_market_universe(
                     {
                         "ticker": ticker,
                         "company_name": values.get("description") or values.get("name") or ticker,
-                        "market_cap": values.get("market_cap_basic"),
+                        **usd_amount_fields("market_cap", values.get("market_cap_basic"), "USD"),
                         "exchange": values.get("exchange") or str(row.get("s") or "").partition(":")[0],
                         "country": values.get("country") or country,
                         "market": market,
@@ -187,7 +189,7 @@ def fetch_large_cap_universe_nasdaq(
             {
                 "ticker": ticker,
                 "company_name": row.get("name") or ticker,
-                "market_cap": market_cap,
+                **usd_amount_fields("market_cap", market_cap, "USD"),
                 "exchange": row.get("exchange"),
                 "sector": row.get("sector"),
                 "industry": row.get("industry"),
@@ -278,16 +280,16 @@ def merge_large_cap_universes(
                 combined[ticker] = item
                 continue
             for key, value in item.items():
+                if key.startswith("market_cap"):
+                    continue
                 if existing.get(key) in (None, "") and value not in (None, ""):
                     existing[key] = value
-            existing["market_cap"] = max(
-                float(existing.get("market_cap") or 0),
-                float(item.get("market_cap") or 0),
-            )
+            if (usd_market_cap(item) or 0) > (usd_market_cap(existing) or 0):
+                existing.update({key: value for key, value in item.items() if key.startswith("market_cap")})
 
     return sorted(
         combined.values(),
-        key=lambda item: float(item.get("market_cap") or 0),
+        key=lambda item: usd_market_cap(item) or 0,
         reverse=True,
     )[:limit]
 

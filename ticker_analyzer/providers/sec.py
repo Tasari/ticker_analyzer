@@ -121,12 +121,16 @@ class SecCompanyFactsProvider:
             observation_count=max(len(annual_income.columns), len(quarterly_income.columns)),
             is_primary_source=True,
         )
+        for frame in (annual_income, annual_balance, annual_cashflow,
+                      quarterly_income, quarterly_balance, quarterly_cashflow):
+            frame.attrs["financial_currency"] = "USD"
         return empty_market_data(
             ticker_symbol,
             info={
                 "symbol": ticker_symbol,
                 "longName": submissions.get("name") or company.get("title"),
                 "quoteType": "EQUITY",
+                "financialCurrency": "USD",
             },
             annual_income=annual_income,
             annual_balance=annual_balance,

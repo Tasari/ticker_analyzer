@@ -11,6 +11,7 @@ from urllib3.util.retry import Retry
 
 from ticker_analyzer.domain import AnalysisRanges, DataProvenance, MarketData
 from ticker_analyzer.markets import normalize_price_history, normalize_quote_info
+from ticker_analyzer.providers.fx import exchange_rate
 
 TIMESERIES_TYPES = {
     "annualTotalRevenue": ("income", "Total Revenue"),
@@ -99,13 +100,13 @@ class PublicYahooRankingProvider:
             ticker_symbol, max(_years(value) for value in ranges.as_dict().values())
         )
         current_price = chart_meta.get("regularMarketPrice")
-        currency = chart_meta.get("currency") or "USD"
+        currency = chart_meta.get("currency") or ""
         info = {
             "symbol": ticker_symbol,
             "longName": profile.get("longname") or item.get("company_name") or profile.get("shortname") or ticker_symbol,
             "currentPrice": current_price,
             "regularMarketPrice": current_price,
-            "marketCap": item.get("market_cap"),
+            "marketCap": None,
             "industry": item.get("industry") or profile.get("industry") or profile.get("industryDisp") or "",
             "sector": item.get("sector") or profile.get("sector") or profile.get("sectorDisp") or "",
             "quoteType": "EQUITY",
@@ -115,6 +116,11 @@ class PublicYahooRankingProvider:
             "exchangeTimezoneName": chart_meta.get("exchangeTimezoneName"),
         }
         info = normalize_quote_info(info, ticker_symbol)
+        cap_currency = item.get("market_cap_currency")
+        if cap_currency and item.get("market_cap") is not None:
+            factor = exchange_rate(cap_currency, info["currency"])
+            if factor is not None:
+                info["marketCap"] = item["market_cap"] * factor
         growth_history = normalize_price_history(growth_history, currency)
         value_history = normalize_price_history(value_history, currency)
         shares = _latest_value(statements["balance"], "Ordinary Shares Number") or _latest_value(
@@ -123,8 +129,6 @@ class PublicYahooRankingProvider:
 
         if shares is not None:
             info["sharesOutstanding"] = shares
-            if info["marketCap"] is None and not value_history.empty:
-                info["marketCap"] = float(value_history["Close"].dropna().iloc[-1]) * shares
         empty = pd.DataFrame()
         latest_statement_period = max(
             (
@@ -214,6 +218,7 @@ class PublicYahooRankingProvider:
         )
         response.raise_for_status()
         values: dict[str, dict[str, dict[pd.Timestamp, float]]] = {"income": {}, "balance": {}, "cashflow": {}}
+        currencies: dict[str, set[str]] = {name: set() for name in values}
         for result in response.json().get("timeseries", {}).get("result", []):
             metric_type = next(iter(result.get("meta", {}).get("type", [])), None)
             if metric_type not in TIMESERIES_TYPES:
@@ -225,9 +230,17 @@ class PublicYahooRankingProvider:
                 raw = item.get("reportedValue", {}).get("raw")
                 if timestamp and raw is not None:
                     observations[pd.Timestamp(timestamp)] = float(raw)
+                    if item.get("currencyCode"):
+                        currencies[statement].add(item["currencyCode"])
             if observations:
                 values[statement][row_name] = observations
-        return {name: _statement_frame(rows) for name, rows in values.items()}
+        frames = {name: _statement_frame(rows) for name, rows in values.items()}
+        for name, frame in frames.items():
+            if len(currencies[name]) == 1:
+                frame.attrs["financial_currency"] = next(iter(currencies[name]))
+            elif currencies[name]:
+                frame.attrs["financial_currency"] = "MIXED"
+        return frames
 
     def _history(self, ticker: str, years: int) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
         response = self.session.get(

@@ -24,6 +24,7 @@ from ticker_analyzer.analysis.quality import (
     diagnostic_warnings,
     has_statement_period_mismatch,
 )
+from ticker_analyzer.analysis.valuation_basis import prepare_valuation_basis
 from ticker_analyzer.domain import AnalysisRanges, MarketData, StockAnalysis
 from ticker_analyzer.metrics.builder import (
     apply_configured_metric_fallbacks,
@@ -103,6 +104,7 @@ class StockAnalysisEngine:
             tab_name: years_from_range(tab_range)
             for tab_name, tab_range in selected_ranges.as_dict().items()
         }
+        valuation_history = prepare_valuation_basis(data)
         raw_metrics = build_raw_metrics(
             info=data.info,
             annual_income=data.annual_income,
@@ -112,7 +114,7 @@ class StockAnalysisEngine:
             quarterly_balance=data.quarterly_balance,
             quarterly_cashflow=data.quarterly_cashflow,
             growth_history=data.growth_history,
-            value_history=data.value_history,
+            value_history=valuation_history,
             analyst_targets=data.analyst_targets,
             revenue_estimate=data.revenue_estimate,
             earnings_estimate=data.earnings_estimate,
@@ -201,6 +203,7 @@ class StockAnalysisEngine:
             country=str(data.info.get("country") or ""),
             exchange=str(data.info.get("fullExchangeName") or data.info.get("exchange") or ""),
             timezone=str(data.info.get("exchangeTimezoneName") or ""),
+            valuation_basis=data.info.get("valuationBasis", {}),
         )
 
     def _score_tabs(self, raw_metrics: dict[str, dict[str, Any]], config: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:

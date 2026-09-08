@@ -4,6 +4,7 @@ from typing import Any
 
 import pandas as pd
 
+from ticker_analyzer.analysis.valuation_basis import reporting_market_cap
 from ticker_analyzer.metrics.formulas import (
     build_fundamentals_metrics,
     gross_margin_trend,
@@ -91,7 +92,7 @@ def build_raw_metrics(
 
     revenue_estimate_growth = estimate_growth(info, "revenue", revenue_estimate, growth_estimates)
     eps_estimate_growth = estimate_growth(info, "eps", earnings_estimate, growth_estimates)
-    market_cap = clean_number(info.get("marketCap"))
+    market_cap = reporting_market_cap(info)
     fcf_ttm = sum_recent(quarterly_cashflow, ["Free Cash Flow"], 4)
     if fcf_ttm is None:
         ttm_cfo = sum_recent(quarterly_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"], 4)
@@ -236,8 +237,10 @@ def build_raw_metrics(
         "pb_current": metric_value(current_pb, current_pb_source),
         "ev_ebitda_current": metric_value(current_ev_ebitda, current_ev_ebitda_source),
         "fair_value_eps": metric_value(
-            clean_number(info.get("trailingEps")),
-            "Trailing earnings per share used only by the independent Fair Value models",
+            (clean_number(info.get("currentPrice")) / current_pe
+             if clean_number(info.get("currentPrice")) is not None and current_pe else
+             None if info.get("valuationBasisPrepared") else clean_number(info.get("trailingEps"))),
+            "Earnings per listed unit in quote currency reconstructed from current price/P-E",
         ),
         "fair_value_dividend_per_share": metric_value(
             clean_number(info.get("dividendRate") or info.get("trailingAnnualDividendRate")),

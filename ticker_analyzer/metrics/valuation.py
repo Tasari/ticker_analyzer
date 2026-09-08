@@ -5,6 +5,7 @@ from typing import Any
 
 import pandas as pd
 
+from ticker_analyzer.analysis.valuation_basis import reporting_market_cap
 from ticker_analyzer.metrics.estimates import (  # noqa: F401
     estimate_growth,
     estimate_growth_from_table,
@@ -67,8 +68,8 @@ class HistoricalRatioContext:
         return clean_number(self.shares.iloc[-1])
 
     def statement_aligned_current_ratio(self, ratio_name: str, info: dict[str, Any]) -> float | None:
-        market_cap = clean_number(info.get("marketCap"))
-        if market_cap is None:
+        market_cap = reporting_market_cap(info)
+        if market_cap is None and not info.get("valuationBasisPrepared"):
             current_price = clean_number(info.get("currentPrice") or info.get("regularMarketPrice"))
             shares = self.latest_shares
             if current_price is not None and shares not in (None, 0):
@@ -226,7 +227,7 @@ def statement_aligned_enterprise_value(market_cap: float, context: HistoricalRat
 
 
 def current_price_to_cfo(info: dict[str, Any], cashflow: pd.DataFrame) -> float | None:
-    market_cap = clean_number(info.get("marketCap"))
+    market_cap = reporting_market_cap(info)
     cfo = latest_row_value(cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"])
     if market_cap is None or cfo in (None, 0):
         return None
@@ -234,7 +235,7 @@ def current_price_to_cfo(info: dict[str, Any], cashflow: pd.DataFrame) -> float 
 
 
 def fcf_yield(info: dict[str, Any], cashflow: pd.DataFrame) -> float | None:
-    market_cap = clean_number(info.get("marketCap"))
+    market_cap = reporting_market_cap(info)
     free_cash_flow = latest_row_value(cashflow, ["Free Cash Flow"])
     if free_cash_flow is None:
         cfo = latest_row_value(cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"])
@@ -250,7 +251,7 @@ def current_price_to_book(info: dict[str, Any], balance: pd.DataFrame) -> float 
     reported = clean_number(info.get("priceToBook"))
     if reported is not None:
         return reported
-    market_cap = clean_number(info.get("marketCap"))
+    market_cap = reporting_market_cap(info)
     equity = latest_row_value(balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"])
     if market_cap is None or equity in (None, 0):
         return None

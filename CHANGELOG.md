@@ -1,5 +1,14 @@
 # Changelog
 
+## Cross-market valuation correctness — 2026-09-08
+
+- Convert current issuer capitalization and historical quote prices into reporting currency for statement-based valuation.
+- Apply verified TSM/FUTU receipt-to-ordinary-share ratios to historical prices and capitalization reconstruction.
+- Keep Fair Value earnings inputs in quote currency per listed unit and prevent incompatible statement currency merges.
+- Require USD capitalization for ranking filters and tie-breaks; explicitly request USD TradingView financial fields and correct ETF turnover units.
+- Preserve original ranking monetary amounts and expose valuation FX/share metadata; missing conversion evidence leaves affected metrics unavailable.
+- Share a bounded FX cache across companies, with historical cross-rate fallback through USD.
+
 ## v5.2 Value calibration — 2026-08-26
 
 - Added absolute P/S, P/E, EV/EBITDA, and financial P/B anchors alongside historical comparisons.

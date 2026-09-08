@@ -274,6 +274,8 @@ class RankingTest(unittest.TestCase):
             {"ticker": "MSFT", "market_cap": 99, "exchange": "NASDAQ"},
         ]
 
+        for row in nasdaq + yahoo:
+            row["market_cap_currency"] = "USD"
         result = merge_large_cap_universes(nasdaq, yahoo, limit=3)
 
         self.assertEqual([item["ticker"] for item in result], ["MSFT", "FUTU", "AAPL"])

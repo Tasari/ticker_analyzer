@@ -274,7 +274,7 @@ def _render_stock_ranking() -> None:
             key="ranking_filter_quality",
         )
         minimum_market_cap_billions = score_cols[2].number_input(
-            "Minimum Market Cap (B)",
+            "Minimum Market Cap (B USD)",
             min_value=0.0,
             value=0.0,
             step=1.0,
@@ -318,6 +318,8 @@ def _render_stock_ranking() -> None:
         f"({len(companies):,} in snapshot)."
     )
     table = pd.DataFrame(filtered)
+    if any(row.get("market_cap_currency") != "USD" for row in companies):
+        st.caption("This snapshot contains unlabelled capitalization amounts. Update it to enable reliable USD capitalization filtering.")
     if table.empty:
         st.info("No companies match the selected ranking filters.")
         _render_quality_report(payload)
@@ -332,6 +334,7 @@ def _render_stock_ranking() -> None:
         "currency": "Currency",
         "price": "Price",
         "market_cap": "Market Cap",
+        "market_cap_currency": "Cap Currency",
         "profile": "Profile",
         "overall_score": "Overall",
         "rating": "Rating",
@@ -351,7 +354,7 @@ def _render_stock_ranking() -> None:
         on_select="rerun",
         selection_mode="multi-row",
         column_config={
-            "Market Cap": st.column_config.NumberColumn(format="%.0f"),
+            "Market Cap": st.column_config.NumberColumn(format="%.0f", help="USD for new snapshots; see Cap Currency. Regenerate legacy snapshots without a currency label."),
             "Price": st.column_config.NumberColumn(format="%.2f"),
             "Overall": st.column_config.NumberColumn(format="%.1f"),
             "Data Quality": st.column_config.NumberColumn(format="%.1f points"),

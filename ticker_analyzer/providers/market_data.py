@@ -129,6 +129,10 @@ class YFinanceProvider:
             diagnostics=diagnostics,
         )
         normalize_market_data(result)
+        for frame in (result.annual_income, result.annual_balance, result.annual_cashflow,
+                      result.quarterly_income, result.quarterly_balance, result.quarterly_cashflow):
+            if result.info.get("financialCurrency"):
+                frame.attrs["financial_currency"] = result.info["financialCurrency"]
         result.provenance = build_yfinance_provenance(result, fetched_at)
         fill_missing_core_data(result, ranges)
         return result
@@ -161,6 +165,7 @@ def fill_missing_core_data(data: MarketData, ranges: AnalysisRanges) -> None:
                 data.ticker: {
                     "company_name": data.info.get("longName") or data.info.get("shortName"),
                     "market_cap": data.info.get("marketCap"),
+                    "market_cap_currency": data.info.get("currency"),
                     "industry": data.info.get("industry"),
                     "sector": data.info.get("sector"),
                 }

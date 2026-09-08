@@ -72,6 +72,7 @@ def market_data(*, industry: str = "Software - Infrastructure") -> MarketData:
             "quoteType": "EQUITY",
             "industry": industry,
             "currency": "USD",
+            "financialCurrency": "USD",
             "currentPrice": 150,
             "marketCap": 15000,
             "priceToSalesTrailing12Months": 3.0,

@@ -167,6 +167,7 @@ class StockAnalysis:
     country: str = ""
     exchange: str = ""
     timezone: str = ""
+    valuation_basis: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -204,6 +205,7 @@ class StockAnalysis:
             "country": self.country,
             "exchange": self.exchange,
             "timezone": self.timezone,
+            "valuation_basis": self.valuation_basis,
         }
 
 

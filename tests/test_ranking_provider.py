@@ -67,7 +67,7 @@ class RankingProviderTest(unittest.TestCase):
                     {
                         "meta": {"type": ["annualTotalRevenue"]},
                         "annualTotalRevenue": [
-                            {"asOfDate": "2025-12-31", "reportedValue": {"raw": 100.0}}
+                            {"asOfDate": "2025-12-31", "currencyCode": "USD", "reportedValue": {"raw": 100.0}}
                         ],
                     },
                     {
@@ -95,7 +95,7 @@ class RankingProviderTest(unittest.TestCase):
             }
         }
         provider = PublicYahooRankingProvider(
-            {"ABC": {"company_name": "ABC Corp", "market_cap": 1000, "sector": "Tech"}}
+            {"ABC": {"company_name": "ABC Corp", "market_cap": 1000, "market_cap_currency": "USD", "sector": "Tech"}}
         )
         provider.session = FakeSession([statements, chart])
 
@@ -104,6 +104,8 @@ class RankingProviderTest(unittest.TestCase):
         self.assertEqual(result.info["sharesOutstanding"], 10.0)
         self.assertEqual(result.info["currentPrice"], 10.0)
         self.assertEqual(result.annual_income.iloc[0, 0], 100.0)
+        self.assertEqual(result.annual_income.attrs["financial_currency"], "USD")
+        self.assertEqual(result.info["marketCap"], 1000)
         self.assertEqual(list(result.growth_history["Close"]), [8.5, 9.5])
         self.assertEqual(list(result.value_history["Close"]), [9.0, 10.0])
         self.assertEqual(result.provenance["financials"].provider, "Yahoo Finance public")
