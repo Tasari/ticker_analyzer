@@ -128,7 +128,8 @@ class AnalysisEngineTest(unittest.TestCase):
         value_metrics = {metric.id: metric for metric in result.tabs["Value"]["metrics"]}
         self.assertIn("pe_current", value_metrics)
         self.assertIn("price_to_sales_current", value_metrics)
-        self.assertEqual(value_metrics["pe_current"].value, 20)
+        self.assertAlmostEqual(value_metrics["pe_current"].value, 15000 / (26 + 27 + 28 + 29))
+        self.assertIn("TTM", value_metrics["pe_current"].note)
         self.assertIn("current", value_metrics["pe_vs_selected_median"].note)
         self.assertIn("selected-range median", value_metrics["pe_vs_selected_median"].note)
         self.assertLess(result.tabs["Value"]["score"], 100)

@@ -16,13 +16,13 @@ from ticker_analyzer.metrics.estimates import (  # noqa: F401
     growth_from_estimates,
     target_upside,
 )
+from ticker_analyzer.metrics.periods import ValuationPeriods, valuation_periods
 from ticker_analyzer.metrics.utils import (
     clean_number,
     latest_row_value,
     median_or_none,
     metric_value,
     range_median_note,
-    row_values,
     value_on_or_before,
 )
 
@@ -34,6 +34,10 @@ class HistoricalRatioContext:
     balance: pd.DataFrame
     cashflow: pd.DataFrame
     years: int
+    quarterly_income: pd.DataFrame = field(default_factory=pd.DataFrame)
+    quarterly_balance: pd.DataFrame = field(default_factory=pd.DataFrame)
+    quarterly_cashflow: pd.DataFrame = field(default_factory=pd.DataFrame)
+    periods: dict[str, ValuationPeriods] = field(init=False)
     annual_prices: pd.Series = field(init=False)
     shares: pd.Series = field(init=False)
     revenue: pd.Series = field(init=False)
@@ -46,20 +50,24 @@ class HistoricalRatioContext:
 
     def __post_init__(self) -> None:
         self.annual_prices = annual_price_series(self.history, self.years)
-        self.shares = make_point_in_time(row_values(
-            self.balance,
-            ["Ordinary Shares Number", "Share Issued", "Common Stock Shares Outstanding"],
-        ), filing_dates=self.balance.attrs.get("filed_dates"))
-        self.revenue = make_point_in_time(row_values(self.income, ["Total Revenue", "Operating Revenue"]), filing_dates=self.income.attrs.get("filed_dates"))
-        self.net_income = make_point_in_time(row_values(self.income, ["Net Income", "Net Income Common Stockholders"]), filing_dates=self.income.attrs.get("filed_dates"))
-        self.ebitda = make_point_in_time(row_values(self.income, ["EBITDA", "Normalized EBITDA"]), filing_dates=self.income.attrs.get("filed_dates"))
-        self.cfo = make_point_in_time(row_values(self.cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"]), filing_dates=self.cashflow.attrs.get("filed_dates"))
-        self.equity = make_point_in_time(row_values(self.balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"]), filing_dates=self.balance.attrs.get("filed_dates"))
-        self.debt = make_point_in_time(row_values(self.balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"]), filing_dates=self.balance.attrs.get("filed_dates"))
-        self.cash = make_point_in_time(row_values(
-            self.balance,
-            ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"],
-        ), filing_dates=self.balance.attrs.get("filed_dates"))
+        definitions = {
+            "shares": (self.balance, self.quarterly_balance, ["Ordinary Shares Number", "Share Issued", "Common Stock Shares Outstanding"], True),
+            "revenue": (self.income, self.quarterly_income, ["Total Revenue", "Operating Revenue"], False),
+            "net_income": (self.income, self.quarterly_income, ["Net Income Common Stockholders", "Net Income"], False),
+            "ebitda": (self.income, self.quarterly_income, ["EBITDA", "Normalized EBITDA"], False),
+            "cfo": (self.cashflow, self.quarterly_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"], False),
+            "equity": (self.balance, self.quarterly_balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"], True),
+            "debt": (self.balance, self.quarterly_balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"], True),
+            "cash": (self.balance, self.quarterly_balance, ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"], True),
+        }
+        self.periods = {}
+        for name, (annual, quarterly, rows, stock) in definitions.items():
+            self.periods[name] = valuation_periods(annual, quarterly, rows, stock=stock)
+            setattr(self, name, self.periods[name].historical())
+
+    def current_denominator(self, ratio_name: str) -> tuple[float | None, str]:
+        name = {"ps": "revenue", "pe": "net_income", "ev_ebitda": "ebitda", "pb": "equity"}.get(ratio_name, "cfo")
+        return self.periods[name].current()
 
     @property
     def latest_shares(self) -> float | None:
@@ -77,18 +85,9 @@ class HistoricalRatioContext:
         if market_cap is None:
             return None
 
-        denominator: float | None
-        if ratio_name == "ps":
-            denominator = latest_series_value(self.revenue)
-        elif ratio_name == "pe":
-            denominator = latest_series_value(self.net_income)
-        elif ratio_name == "ev_ebitda":
-            denominator = latest_series_value(self.ebitda)
+        denominator, _ = self.current_denominator(ratio_name)
+        if ratio_name == "ev_ebitda":
             market_cap = statement_aligned_enterprise_value(market_cap, self)
-        elif ratio_name == "pb":
-            denominator = latest_series_value(self.equity)
-        else:
-            denominator = latest_series_value(self.cfo)
         if denominator in (None, 0):
             return None
         ratio = clean_number(market_cap / denominator)
@@ -131,8 +130,16 @@ def build_historical_ratio_context(
     cashflow: pd.DataFrame,
     *,
     years: int,
+    quarterly_income: pd.DataFrame | None = None,
+    quarterly_balance: pd.DataFrame | None = None,
+    quarterly_cashflow: pd.DataFrame | None = None,
 ) -> HistoricalRatioContext:
-    return HistoricalRatioContext(history, income, balance, cashflow, years)
+    return HistoricalRatioContext(
+        history, income, balance, cashflow, years,
+        quarterly_income=quarterly_income if quarterly_income is not None else pd.DataFrame(),
+        quarterly_balance=quarterly_balance if quarterly_balance is not None else pd.DataFrame(),
+        quarterly_cashflow=quarterly_cashflow if quarterly_cashflow is not None else pd.DataFrame(),
+    )
 
 
 def make_point_in_time(
@@ -221,8 +228,8 @@ def latest_series_value(series: pd.Series) -> float | None:
 
 
 def statement_aligned_enterprise_value(market_cap: float, context: HistoricalRatioContext) -> float:
-    debt = latest_series_value(context.debt) or 0
-    cash = latest_series_value(context.cash) or 0
+    debt = context.periods["debt"].current()[0] or 0
+    cash = context.periods["cash"].current()[0] or 0
     return market_cap + debt - cash
 
 
@@ -343,7 +350,9 @@ def statement_aligned_ratio_vs_history_metric(
     )
     ratios = context.historical_ratios(ratio_name)
     minimum = 1 if context.years == 1 else 2
-    note = range_median_note(context.years, len(ratios), prefix)
+    note = f"Selected {context.years}Y range; {len(ratios)} monthly valuation observations; historical TTM where available, annual fallback otherwise"
+    if prefix:
+        note = f"{prefix}; {note}"
     note = f"{note}; {source}"
     if current is None:
         return metric_value(None, f"{note}; current ratio unavailable")
@@ -364,10 +373,15 @@ def current_valuation_multiple(
     fallback_current_ratio: Any = None,
 ) -> tuple[float | None, str]:
     current = context.statement_aligned_current_ratio(ratio_name, info)
-    source = "statement-aligned current multiple"
+    denominator, period = context.current_denominator(ratio_name)
+    source = f"statement-aligned current multiple; {period}"
+    if denominator is not None and denominator <= 0:
+        return None, f"{source}; non-positive denominator"
     if current is None:
         current = clean_number(fallback_current_ratio)
-        source = "yfinance current multiple fallback"
+        source = "yfinance current multiple fallback; provider period (statement reconstruction unavailable)"
+    elif clean_number(fallback_current_ratio) is not None:
+        source += f"; provider-reported multiple {float(fallback_current_ratio):.2f}x"
     if current is None or current <= 0:
         return None, source
     return current, source

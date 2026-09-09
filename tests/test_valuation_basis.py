@@ -88,8 +88,23 @@ class ValuationBasisTests(unittest.TestCase):
     def test_ordinary_share_and_verified_receipt_metadata(self):
         self.assertEqual(share_basis("PKN.WA", {})[0], 1.)
         self.assertEqual(share_basis("FUTU", {})[0], 8.)
+        self.assertEqual(share_basis("BABA", {})[:2], (8., "2019-07-30"))
+        self.assertEqual(share_basis("HTHT", {})[0], 10.)
+        for ticker in ("SPOT", "ASML"):
+            self.assertEqual(share_basis(ticker, {"country": "Netherlands"})[0], 1.)
+        self.assertEqual(share_basis("OTHER", {"country": "Canada", "instrumentType": "ordinary_share", "instrumentTypeSource": "Issuer filing"})[0], 1.)
         self.assertIsNone(share_basis("OTHER", {"country": "China"})[0])
         self.assertEqual(share_basis("OTHER", {"ordinarySharesPerReceipt": 2, "shareRatioEffectiveFrom": "2020-01-01"})[0], 2.)
+
+    @patch("ticker_analyzer.analysis.valuation_basis.exchange_rate", return_value=1.)
+    @patch("ticker_analyzer.analysis.valuation_basis.rates_on_dates")
+    def test_baba_ratio_is_not_applied_before_documented_subdivision(self, rates, rate):
+        data = example(ticker="BABA")
+        data.value_history = pd.DataFrame({"Close": [80., 80.]}, index=pd.to_datetime(["2019-07-29", "2019-07-30"]))
+        rates.return_value = pd.Series(1., index=data.value_history.index)
+        history = prepare_valuation_basis(data)
+        self.assertTrue(pd.isna(history.Close.iloc[0]))
+        self.assertEqual(history.Close.iloc[1], 10.)
 
     @patch("ticker_analyzer.analysis.valuation_basis.exchange_rate", return_value=10.)
     @patch("ticker_analyzer.analysis.valuation_basis.rates_on_dates")

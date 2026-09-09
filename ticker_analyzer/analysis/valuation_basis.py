@@ -15,6 +15,13 @@ from ticker_analyzer.providers.fx import exchange_rate, rates_on_dates
 ADR_PROGRAMS = {
     "TSM": (5.0, "2003-01-01", "https://www.sec.gov/Archives/edgar/data/1046179/000095016803002302/d424b1.htm"),
     "FUTU": (8.0, "2019-03-08", "https://ir.futuholdings.com/news-releases/news-release-details/futu-announces-pricing-initial-public-offering/"),
+    "BABA": (8.0, "2019-07-30", "https://www.sec.gov/Archives/edgar/data/1577552/000110465919042446/a19-16252_1ex99d1.htm"),
+    "HTHT": (10.0, "2021-07-01", "https://ir.hworld.com/static-files/8be68f35-dafb-487c-aa57-7646be1868a6"),
+}
+
+ORDINARY_LISTINGS = {
+    "SPOT": "https://www.sec.gov/Archives/edgar/data/1639920/000162828026006874/ck0001639920-20251231.htm",
+    "ASML": "https://www.sec.gov/Archives/edgar/data/937966/000093796624000008/exhibit21.htm",
 }
 
 
@@ -24,6 +31,11 @@ def share_basis(ticker: str, info: dict[str, Any]) -> tuple[float | None, str, s
         return ratio, str(info.get("shareRatioEffectiveFrom") or ""), "provider instrument metadata"
     if ticker in ADR_PROGRAMS:
         return ADR_PROGRAMS[ticker]
+    if ticker in ORDINARY_LISTINGS:
+        return 1.0, "", ORDINARY_LISTINGS[ticker]
+    instrument_type = str(info.get("instrumentType") or "").strip().lower()
+    if instrument_type in {"ordinary_share", "common_stock"} and info.get("instrumentTypeSource"):
+        return 1.0, "", str(info["instrumentTypeSource"])
     description = str(info.get("longName") or "").upper()
     foreign_us_listing = (
         not any(char in ticker for char in ".=^")

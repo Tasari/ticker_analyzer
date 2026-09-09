@@ -1,5 +1,14 @@
 # Changelog
 
+## ADR recognition and consistent valuation periods — 2026-09-09
+
+- Add verified BABA/HTHT ADS ratios and recognize SPOT/ASML ordinary US listings without guessing from domicile.
+- Share current statement-based multiples between absolute Value, historical comparison, PEG and Fair Value earnings inputs.
+- Select complete consecutive-quarter TTM or an explicitly dated annual fallback; keep balance-sheet data as snapshots.
+- Respect filing availability in historical TTM, reject non-positive earnings instead of substituting a positive provider P/E, and identify provider discrepancies in notes.
+- Fetch quarterly statements through the public Yahoo fallback and invalidate old analysis/metric caches.
+- Fix an import-order cycle between analysis and metrics; add period, ADR and fallback-provider regression tests.
+
 ## Cross-market valuation correctness — 2026-09-08
 
 - Convert current issuer capitalization and historical quote prices into reporting currency for statement-based valuation.

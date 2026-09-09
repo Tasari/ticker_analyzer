@@ -77,6 +77,12 @@ class RankingProviderTest(unittest.TestCase):
                         ],
                     },
                     {"meta": {"type": ["unknownMetric"]}, "unknownMetric": []},
+                    {
+                        "meta": {"type": ["quarterlyNetIncome"]},
+                        "quarterlyNetIncome": [
+                            {"asOfDate": "2026-03-31", "currencyCode": "USD", "reportedValue": {"raw": 12.0}}
+                        ],
+                    },
                 ]
             }
         }
@@ -105,6 +111,9 @@ class RankingProviderTest(unittest.TestCase):
         self.assertEqual(result.info["currentPrice"], 10.0)
         self.assertEqual(result.annual_income.iloc[0, 0], 100.0)
         self.assertEqual(result.annual_income.attrs["financial_currency"], "USD")
+        self.assertEqual(result.quarterly_income.loc["Net Income", pd.Timestamp("2026-03-31")], 12.0)
+        self.assertEqual(result.quarterly_income.attrs["financial_currency"], "USD")
+        self.assertTrue(result.quarterly_balance.empty)
         self.assertEqual(result.info["marketCap"], 1000)
         self.assertEqual(list(result.growth_history["Close"]), [8.5, 9.5])
         self.assertEqual(list(result.value_history["Close"]), [9.0, 10.0])

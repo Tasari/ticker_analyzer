@@ -14,7 +14,7 @@ from ticker_analyzer.ranking.universe import UNIVERSE_SCHEMA_VERSION, market_cou
 
 SCORING_VERSION = 5
 PROVIDER_SCHEMA_VERSION = "providers-v4-fx-adr"
-METRIC_SCHEMA_VERSION = "metrics-v5"
+METRIC_SCHEMA_VERSION = "metrics-v6-ttm"
 
 
 def analyze_ticker(

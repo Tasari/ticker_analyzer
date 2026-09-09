@@ -43,6 +43,10 @@ TIMESERIES_TYPES = {
     "annualFreeCashFlow": ("cashflow", "Free Cash Flow"),
     "annualCapitalExpenditure": ("cashflow", "Capital Expenditure"),
 }
+TIMESERIES_TYPES.update({
+    name.replace("annual", "quarterly", 1): (f"quarterly_{statement}", row)
+    for name, (statement, row) in list(TIMESERIES_TYPES.items())
+})
 
 
 class PublicYahooRankingProvider:
@@ -147,9 +151,9 @@ class PublicYahooRankingProvider:
             annual_income=statements["income"],
             annual_balance=statements["balance"],
             annual_cashflow=statements["cashflow"],
-            quarterly_income=empty,
-            quarterly_balance=empty,
-            quarterly_cashflow=empty,
+            quarterly_income=statements["quarterly_income"],
+            quarterly_balance=statements["quarterly_balance"],
+            quarterly_cashflow=statements["quarterly_cashflow"],
             growth_history=growth_history,
             value_history=value_history,
             analyst_targets={},
@@ -217,7 +221,9 @@ class PublicYahooRankingProvider:
             timeout=self.timeout,
         )
         response.raise_for_status()
-        values: dict[str, dict[str, dict[pd.Timestamp, float]]] = {"income": {}, "balance": {}, "cashflow": {}}
+        values: dict[str, dict[str, dict[pd.Timestamp, float]]] = {
+            name: {} for name in ("income", "balance", "cashflow", "quarterly_income", "quarterly_balance", "quarterly_cashflow")
+        }
         currencies: dict[str, set[str]] = {name: set() for name in values}
         for result in response.json().get("timeseries", {}).get("result", []):
             metric_type = next(iter(result.get("meta", {}).get("type", [])), None)

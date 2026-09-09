@@ -25,7 +25,7 @@ currency metadata are not merged cell by cell.
 
 ## Depositary receipts
 
-The initial verified program registry covers:
+The verified program registry covers:
 
 - TSM: five ordinary shares per ADR, documented in the
   [2003 prospectus](https://www.sec.gov/Archives/edgar/data/1046179/000095016803002302/d424b1.htm)
@@ -33,6 +33,17 @@ The initial verified program registry covers:
 - FUTU: eight ordinary shares per ADS since its
   [2019 IPO](https://ir.futuholdings.com/news-releases/news-release-details/futu-announces-pricing-initial-public-offering/),
   also confirmed by the [issuer FAQ](https://futuholdings.gcs-web.com/resources/investor-faqs/).
+- BABA: eight ordinary shares per ADS from 2019-07-30, after the
+  [share split and ADS ratio change](https://www.sec.gov/Archives/edgar/data/1577552/000110465919042446/a19-16252_1ex99d1.htm).
+- HTHT: ten ordinary shares per ADS following the June 2021 subdivision,
+  documented in the [issuer annual report](https://ir.hworld.com/static-files/8be68f35-dafb-487c-aa57-7646be1868a6).
+  Historical normalization conservatively starts on 2021-07-01, after the change.
+
+Verified ordinary US listings are not classified as unknown ADRs just because
+their issuer is foreign: [SPOT](https://www.sec.gov/Archives/edgar/data/1639920/000162828026006874/ck0001639920-20251231.htm)
+and [ASML](https://www.sec.gov/Archives/edgar/data/937966/000093796624000008/exhibit21.htm)
+use one ordinary share per listed unit. An integration can also supply
+`instrumentType` (`ordinary_share` or `common_stock`) with `instrumentTypeSource`.
 
 Provider integrations can supply `ordinarySharesPerReceipt` and
 `shareRatioEffectiveFrom`. A ratio without a validity start can support current
@@ -41,6 +52,42 @@ An unverified foreign US listing is treated as an unknown share basis; a foreign
 domicile alone does not prove that a security is an ADR. No ratio is estimated from
 current market capitalization or provider share counts. The registry needs review
 when depositary programs change; it is not a complete corporate-action database.
+
+## Valuation periods
+
+Absolute Value multiples and their current-versus-history comparisons use the
+same statement-based current multiple. P/E also supplies the earnings input for
+Fair Value and the growth-adjusted valuation metric. Yahoo's reported multiple is
+shown separately in the metric note; it is only a fallback when reconstruction
+is unavailable, not a replacement for a non-positive statement denominator.
+
+Revenue, common-shareholder net income, EBITDA, operating cash flow and free cash
+flow use four consecutive, non-missing quarters when available. Gaps must be
+between 60 and 120 days; incomplete or semiannual series cannot silently become
+TTM. The latest valid reporting period wins, with TTM preferred over annual data
+for the same period. Otherwise the metric explicitly says `Annual fallback` and
+gives the period end. Balance-sheet amounts are snapshots, never quarterly sums.
+Free cash flow can be derived per quarter from operating cash flow minus absolute
+capital expenditure, preserving any explicit reported FCF values.
+
+Historical comparisons sample monthly prices and use the latest statement
+observation available at each sample. TTM only becomes usable once all four
+component quarters are available. Explicit filing dates are respected; absent
+those, a conservative 90-day publication lag is applied to each quarter/annual
+report. This is still secondary, potentially restated Yahoo data, not a fully
+point-in-time filings archive. Older periods may fall back to annual data when
+Yahoo's quarterly history is short. Notes explicitly identify this mixed history.
+
+The public Yahoo fallback retrieves annual and quarterly statements in the same
+request, retaining reporting-currency metadata for both. Cached analysis and
+ranking metric versions change so newly calculated results use the new policy;
+existing ranking snapshots still require an update.
+
+Live smoke testing on 2026-09-09 produced a Value rating for BABA, SPOT, PKN.WA,
+MSFT, SHEL.L, 9988.HK, ASML and HTHT. For all eight, current P/E matched the value
+used in the historical-comparison note. The public fallback also returned usable
+TTM quarters in PLN for PKN.WA and CNY for BABA. This checks integration and unit
+consistency, not independent verification of every Yahoo financial statement.
 
 ## Rankings
 

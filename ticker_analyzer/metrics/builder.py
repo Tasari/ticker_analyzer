@@ -16,6 +16,7 @@ from ticker_analyzer.metrics.formulas import (
     ratio_stability,
     share_count_cagr,
 )
+from ticker_analyzer.metrics.periods import free_cash_flow_periods
 from ticker_analyzer.metrics.utils import (
     cagr_pct,
     clean_number,
@@ -31,9 +32,8 @@ from ticker_analyzer.metrics.utils import (
 )
 from ticker_analyzer.metrics.valuation import (
     build_historical_ratio_context,
-    current_absolute_multiple,
-    current_price_to_book,
     current_price_to_cfo,
+    current_valuation_multiple,
     estimate_growth,
     estimate_growth_note,
     fcf_yield,
@@ -93,15 +93,8 @@ def build_raw_metrics(
     revenue_estimate_growth = estimate_growth(info, "revenue", revenue_estimate, growth_estimates)
     eps_estimate_growth = estimate_growth(info, "eps", earnings_estimate, growth_estimates)
     market_cap = reporting_market_cap(info)
-    fcf_ttm = sum_recent(quarterly_cashflow, ["Free Cash Flow"], 4)
-    if fcf_ttm is None:
-        ttm_cfo = sum_recent(quarterly_cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"], 4)
-        ttm_capex = sum_recent(quarterly_cashflow, ["Capital Expenditure", "Capital Expenditures"], 4)
-        if ttm_cfo is not None and ttm_capex is not None:
-            fcf_ttm = ttm_cfo + ttm_capex if ttm_capex < 0 else ttm_cfo - ttm_capex
+    fcf_ttm, fcf_period = free_cash_flow_periods(annual_cashflow, quarterly_cashflow).current()
     fcf_yield_ttm = fcf_ttm / market_cap * 100 if fcf_ttm is not None and market_cap not in (None, 0) else None
-    if fcf_yield_ttm is None:
-        fcf_yield_ttm = fcf_yield(info, annual_cashflow)
     price_target_upside = target_upside(info, analyst_targets)
     value_context = build_historical_ratio_context(
         value_history,
@@ -109,22 +102,21 @@ def build_raw_metrics(
         annual_balance,
         annual_cashflow,
         years=value_years,
+        quarterly_income=quarterly_income,
+        quarterly_balance=quarterly_balance,
+        quarterly_cashflow=quarterly_cashflow,
     )
-    current_ps, current_ps_source = current_absolute_multiple(
-        info.get("priceToSalesTrailing12Months"),
-        value_context.statement_aligned_current_ratio("ps", info),
+    current_ps, current_ps_source = current_valuation_multiple(
+        info, "ps", value_context, fallback_current_ratio=info.get("priceToSalesTrailing12Months"),
     )
-    current_pe, current_pe_source = current_absolute_multiple(
-        info.get("trailingPE"),
-        value_context.statement_aligned_current_ratio("pe", info),
+    current_pe, current_pe_source = current_valuation_multiple(
+        info, "pe", value_context, fallback_current_ratio=info.get("trailingPE"),
     )
-    current_pb, current_pb_source = current_absolute_multiple(
-        info.get("priceToBook"),
-        value_context.statement_aligned_current_ratio("pb", info),
+    current_pb, current_pb_source = current_valuation_multiple(
+        info, "pb", value_context, fallback_current_ratio=info.get("priceToBook"),
     )
-    current_ev_ebitda, current_ev_ebitda_source = current_absolute_multiple(
-        info.get("enterpriseToEbitda"),
-        value_context.statement_aligned_current_ratio("ev_ebitda", info),
+    current_ev_ebitda, current_ev_ebitda_source = current_valuation_multiple(
+        info, "ev_ebitda", value_context, fallback_current_ratio=info.get("enterpriseToEbitda"),
     )
     fundamentals = build_fundamentals_metrics(
         info,
@@ -217,7 +209,7 @@ def build_raw_metrics(
             info,
             "pb",
             value_context,
-            fallback_current_ratio=current_price_to_book(info, annual_balance),
+            fallback_current_ratio=info.get("priceToBook"),
             prefix="Financial profile value metric",
         ),
         "ev_ebitda_vs_selected_median": statement_aligned_ratio_vs_history_metric(
@@ -240,7 +232,7 @@ def build_raw_metrics(
             (clean_number(info.get("currentPrice")) / current_pe
              if clean_number(info.get("currentPrice")) is not None and current_pe else
              None if info.get("valuationBasisPrepared") else clean_number(info.get("trailingEps"))),
-            "Earnings per listed unit in quote currency reconstructed from current price/P-E",
+            f"Earnings per listed unit in quote currency reconstructed from current price/P-E; {current_pe_source}",
         ),
         "fair_value_dividend_per_share": metric_value(
             clean_number(info.get("dividendRate") or info.get("trailingAnnualDividendRate")),
@@ -249,16 +241,16 @@ def build_raw_metrics(
         "fcf_yield": metric_value(fcf_yield(info, annual_cashflow), "Latest annual free cash flow divided by current market capitalization"),
         "fcf_yield_ttm": metric_value(
             fcf_yield_ttm,
-            "Trailing twelve-month free cash flow divided by market capitalization; annual fallback when quarterly data is unavailable",
+            f"Free cash flow divided by market capitalization; {fcf_period}",
         ),
         "pe_vs_profile_median": metric_value(None, "Requires a matching versioned peer-calibration artifact"),
         "ev_ebitda_vs_profile_median": metric_value(None, "Requires a matching versioned peer-calibration artifact"),
         "fcf_yield_vs_profile_median": metric_value(None, "Requires a matching versioned peer-calibration artifact"),
         "valuation_growth_adjustment": metric_value(
-            clean_number(info.get("trailingPE")) / eps_estimate_growth
-            if clean_number(info.get("trailingPE")) is not None and eps_estimate_growth is not None and eps_estimate_growth > 0
+            current_pe / eps_estimate_growth
+            if current_pe is not None and eps_estimate_growth is not None and eps_estimate_growth > 0
             else None,
-            "Trailing P/E divided by positive forward EPS growth",
+            f"Selected current P/E divided by positive forward EPS growth; {current_pe_source}",
         ),
         "price_target": metric_value(price_target_upside),
         "upside_vs_configured_benchmark": metric_value(None, "Uses configured benchmark because historical analyst upside is unavailable"),
