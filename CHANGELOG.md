@@ -1,5 +1,14 @@
 # Changelog
 
+## Valuation diagnostics and ranking compatibility — 2026-09-09
+
+- Add a Valuation evidence panel with actual versus Yahoo multiples, reporting periods, fallback labels and historical coverage.
+- Flag large provider discrepancies and thin valuation history without changing scoring thresholds.
+- Stop treating missing debt/cash as zero in EV/EBITDA; preserve valid zero balances and explicitly label provider fallback.
+- Exclude non-positive EBITDA from historical comparison and cache repeated historical ratios within one analysis.
+- Warn about old, unknown or mixed stock-ranking calculation/configuration versions, preserving imported snapshots unchanged.
+- Add regression and Streamlit UI tests for the new diagnostics and compatibility checks.
+
 ## ADR recognition and consistent valuation periods — 2026-09-09
 
 - Add verified BABA/HTHT ADS ratios and recognize SPOT/ASML ordinary US listings without guessing from domicile.

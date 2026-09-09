@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import pandas as pd
 import streamlit as st
 
+from ticker_analyzer.config import load_config
 from ticker_analyzer.ranking import (
     DEFAULT_RANKING_PATH,
     RankingSnapshotError,
@@ -14,7 +15,7 @@ from ticker_analyzer.ranking import (
 )
 from ticker_analyzer.ranking.bundle import available_ranking_snapshots, build_rankings_archive
 from ticker_analyzer.ranking.filters import RankingFilters, filter_ranking_companies
-from ticker_analyzer.ranking.quality import build_ranking_quality_report
+from ticker_analyzer.ranking.quality import build_ranking_quality_report, ranking_compatibility
 from ticker_analyzer.ui.config_view import mutation_allowed
 from ticker_analyzer.ui.market_ranking_view import render_crypto_ranking, render_etf_ranking
 from ticker_analyzer.ui.ranking_actions import ranking_refresh_is_running, refresh_large_cap_ranking
@@ -183,6 +184,7 @@ def _render_stock_ranking() -> None:
     if not companies:
         st.info("Ranking data has not been generated yet. Use Update all rankings to start it.")
         return
+    _render_ranking_compatibility(payload)
     if is_checkpoint:
         processed = int(metadata.get("processed", len(companies) + len(errors)) or 0)
         requested = int(metadata.get("requested", 0) or 0)
@@ -461,6 +463,20 @@ def _render_quality_report(payload: dict) -> None:
         categories = report.get("error_categories", {})
         if categories:
             st.caption("Failure categories: " + ", ".join(f"{name}: {count}" for name, count in categories.items()))
+
+
+def _render_ranking_compatibility(payload: dict) -> None:
+    compatibility = ranking_compatibility(payload, load_config())
+    metadata = payload.get("metadata", {})
+    for warning in compatibility["warnings"]:
+        st.warning(warning)
+    with st.expander("Ranking calculation versions", expanded=False):
+        st.caption("Matching versions do not guarantee matching scores: fetch dates, ranges and available data also matter.")
+        if compatibility["differences"]:
+            st.dataframe(pd.DataFrame(compatibility["differences"]).astype(str), hide_index=True, width="stretch")
+        elif compatibility["compatible"]:
+            st.success("Calculation versions and configuration match the current application.")
+        st.caption(f"Snapshot range: {metadata.get('ranges', 'Unknown')} · data as of {metadata.get('data_as_of', 'Unknown')}")
 
 
 def add_ranking_tickers_to_analyzer(tickers: list[str]) -> None:

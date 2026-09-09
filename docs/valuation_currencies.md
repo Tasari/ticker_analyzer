@@ -89,6 +89,23 @@ used in the historical-comparison note. The public fallback also returned usable
 TTM quarters in PLN for PKN.WA and CNY for BABA. This checks integration and unit
 consistency, not independent verification of every Yahoo financial statement.
 
+## Valuation evidence and incomplete enterprise value
+
+Company Details includes a `Valuation evidence` panel for P/S, P/E, P/B and
+EV/EBITDA. It shows the actual multiple used, statement period or unverified
+provider fallback, Yahoo's supplied multiple, signed percentage difference, and
+usable monthly observations out of the selected historical window. A difference
+of at least 25% or less than 50% historical coverage triggers a review note. These
+are transparent diagnostic thresholds, not new scoring gates and not proof that
+either data source is correct. Missing Yahoo values are not compared against zero.
+
+Statement-derived enterprise value requires both debt and cash. A reported zero
+is valid; missing debt/cash is not silently replaced with zero. If reconstruction
+is impossible, an available positive Yahoo EV/EBITDA is explicitly identified as
+a provider fallback. Historical samples with missing debt/cash or non-positive
+EBITDA are excluded. Repeated historical comparisons within a single analysis
+reuse a compact per-context cache without retaining data across companies.
+
 ## Rankings
 
 Stock capitalization and ETF traded value are explicitly compared in USD. Original
@@ -106,6 +123,14 @@ snapshots remain readable but their capitalization is excluded from USD threshol
 filters and cross-market capitalization tie-breaks. Regenerate snapshots to populate
 the new currency fields and recalculate scores. Old ETF scores are not retroactively
 repaired by relabelling an imported file.
+
+Saved stock rankings are checked against the current calculation/configuration
+fingerprint when displayed, including row-level mismatches in mixed snapshots.
+Old or missing version metadata triggers a visible warning and a comparison in
+`Ranking calculation versions`; imports remain viewable and are never silently
+rescored or relabelled. Matching versions are not a freshness guarantee: fetch
+dates, selected ranges and available provider data can still produce different
+results. Use `Update all rankings` to replace a snapshot with new calculations.
 
 Data limitations remain visible in the Analyzer's valuation-basis section and
 missing-data details. For example, live BGEO.L testing on 2026-09-08 recovered a

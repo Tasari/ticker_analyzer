@@ -47,6 +47,7 @@ class HistoricalRatioContext:
     equity: pd.Series = field(init=False)
     debt: pd.Series = field(init=False)
     cash: pd.Series = field(init=False)
+    _ratio_cache: dict[str, list[float]] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         self.annual_prices = annual_price_series(self.history, self.years)
@@ -88,12 +89,14 @@ class HistoricalRatioContext:
         denominator, _ = self.current_denominator(ratio_name)
         if ratio_name == "ev_ebitda":
             market_cap = statement_aligned_enterprise_value(market_cap, self)
-        if denominator in (None, 0):
+        if market_cap is None or denominator is None or denominator <= 0:
             return None
         ratio = clean_number(market_cap / denominator)
         return ratio if ratio is not None and ratio > 0 else None
 
     def historical_ratios(self, ratio_name: str) -> list[float]:
+        if ratio_name in self._ratio_cache:
+            return list(self._ratio_cache[ratio_name])
         ratios: list[float] = []
         for date, price in self.annual_prices.items():
             shares = value_on_or_before(self.shares, date)
@@ -102,14 +105,17 @@ class HistoricalRatioContext:
             market_cap = price * shares
             denominator = self._historical_denominator(ratio_name, date)
             if ratio_name == "ev_ebitda":
-                debt = value_on_or_before(self.debt, date) or 0
-                cash = value_on_or_before(self.cash, date) or 0
+                debt = value_on_or_before(self.debt, date)
+                cash = value_on_or_before(self.cash, date)
+                if debt is None or cash is None:
+                    continue
                 market_cap = market_cap + debt - cash
-            if denominator not in (None, 0):
+            if denominator is not None and denominator > 0:
                 ratio = clean_number(market_cap / denominator)
                 if ratio is not None and ratio > 0:
                     ratios.append(ratio)
-        return ratios
+        self._ratio_cache[ratio_name] = ratios
+        return list(ratios)
 
     def _historical_denominator(self, ratio_name: str, date: Any) -> float | None:
         if ratio_name == "ps":
@@ -227,9 +233,11 @@ def latest_series_value(series: pd.Series) -> float | None:
     return clean_number(series.iloc[-1])
 
 
-def statement_aligned_enterprise_value(market_cap: float, context: HistoricalRatioContext) -> float:
-    debt = context.periods["debt"].current()[0] or 0
-    cash = context.periods["cash"].current()[0] or 0
+def statement_aligned_enterprise_value(market_cap: float, context: HistoricalRatioContext) -> float | None:
+    debt = context.periods["debt"].current()[0]
+    cash = context.periods["cash"].current()[0]
+    if debt is None or cash is None:
+        return None
     return market_cap + debt - cash
 
 
@@ -380,11 +388,44 @@ def current_valuation_multiple(
     if current is None:
         current = clean_number(fallback_current_ratio)
         source = "yfinance current multiple fallback; provider period (statement reconstruction unavailable)"
+        if ratio_name == "ev_ebitda" and any(context.periods[name].current()[0] is None for name in ("debt", "cash")):
+            source += "; debt or cash unavailable (not assumed zero)"
     elif clean_number(fallback_current_ratio) is not None:
         source += f"; provider-reported multiple {float(fallback_current_ratio):.2f}x"
     if current is None or current <= 0:
         return None, source
     return current, source
+
+
+def valuation_details(info: dict[str, Any], ratio_name: str, context: HistoricalRatioContext, reported: Any) -> dict[str, Any]:
+    """Compact, serializable evidence for the UI; it does not alter score thresholds."""
+    current, note = current_valuation_multiple(info, ratio_name, context, fallback_current_ratio=reported)
+    reconstructed = context.statement_aligned_current_ratio(ratio_name, info)
+    provider = clean_number(reported)
+    denominator, period = context.current_denominator(ratio_name)
+    source = "Statements" if reconstructed is not None else "Yahoo fallback" if current is not None else "Unavailable"
+    if current is None:
+        source = "Unavailable"
+    difference = (current / provider - 1) * 100 if source == "Statements" and provider is not None and provider > 0 else None
+    observations = len(context.historical_ratios(ratio_name))
+    expected = max(1, context.years) * 12
+    warnings = []
+    if difference is not None and abs(difference) >= 25:
+        warnings.append("Differs from Yahoo by at least 25%; verify period and accounting basis.")
+    if observations < expected / 2:
+        warnings.append("Less than half of the selected historical window has usable valuation observations.")
+    if source == "Yahoo fallback":
+        warnings.append("Provider multiple used; underlying statement period is unverified.")
+    if denominator is not None and denominator <= 0:
+        warnings.append("Non-positive statement denominator; a positive provider multiple is not substituted.")
+    if ratio_name == "ev_ebitda" and any(context.periods[name].current()[0] is None for name in ("debt", "cash")):
+        warnings.append("Debt or cash unavailable; missing values are not treated as zero.")
+    return {
+        "source": source, "period": period if source == "Statements" else "Unverified" if current is not None else period,
+        "reported_multiple": provider, "difference_pct": difference,
+        "history_observations": observations, "history_expected": expected,
+        "warnings": warnings, "note": note,
+    }
 
 
 def current_absolute_multiple(reported: Any, statement_aligned: Any) -> tuple[float | None, str]:

@@ -247,6 +247,7 @@ def render_summary(result: dict) -> None:
     if result.get("rating_caps"):
         st.caption("Active rating caps: " + ", ".join(result["rating_caps"]))
     st.caption("Scores are model-based comparative indicators, not guarantees or investment advice.")
+    render_valuation_evidence(result)
 
     rating_cols = st.columns(3)
     for index, tab_name in enumerate(["Growth", "Fundamentals", "Value"]):
@@ -265,6 +266,34 @@ def render_summary(result: dict) -> None:
         with st.expander("Missing data warnings", expanded=False):
             for item in result["missing"]:
                 st.write(f"- {item}")
+
+
+def render_valuation_evidence(result: dict) -> None:
+    rows, warnings = [], []
+    for metric_id, label in (("price_to_sales_current", "P/S"), ("pe_current", "P/E"),
+                             ("pb_current", "P/B"), ("ev_ebitda_current", "EV/EBITDA")):
+        raw = result.get("raw", {}).get(metric_id, {})
+        evidence = raw.get("valuation", {})
+        if not evidence:
+            continue
+        rows.append({
+            "Metric": label, "Used multiple": raw.get("value"), "Source": evidence["source"],
+            "Statement period": evidence["period"], "Yahoo multiple": evidence.get("reported_multiple"),
+            "Difference (%)": evidence.get("difference_pct"),
+            "Historical months": f"{evidence['history_observations']}/{evidence['history_expected']}",
+        })
+        warnings.extend(f"{label}: {warning}" for warning in evidence.get("warnings", []))
+    if not rows:
+        return
+    if warnings:
+        st.caption(f"Valuation checks: {len(warnings)} notes — see Valuation evidence below.")
+    with st.expander("Valuation evidence", expanded=False):
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        st.caption("Multiples are dimensionless. Historical months count usable observations, not independent reports. "
+                   "Differences of at least 25% are review flags, not proof that either value is correct. "
+                   "These checks do not change rating thresholds.")
+        for warning in warnings:
+            st.warning(warning)
 
 
 def render_score_explanation(result: dict) -> None:

@@ -76,7 +76,7 @@ class StreamlitAppTest(unittest.TestCase):
 
         self.assertFalse(app.exception)
         analyze.assert_called_once()
-        self.assertEqual(app.session_state["analysis_result_version"], "markets-v3-share-periods")
+        self.assertEqual(app.session_state["analysis_result_version"], "markets-v4-valuation-evidence")
 
     def test_switches_from_ranking_to_empty_analyzer_without_fetching(self):
         app = AppTest.from_file("app.py", default_timeout=10)
@@ -251,7 +251,7 @@ class StreamlitAppTest(unittest.TestCase):
         app.session_state["_site_access_authenticated"] = True
         app.session_state["selected_tickers"] = ["AAPL"]
         app.session_state["analysis_results"] = {"AAPL": result}
-        app.session_state["analysis_result_version"] = "markets-v3-share-periods"
+        app.session_state["analysis_result_version"] = "markets-v4-valuation-evidence"
         app.session_state["analysis_errors"] = {}
         app.session_state["active_ticker"] = "AAPL"
 
@@ -401,7 +401,7 @@ class StreamlitAppTest(unittest.TestCase):
         country_filter.set_value(["Poland"]).run()
 
         self.assertFalse(app.exception)
-        table = app.dataframe[0].value
+        table = next(item.value for item in app.dataframe if "Ticker" in item.value.columns)
         self.assertEqual(list(table["Ticker"]), ["PKN.WA"])
 
     def test_stock_ranking_uses_partial_checkpoint_when_snapshot_is_missing(self):

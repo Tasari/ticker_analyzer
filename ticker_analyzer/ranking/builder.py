@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 import time
 from collections.abc import Callable
@@ -11,10 +9,13 @@ from typing import Any
 
 from ticker_analyzer.ranking.currencies import usd_market_cap
 from ticker_analyzer.ranking.universe import UNIVERSE_SCHEMA_VERSION, market_counts
-
-SCORING_VERSION = 5
-PROVIDER_SCHEMA_VERSION = "providers-v4-fx-adr"
-METRIC_SCHEMA_VERSION = "metrics-v6-ttm"
+from ticker_analyzer.ranking.versions import (  # noqa: F401 - backward-compatible exports
+    METRIC_SCHEMA_VERSION,
+    PROVIDER_SCHEMA_VERSION,
+    SCORING_VERSION,
+    analysis_fingerprint,
+    config_digest,
+)
 
 
 def analyze_ticker(
@@ -26,24 +27,6 @@ def analyze_ticker(
     from ticker_analyzer.analysis.engine import analyze_ticker as execute
 
     return execute(ticker_symbol, ranges, config)
-
-
-def config_digest(config: dict[str, Any]) -> str:
-    encoded = json.dumps(config, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def analysis_fingerprint(config: dict[str, Any], data_as_of: str) -> dict[str, Any]:
-    return {
-        "scoring_version": SCORING_VERSION,
-        "config_version": int(config.get("version", 5)),
-        "calibration_version": str(config.get("calibration_version", "v5.2-value-2026Q3")),
-        "config_digest": config_digest(config),
-        "provider_schema_version": PROVIDER_SCHEMA_VERSION,
-        "metric_schema_version": METRIC_SCHEMA_VERSION,
-        "peer_artifact_version": str(config.get("peer_artifact_version", "none")),
-        "data_as_of": data_as_of,
-    }
 
 
 def ranking_row(

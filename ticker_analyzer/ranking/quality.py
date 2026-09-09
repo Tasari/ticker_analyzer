@@ -4,6 +4,32 @@ from collections import Counter
 from typing import Any
 
 from ticker_analyzer.numbers import clean_number
+from ticker_analyzer.ranking.versions import analysis_fingerprint
+
+
+def ranking_compatibility(payload: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    """Compare calculation versions, not snapshot dates; never mutate saved scores."""
+    expected = analysis_fingerprint(config, "")
+    expected.pop("data_as_of")
+    metadata = payload.get("metadata", {})
+    differences = [
+        {"field": key, "saved": metadata.get(key), "current": value}
+        for key, value in expected.items() if metadata.get(key) != value
+    ]
+    incompatible_rows = sum(
+        any(row.get(key, metadata.get(key)) != value for key, value in expected.items())
+        for row in payload.get("companies", [])
+    )
+    warnings = []
+    if differences:
+        warnings.append(
+            "Saved ranking uses different or unverified calculation versions/configuration. "
+            "Update all rankings to recalculate; scores can differ from the Analyzer."
+        )
+    elif incompatible_rows:
+        warnings.append(f"{incompatible_rows:,} rows use a different calculation version/configuration. Update all rankings.")
+    return {"compatible": not differences and not incompatible_rows, "differences": differences,
+            "incompatible_rows": incompatible_rows, "warnings": warnings}
 
 
 def build_ranking_quality_report(

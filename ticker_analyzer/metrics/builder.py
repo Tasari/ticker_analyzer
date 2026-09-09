@@ -39,6 +39,7 @@ from ticker_analyzer.metrics.valuation import (
     fcf_yield,
     statement_aligned_ratio_vs_history_metric,
     target_upside,
+    valuation_details,
 )
 
 __all__ = ["build_raw_metrics", "apply_configured_metric_fallbacks", "build_charts_data"]
@@ -255,6 +256,13 @@ def build_raw_metrics(
         "price_target": metric_value(price_target_upside),
         "upside_vs_configured_benchmark": metric_value(None, "Uses configured benchmark because historical analyst upside is unavailable"),
     }
+    for metric_id, ratio_name, provider_field in (
+        ("price_to_sales_current", "ps", "priceToSalesTrailing12Months"),
+        ("pe_current", "pe", "trailingPE"),
+        ("pb_current", "pb", "priceToBook"),
+        ("ev_ebitda_current", "ev_ebitda", "enterpriseToEbitda"),
+    ):
+        raw[metric_id]["valuation"] = valuation_details(info, ratio_name, value_context, info.get(provider_field))
     return raw
 
 
