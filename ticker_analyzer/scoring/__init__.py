@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from itertools import pairwise
 from typing import Any
 
 from ticker_analyzer.domain import MetricResult
@@ -24,15 +25,34 @@ from ticker_analyzer.scoring.ratings import (
 )
 
 __all__ = [
-    "ScoringEngine", "format_metric_value", "clean_number", "metric_description",
-    "format_threshold", "score_higher", "score_lower", "score_value",
-    "percentile_score", "apply_absolute_guardrail", "status_from_score",
-    "weighted_score", "weighted_tab_score", "classify_rating",
-    "calculate_overall_rating", "calculate_overall_rating_code",
-    "calculate_rating_decision", "classify_rating_code", "rating_label",
-    "cap_rating_code", "cap_rating", "classify_five_point_score",
-    "number_or_default", "classify_tab_rating", "tab_thresholds", "tab_labels",
-    "RATING_RANK", "RATING_CODE_RANK",
+    "ScoringEngine",
+    "format_metric_value",
+    "clean_number",
+    "metric_description",
+    "format_threshold",
+    "score_higher",
+    "score_lower",
+    "score_value",
+    "percentile_score",
+    "apply_absolute_guardrail",
+    "status_from_score",
+    "weighted_score",
+    "weighted_tab_score",
+    "classify_rating",
+    "calculate_overall_rating",
+    "calculate_overall_rating_code",
+    "calculate_rating_decision",
+    "classify_rating_code",
+    "rating_label",
+    "cap_rating_code",
+    "cap_rating",
+    "classify_five_point_score",
+    "number_or_default",
+    "classify_tab_rating",
+    "tab_thresholds",
+    "tab_labels",
+    "RATING_RANK",
+    "RATING_CODE_RANK",
 ]
 
 
@@ -208,16 +228,14 @@ def percentile_score(percentile: float) -> float:
         (0.97, 95.0),
         (1.00, 100.0),
     ]
-    for (left_x, left_y), (right_x, right_y) in zip(anchors, anchors[1:], strict=False):
+    for (left_x, left_y), (right_x, right_y) in pairwise(anchors):
         if value <= right_x:
             fraction = (value - left_x) / (right_x - left_x)
             return left_y + fraction * (right_y - left_y)
     return 100.0
 
 
-def apply_absolute_guardrail(
-    metric_id: str, value: float, score: float, config: dict[str, Any]
-) -> float:
+def apply_absolute_guardrail(metric_id: str, value: float, score: float, config: dict[str, Any]) -> float:
     """Cap peer/absolute scores when a raw metric reveals economic distress."""
     rules = config.get("absolute_guardrails", {}).get(metric_id, [])
     for rule in rules:

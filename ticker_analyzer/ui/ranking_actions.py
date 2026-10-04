@@ -12,6 +12,7 @@ from typing import Any
 
 from ticker_analyzer.ranking import DEFAULT_RANKING_PATH, load_ranking, save_ranking
 from ticker_analyzer.ranking.quality import build_ranking_quality_report
+from ticker_analyzer.runtime_settings import mutation_allowed
 
 
 def refresh_large_cap_ranking(
@@ -24,9 +25,7 @@ def refresh_large_cap_ranking(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     restart_running: bool = False,
 ) -> tuple[bool, str, dict[str, Any]]:
-    if os.getenv("APP_MODE", "local").strip().lower() == "production" and os.getenv(
-        "ALLOW_RANKING_REFRESH", ""
-    ).strip().lower() not in {"1", "true", "yes", "on"}:
+    if not mutation_allowed("ALLOW_RANKING_REFRESH"):
         return False, "Ranking refresh is disabled in production.", {}
     project_root = Path(__file__).resolve().parents[2]
     resolved_output = output_path if output_path.is_absolute() else project_root / output_path
@@ -110,15 +109,23 @@ def refresh_large_cap_ranking(
         if progress_callback:
             progress_callback(metadata)
         if not ranking_refresh_is_complete(payload, expected_limit=limit):
-            return False, "Ranking update stopped before all companies were processed; the checkpoint was preserved.", metadata
+            return (
+                False,
+                "Ranking update stopped before all companies were processed; the checkpoint was preserved.",
+                metadata,
+            )
         payload["metadata"]["quality_report"] = build_ranking_quality_report(payload, previous_payload)
         save_ranking(payload, refresh_path)
         refresh_path.replace(resolved_output)
-        return True, (
-            f"Ranking updated: {metadata.get('scored', 0)} scored, "
-            f"{metadata.get('insufficient_data', 0)} insufficient data, "
-            f"{metadata.get('failed', 0)} failed."
-        ), metadata
+        return (
+            True,
+            (
+                f"Ranking updated: {metadata.get('scored', 0)} scored, "
+                f"{metadata.get('insufficient_data', 0)} insufficient data, "
+                f"{metadata.get('failed', 0)} failed."
+            ),
+            metadata,
+        )
     finally:
         if process is not None and process.poll() is None:
             terminate_refresh_process(process)
@@ -240,9 +247,7 @@ def find_ranking_worker(refresh_path: Path) -> int | None:
             continue
         try:
             arguments = [
-                item.decode(errors="replace")
-                for item in (process_dir / "cmdline").read_bytes().split(b"\0")
-                if item
+                item.decode(errors="replace") for item in (process_dir / "cmdline").read_bytes().split(b"\0") if item
             ]
             module_index = arguments.index("scripts.build_large_cap_ranking")
             output_index = arguments.index("--output")

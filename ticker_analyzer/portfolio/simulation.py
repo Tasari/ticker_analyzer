@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from math import sqrt
+from math import isfinite, sqrt
 
 import pandas as pd
 
@@ -61,6 +61,8 @@ def simulate_buy_and_hold(
     start_date: date,
     end_date: date,
 ) -> SimulationResult:
+    if not all(isfinite(value) for value in (initial_capital, *weights.values())):
+        raise SimulationError("Simulation inputs must be finite numbers.")
     if initial_capital <= 0:
         raise SimulationError("Initial capital must be positive.")
     if end_date <= start_date:

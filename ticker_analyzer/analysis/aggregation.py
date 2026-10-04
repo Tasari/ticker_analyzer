@@ -6,17 +6,8 @@ import pandas as pd
 
 from ticker_analyzer.analysis.quality import confidence_label
 from ticker_analyzer.metrics.utils import clean_number
+from ticker_analyzer.ranges import years_from_range as years_from_range
 from ticker_analyzer.scoring import ScoringEngine
-
-
-def years_from_range(price_range: str) -> int:
-    normalized = price_range.strip().lower()
-    if normalized.endswith("y"):
-        try:
-            return max(1, int(normalized[:-1]))
-        except ValueError:
-            return 2
-    return 2
 
 
 def is_empty_ticker_response(
@@ -85,9 +76,9 @@ def metric_coverage(
                 for metric_id in definition.get("metrics", [])
             }
     eligible = [
-        metric for metric in metrics
-        if metric.weight > 0
-        and (positive_group_metric_ids is None or metric.id in positive_group_metric_ids)
+        metric
+        for metric in metrics
+        if metric.weight > 0 and (positive_group_metric_ids is None or metric.id in positive_group_metric_ids)
     ]
     scored = [metric for metric in eligible if metric.score is not None]
     scored_weight = sum(metric.weight for metric in scored)
@@ -110,9 +101,9 @@ def grouped_tab_score(
     coverage: dict[str, Any],
 ) -> tuple[float | None, dict[str, Any]]:
     active_rule = config.get("active_profile_rules", {}).get(tab_name, {})
-    minimum = float(
-        active_rule.get("minimum_coverage", config.get("minimum_weight_coverage", {}).get(tab_name, 0))
-    ) * 100
+    minimum = (
+        float(active_rule.get("minimum_coverage", config.get("minimum_weight_coverage", {}).get(tab_name, 0))) * 100
+    )
     by_id = {metric.id: metric for metric in metrics}
     available_ids = {metric.id for metric in metrics if metric.score is not None and metric.weight > 0}
     groups = config.get("tab_groups", {}).get(tab_name, {})

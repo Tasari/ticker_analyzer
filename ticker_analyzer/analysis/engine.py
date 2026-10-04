@@ -101,8 +101,7 @@ class StockAnalysisEngine:
             raise ValueError(f"No usable data returned for {ticker_symbol}. Check the ticker symbol and try again.")
 
         range_years = {
-            tab_name: years_from_range(tab_range)
-            for tab_name, tab_range in selected_ranges.as_dict().items()
+            tab_name: years_from_range(tab_range) for tab_name, tab_range in selected_ranges.as_dict().items()
         }
         valuation_history = prepare_valuation_basis(data)
         raw_metrics = build_raw_metrics(
@@ -129,12 +128,8 @@ class StockAnalysisEngine:
         attach_metric_provenance(raw_metrics, data)
         tab_results, missing = self._score_tabs(raw_metrics, scoring_config)
         coverage = analysis_coverage(tab_results, scoring_config)
-        data_quality, data_quality_breakdown = analysis_data_quality(
-            tab_results, scoring_config, profile, data
-        )
-        model_applicability, applicability_warnings = analysis_model_applicability(
-            scoring_config, profile, data
-        )
+        data_quality, data_quality_breakdown = analysis_data_quality(tab_results, scoring_config, profile, data)
+        model_applicability, applicability_warnings = analysis_model_applicability(scoring_config, profile, data)
         overall_score = overall_score_with_missing_policy(tab_results, scoring_config)
         partial_note = partial_overall_note(tab_results, overall_score)
         if partial_note:
@@ -144,18 +139,17 @@ class StockAnalysisEngine:
                 0,
                 "Profile: specialized regulatory metrics unavailable; generic financial fallback is capped at Buy.",
             )
-        missing.extend(diagnostic_warnings(data.diagnostics))
+        provider_warnings = diagnostic_warnings(data.diagnostics)
+        missing.extend(provider_warnings)
         warnings = list(applicability_warnings)
         if partial_note:
             warnings.append(partial_note)
             warnings.extend(
-                f"{name} assessment incomplete"
-                for name, result in tab_results.items()
-                if result.get("score") is None
+                f"{name} assessment incomplete" for name, result in tab_results.items() if result.get("score") is None
             )
         if data_quality_breakdown.get("components", {}).get("cross_source_reconciliation") is None:
             warnings.append("Cross-source reconciliation unavailable")
-        warnings.extend(diagnostic_warnings(data.diagnostics))
+        warnings.extend(provider_warnings)
         decision = calculate_rating_decision(
             overall_score,
             data_quality,
@@ -180,7 +174,9 @@ class StockAnalysisEngine:
             missing=missing,
             raw=raw_metrics,
             ranges=selected_ranges.as_dict(),
-            charts=build_charts_data(data.annual_income, data.annual_cashflow, data.annual_balance, data.growth_history),
+            charts=build_charts_data(
+                data.annual_income, data.annual_cashflow, data.annual_balance, data.growth_history
+            ),
             coverage=coverage,
             # Kept as a compatibility alias for old snapshots/API consumers.
             confidence=data_quality,
@@ -206,7 +202,9 @@ class StockAnalysisEngine:
             valuation_basis=data.info.get("valuationBasis", {}),
         )
 
-    def _score_tabs(self, raw_metrics: dict[str, dict[str, Any]], config: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    def _score_tabs(
+        self, raw_metrics: dict[str, dict[str, Any]], config: dict[str, Any]
+    ) -> tuple[dict[str, Any], list[str]]:
         tab_results: dict[str, Any] = {}
         missing: list[str] = []
         for tab_name, metric_configs in config.get("metrics", {}).items():
@@ -216,19 +214,23 @@ class StockAnalysisEngine:
                 for metric_config in metric_configs
             ]
             coverage = metric_coverage(metric_results, tab_name, config)
-            full_confidence = float(
-                config.get("coverage_policy", {})
-                .get("minimum_for_full_confidence", {})
-                .get(tab_name, 0.80)
-            ) * 100
-            minimum_confidence = float(
-                config.get("coverage_policy", {})
-                .get("minimum_to_score", {})
-                .get(tab_name, config.get("minimum_weight_coverage", {}).get(tab_name, 0))
-            ) * 100
+            full_confidence = (
+                float(config.get("coverage_policy", {}).get("minimum_for_full_confidence", {}).get(tab_name, 0.80))
+                * 100
+            )
+            minimum_confidence = (
+                float(
+                    config.get("coverage_policy", {})
+                    .get("minimum_to_score", {})
+                    .get(tab_name, config.get("minimum_weight_coverage", {}).get(tab_name, 0))
+                )
+                * 100
+            )
             coverage["confidence"] = (
-                "High" if coverage["percentage"] >= full_confidence
-                else "Medium" if coverage["percentage"] >= minimum_confidence
+                "High"
+                if coverage["percentage"] >= full_confidence
+                else "Medium"
+                if coverage["percentage"] >= minimum_confidence
                 else "Low"
             )
             tab_score, group_breakdown = grouped_tab_score(tab_name, metric_results, config, coverage)

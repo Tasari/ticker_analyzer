@@ -14,7 +14,12 @@ _INDUSTRY_PROFILE_RULES = (
     ("FinancialInsurance", frozenset(), ("63",), ("insurance", "reinsurance")),
     ("FinancialAssetManager", frozenset({"6282"}), (), ("asset management", "investment management")),
     ("FinancialBroker", frozenset({"6211"}), (), ("capital markets", "broker", "securities")),
-    ("FinancialLender", frozenset({"6141", "6153", "6159", "6162", "6163"}), (), ("credit services", "consumer finance", "mortgage finance")),
+    (
+        "FinancialLender",
+        frozenset({"6141", "6153", "6159", "6162", "6163"}),
+        (),
+        ("credit services", "consumer finance", "mortgage finance"),
+    ),
     ("FinancialBank", frozenset({"6021", "6022", "6029", "6035", "6036"}), (), ("bank",)),
 )
 
@@ -59,16 +64,13 @@ def config_for_profile(config: dict[str, Any], profile: str) -> dict[str, Any]:
         selected["active_rating_cap"] = "strong"
     if profile_metrics:
         selected["metrics"] = profile_metrics
-    selected["tab_groups"] = config.get("profile_tab_groups", {}).get(
-        profile,
-        config.get("profile_tab_groups", {}).get("Financial", config.get("tab_groups", {}))
-        if profile.startswith("Financial") or profile == "REIT"
-        else config.get("tab_groups", {}),
-    )
-    selected["active_profile_rules"] = config.get("profile_rules", {}).get(
-        profile,
-        config.get("profile_rules", {}).get("Financial", {})
-        if profile.startswith("Financial") or profile == "REIT"
-        else config.get("profile_rules", {}).get("Industrial", {}),
-    )
+    financial_rules = profile.startswith("Financial") or profile == "REIT"
+    groups_by_profile = config.get("profile_tab_groups", {})
+    default_groups = config.get("tab_groups", {})
+    if financial_rules:
+        default_groups = groups_by_profile.get("Financial", default_groups)
+    selected["tab_groups"] = groups_by_profile.get(profile, default_groups)
+    rules_by_profile = config.get("profile_rules", {})
+    default_rules = rules_by_profile.get("Financial" if financial_rules else "Industrial", {})
+    selected["active_profile_rules"] = rules_by_profile.get(profile, default_rules)
     return selected

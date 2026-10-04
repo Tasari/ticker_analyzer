@@ -12,6 +12,8 @@ from typing import Any
 
 import streamlit as st
 
+from ticker_analyzer.file_io import write_json_atomic
+
 ACCESS_CONFIG_PATH = Path(__file__).resolve().parents[1] / "site_access.json"
 AUTHENTICATED_STATE_KEY = "_site_access_authenticated"
 ALGORITHM = "pbkdf2_sha256"
@@ -74,10 +76,7 @@ def create_access_config(
 
 def write_access_config(password: str, path: Path = ACCESS_CONFIG_PATH) -> None:
     payload = create_access_config(password)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
-    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    write_json_atomic(payload, path)
 
 
 def load_access_config(path: Path = ACCESS_CONFIG_PATH) -> AccessConfig:

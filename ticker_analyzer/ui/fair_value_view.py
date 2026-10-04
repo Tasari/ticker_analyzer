@@ -12,6 +12,7 @@ from ticker_analyzer.analysis.fair_value import (
     inputs_from_analysis,
 )
 from ticker_analyzer.numbers import clean_number
+from ticker_analyzer.ui.formatting import percent as _percent
 
 
 def render_fair_value(result: dict) -> None:
@@ -223,7 +224,3 @@ def _range(low: float | None, high: float | None, currency: str) -> str:
     if low is None or high is None:
         return "N/A"
     return f"{low:,.2f} - {high:,.2f} {currency}".strip()
-
-
-def _percent(value: float | None) -> str:
-    return "N/A" if value is None else f"{value:.2%}"

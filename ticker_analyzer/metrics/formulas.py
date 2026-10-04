@@ -183,57 +183,82 @@ def build_fundamentals_metrics(
     return {
         "debt_to_assets": range_ratio_metric(
             statement_ratio_observations(
-                balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"],
-                balance, ["Total Assets"], years, multiplier=100,
+                balance,
+                ["Total Debt", "Long Term Debt And Capital Lease Obligation"],
+                balance,
+                ["Total Assets"],
+                years,
+                multiplier=100,
             ),
             years,
         ),
         "quick_ratio": quick_ratio_range_metric(info, quarterly_balance, balance, years),
         "cfo_to_debt": range_ratio_metric(
             statement_ratio_observations(
-                cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"],
-                balance, ["Total Debt", "Long Term Debt And Capital Lease Obligation"],
-                years, zero_denominator_cap=10.0,
+                cashflow,
+                ["Operating Cash Flow", "Total Cash From Operating Activities"],
+                balance,
+                ["Total Debt", "Long Term Debt And Capital Lease Obligation"],
+                years,
+                zero_denominator_cap=10.0,
             ),
             years,
         ),
         "interest_coverage": range_ratio_metric(
             statement_ratio_observations(
-                income, ["Operating Income", "EBIT"],
-                income, ["Interest Expense", "Interest Expense Non Operating"],
-                years, absolute_denominator=True,
+                income,
+                ["Operating Income", "EBIT"],
+                income,
+                ["Interest Expense", "Interest Expense Non Operating"],
+                years,
+                absolute_denominator=True,
             ),
             years,
         ),
         "equity_to_assets": range_ratio_metric(
             statement_ratio_observations(
-                balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"],
-                balance, ["Total Assets"], years, multiplier=100,
+                balance,
+                ["Stockholders Equity", "Total Equity Gross Minority Interest"],
+                balance,
+                ["Total Assets"],
+                years,
+                multiplier=100,
             ),
             years,
             "Financial profile capital buffer metric",
         ),
         "return_on_assets": range_ratio_metric(
             statement_ratio_observations(
-                income, ["Net Income", "Net Income Common Stockholders"],
-                balance, ["Total Assets"], years, multiplier=100,
+                income,
+                ["Net Income", "Net Income Common Stockholders"],
+                balance,
+                ["Total Assets"],
+                years,
+                multiplier=100,
             ),
             years,
             "Financial profile profitability metric",
         ),
         "return_on_equity": range_ratio_metric(
             statement_ratio_observations(
-                income, ["Net Income", "Net Income Common Stockholders"],
-                balance, ["Stockholders Equity", "Total Equity Gross Minority Interest"],
-                years, multiplier=100,
+                income,
+                ["Net Income", "Net Income Common Stockholders"],
+                balance,
+                ["Stockholders Equity", "Total Equity Gross Minority Interest"],
+                years,
+                multiplier=100,
             ),
             years,
             "Financial profile profitability metric",
         ),
         "net_margin": range_ratio_metric(
             statement_ratio_observations(
-                income, ["Net Income", "Net Income Common Stockholders"],
-                income, ["Total Revenue", "Operating Revenue"], years, multiplier=100,
+                income,
+                ["Net Income", "Net Income Common Stockholders"],
+                income,
+                ["Total Revenue", "Operating Revenue"],
+                years,
+                multiplier=100,
             ),
             years,
             "Financial profile profitability metric",
@@ -261,7 +286,9 @@ def quick_ratio_range_metric(
     fallback = quick_ratio(info, quarterly_balance, pd.DataFrame(), 1)
     if years == 1 and fallback is not None:
         return metric_value(fallback, "Latest quarterly balance-sheet fallback; annual statement ratio unavailable")
-    return metric_value(None, f"{range_median_note(years, len(observations))}; requires at least {minimum} observation(s)")
+    return metric_value(
+        None, f"{range_median_note(years, len(observations))}; requires at least {minimum} observation(s)"
+    )
 
 
 def quick_ratio(
@@ -395,11 +422,15 @@ def free_cash_flow_series(cashflow: pd.DataFrame) -> pd.Series:
         capital_expenditure = value_on_or_before(capex, date)
         if operating_cash is None or capital_expenditure is None:
             continue
-        values[date] = operating_cash + capital_expenditure if capital_expenditure < 0 else operating_cash - capital_expenditure
+        values[date] = (
+            operating_cash + capital_expenditure if capital_expenditure < 0 else operating_cash - capital_expenditure
+        )
     return pd.Series(values, dtype=float)
 
 
-def cfo_to_debt(cashflow: pd.DataFrame, balance: pd.DataFrame, years: int = 1, cap_if_debt_free: float = 10.0) -> float | None:
+def cfo_to_debt(
+    cashflow: pd.DataFrame, balance: pd.DataFrame, years: int = 1, cap_if_debt_free: float = 10.0
+) -> float | None:
     return statement_ratio_median(
         cashflow,
         ["Operating Cash Flow", "Total Cash From Operating Activities"],
@@ -432,7 +463,16 @@ def ohlson_probability(income: pd.DataFrame, balance: pd.DataFrame, cashflow: pd
     working_capital = None
     if current_assets is not None and current_liabilities is not None:
         working_capital = current_assets - current_liabilities
-    required = [assets, liabilities, current_assets, current_liabilities, net_income, prior_net_income, cfo, working_capital]
+    required = [
+        assets,
+        liabilities,
+        current_assets,
+        current_liabilities,
+        net_income,
+        prior_net_income,
+        cfo,
+        working_capital,
+    ]
     if any(value is None for value in required) or assets == 0:
         return None
     size = math.log(max(assets / 1_000_000, 1))
@@ -443,11 +483,28 @@ def ohlson_probability(income: pd.DataFrame, balance: pd.DataFrame, cashflow: pd
     futl = cfo / liabilities if liabilities else None
     intwo = 1 if net_income < 0 and prior_net_income < 0 else 0
     oeneg = 1 if liabilities > assets else 0
-    chin = (net_income - prior_net_income) / (abs(net_income) + abs(prior_net_income))
+    income_change_base = abs(net_income) + abs(prior_net_income)
+    if income_change_base == 0:
+        return None
+    chin = (net_income - prior_net_income) / income_change_base
     if clca is None or futl is None:
         return None
-    score = -1.32 - 0.407 * size + 6.03 * tlta - 1.43 * wcta + 0.076 * clca - 1.72 * oeneg - 2.37 * nita - 1.83 * futl + 0.285 * intwo - 0.521 * chin
-    return 1 / (1 + math.exp(-score)) * 100
+    score = (
+        -1.32
+        - 0.407 * size
+        + 6.03 * tlta
+        - 1.43 * wcta
+        + 0.076 * clca
+        - 1.72 * oeneg
+        - 2.37 * nita
+        - 1.83 * futl
+        + 0.285 * intwo
+        - 0.521 * chin
+    )
+    try:
+        return 1 / (1 + math.exp(-score)) * 100
+    except OverflowError:
+        return 0.0  # Logistic limit for a very negative score.
 
 
 def prior_row_value(frame: pd.DataFrame, names: list[str]) -> float | None:

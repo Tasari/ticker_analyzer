@@ -17,51 +17,42 @@ def analysis_data_quality(
 ) -> tuple[float, dict[str, Any]]:
     weight_coverage = analysis_coverage(tab_results, config)["percentage"]
     financial_provenance = data.provenance.get("financials")
-    freshness_date = (
-        financial_provenance.filed_at or financial_provenance.period_end
-        if financial_provenance else None
-    )
+    freshness_date = financial_provenance.filed_at or financial_provenance.period_end if financial_provenance else None
     freshness = freshness_score(pd.Timestamp(freshness_date) if freshness_date else None)
     quarterly_observations = max(
-        (len(frame.columns) for frame in (data.quarterly_income, data.quarterly_balance, data.quarterly_cashflow)),
+        (len(frame.columns) for frame in data.quarterly_statements),
         default=0,
     )
     annual_observations = max(
-        (len(frame.columns) for frame in (data.annual_income, data.annual_balance, data.annual_cashflow)),
+        (len(frame.columns) for frame in data.annual_statements),
         default=0,
     )
     actual_observations = quarterly_observations or annual_observations * 4
     provenance_items = list(data.provenance.values())
     provenance_score = (
-        sum(100 if item.is_primary_source else 35 if item.fallback_level == "estimated" else 75 for item in provenance_items)
+        sum(
+            100 if item.is_primary_source else 35 if item.fallback_level == "estimated" else 75
+            for item in provenance_items
+        )
         / len(provenance_items)
-        if provenance_items else 0
+        if provenance_items
+        else 0
     )
     has_primary = any(item.is_primary_source for item in provenance_items)
     has_secondary = any(not item.is_primary_source for item in provenance_items)
     source_mix = (
-        "primary_and_secondary" if has_primary and has_secondary
-        else "primary_only" if has_primary
+        "primary_and_secondary"
+        if has_primary and has_secondary
+        else "primary_only"
+        if has_primary
         else "secondary_only"
     )
-    reconciliation_items = [
-        item
-        for frame in (
-            data.annual_income,
-            data.annual_balance,
-            data.annual_cashflow,
-            data.quarterly_income,
-            data.quarterly_balance,
-            data.quarterly_cashflow,
-        )
-        for item in frame.attrs.get("reconciliation", [])
-    ]
+    reconciliation_items = [item for frame in data.statements for item in frame.attrs.get("reconciliation", [])]
     relative_differences = [float(item.get("relative_difference", 0)) for item in reconciliation_items]
     reconciliation_score = (
         max(
             0.0,
-            100.0
-            - sum(min(value, 1.0) for value in relative_differences) / len(relative_differences) * 100,
+            100.0 - sum(min(value, 1.0) for value in relative_differences) / len(relative_differences) * 100,
         )
         if relative_differences
         else None
@@ -85,9 +76,7 @@ def analysis_data_quality(
     return score, breakdown
 
 
-def analysis_model_applicability(
-    config: dict[str, Any], profile: str, data: MarketData
-) -> tuple[float, list[str]]:
+def analysis_model_applicability(config: dict[str, Any], profile: str, data: MarketData) -> tuple[float, list[str]]:
     """Score how well the active analytical model fits the company, not its data."""
     settings = config.get("model_applicability", {})
     score = float(settings.get("native", 90))
@@ -95,9 +84,8 @@ def analysis_model_applicability(
     if config.get("active_metric_model") == "generic_financial_fallback":
         score = min(score, float(settings.get("generic_financial_maximum", 65)))
         warnings.append("Rating limited to Buy by generic financial model")
-    override_without_evidence = (
-        data.ticker.upper() in config.get("profile_overrides", {})
-        and not any(data.official_ids.get(key) for key in ("fdic_cert", "finra_crd", "naic_code"))
+    override_without_evidence = data.ticker.upper() in config.get("profile_overrides", {}) and not any(
+        data.official_ids.get(key) for key in ("fdic_cert", "finra_crd", "naic_code")
     )
     if override_without_evidence:
         score = min(score, float(settings.get("manual_override_without_evidence", 60)))
@@ -146,9 +134,11 @@ def diagnostic_warnings(diagnostics: list[dict[str, str]]) -> list[str]:
         f"({item.get('kind', 'provider_error')}): {item.get('message', 'unknown error')}"
         for item in diagnostics
     ]
+
+
 def has_statement_period_mismatch(data: MarketData) -> bool:
     latest: list[pd.Timestamp] = []
-    for frame in (data.quarterly_income, data.quarterly_balance, data.quarterly_cashflow):
+    for frame in data.quarterly_statements:
         if frame.empty:
             continue
         dates = pd.to_datetime(frame.columns, errors="coerce").dropna()

@@ -88,7 +88,9 @@ def ensure_v5_defaults(migrated: dict[str, Any]) -> None:
     data_quality = migrated.setdefault("data_quality", deepcopy(data_quality_defaults))
     if isinstance(data_quality, dict):
         current_weights = data_quality.get("weights")
-        if isinstance(current_weights, dict) and set(current_weights) == set(data_quality_defaults["component_weights"]):
+        if isinstance(current_weights, dict) and set(current_weights) == set(
+            data_quality_defaults["component_weights"]
+        ):
             data_quality.setdefault("component_weights", deepcopy(current_weights))
             data_quality["weights"] = deepcopy(data_quality_defaults["weights"])
         else:
@@ -116,17 +118,23 @@ def ensure_v5_defaults(migrated: dict[str, Any]) -> None:
     migrated.setdefault("profile_metrics", {})
     if migrated.get("calibration_version") in LEGACY_VALUE_CALIBRATIONS:
         migrate_value_v51_to_v52(migrated)
-    migrated.setdefault("model_applicability", {
-        "native": 90,
-        "generic_financial_maximum": 65,
-        "manual_override_without_evidence": 60,
-    })
-    migrated.setdefault("absolute_guardrails", {
-        "fcf_margin": [{"at_or_below": 0, "maximum_score": 35, "reason": "non_positive_fcf"}],
-        "equity_to_assets": [{"at_or_below": 0, "maximum_score": 30, "reason": "negative_equity"}],
-        "interest_coverage": [{"at_or_below": 1, "maximum_score": 25, "reason": "interest_not_covered"}],
-        "roic": [{"at_or_below": 0, "maximum_score": 30, "reason": "non_positive_roic"}],
-    })
+    migrated.setdefault(
+        "model_applicability",
+        {
+            "native": 90,
+            "generic_financial_maximum": 65,
+            "manual_override_without_evidence": 60,
+        },
+    )
+    migrated.setdefault(
+        "absolute_guardrails",
+        {
+            "fcf_margin": [{"at_or_below": 0, "maximum_score": 35, "reason": "non_positive_fcf"}],
+            "equity_to_assets": [{"at_or_below": 0, "maximum_score": 30, "reason": "negative_equity"}],
+            "interest_coverage": [{"at_or_below": 1, "maximum_score": 25, "reason": "interest_not_covered"}],
+            "roic": [{"at_or_below": 0, "maximum_score": 30, "reason": "non_positive_roic"}],
+        },
+    )
     financial_metrics = migrated.get("profile_metrics", {}).get("Financial")
     if financial_metrics:
         for profile in specialized_financial_profiles():
@@ -201,9 +209,7 @@ def _patch_metrics(
     for metric_id, values in updates.items():
         if metric_id in by_id:
             by_id[metric_id].update(values)
-    for metric in additions:
-        if metric["id"] not in by_id:
-            metrics.append(deepcopy(metric))
+    metrics.extend(deepcopy(metric) for metric in additions if metric["id"] not in by_id)
 
 
 def industrial_absolute_value_metrics() -> list[dict[str, Any]]:
@@ -335,6 +341,7 @@ def financial_groups(profile: str) -> dict[str, Any]:
         },
     }
 
+
 def default_profile_rules() -> dict[str, Any]:
     industrial = {
         "Growth": {
@@ -383,9 +390,7 @@ def default_profile_rules() -> dict[str, Any]:
     specialized = {profile: deepcopy(financial) for profile in specialized_financial_profiles()}
     specialized["FinancialBroker"]["Fundamentals"]["minimum_coverage"] = 0.60
     specialized["FinancialLender"]["Value"]["minimum_coverage"] = 0.50
-    specialized["FinancialBroker"]["Growth"]["required_groups"]["business_growth"][
-        "minimum_available_metrics"
-    ] = 2
+    specialized["FinancialBroker"]["Growth"]["required_groups"]["business_growth"]["minimum_available_metrics"] = 2
     return {"Industrial": industrial, "Financial": financial, **specialized}
 
 

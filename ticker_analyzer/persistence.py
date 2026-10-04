@@ -1,20 +1,21 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Mapping, MutableMapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import streamlit as st
 
+from ticker_analyzer.runtime_settings import setting_enabled
 from ticker_analyzer.ticker_symbols import normalize_ticker
 from ticker_analyzer.watchlist import normalize_alerts, normalize_snapshots, normalize_watchlist
 
 PERSISTENCE_VERSION = 1
 PERSISTENCE_TTL = timedelta(days=30)
 STORAGE_KEY = "ticker_analyzer.preferences.v1"
-VALID_PAGES = {"Stock Analyzer", "ETF", "Simulation", "Large Cap Ranking", "Account Statement"}
+PAGE_OPTIONS = ("Stock Analyzer", "ETF", "Simulation", "Large Cap Ranking", "Account Statement")
+VALID_PAGES = set(PAGE_OPTIONS)
 VALID_RANGES = {"1Y", "2Y", "3Y"}
 RANGE_STATE_KEYS = {
     "Growth": "growth_range",
@@ -28,10 +29,7 @@ _BROWSER_STORAGE = st.components.v2.component(
     html='<span aria-hidden="true"></span>',
     # Keep the host mounted so browsers execute the storage bridge. A display:none
     # host can be skipped by Streamlit's frontend and leave hydration pending.
-    css=(
-        ":host { display: block; width: 1px; height: 1px; overflow: hidden; "
-        "opacity: 0; pointer-events: none; }"
-    ),
+    css=(":host { display: block; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }"),
     js="""
         export default function({ parentElement, data, setStateValue }) {
             try {
@@ -52,7 +50,7 @@ _BROWSER_STORAGE = st.components.v2.component(
 
 
 def browser_storage_disabled() -> bool:
-    return os.getenv(DISABLE_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+    return setting_enabled(DISABLE_ENV)
 
 
 def hydrate_browser_state(state: MutableMapping[str, Any]) -> bool:
@@ -99,14 +97,10 @@ def build_snapshot(state: Mapping[str, Any], *, now: datetime | None = None) -> 
     active_ticker = normalize_ticker(state.get("active_ticker"))
     if active_ticker not in tickers:
         active_ticker = tickers[0] if tickers else None
-    ranges = {
-        tab: normalize_range(state.get(state_key))
-        for tab, state_key in RANGE_STATE_KEYS.items()
-    }
+    ranges = {tab: normalize_range(state.get(state_key)) for tab, state_key in RANGE_STATE_KEYS.items()}
     watchlist = normalize_watchlist(state.get("watchlist"))
     watchlist_ranges = {
-        tab: normalize_range(state.get(f"watchlist_{state_key}"))
-        for tab, state_key in RANGE_STATE_KEYS.items()
+        tab: normalize_range(state.get(f"watchlist_{state_key}")) for tab, state_key in RANGE_STATE_KEYS.items()
     }
     page = state.get("page")
     return {
@@ -157,11 +151,7 @@ def apply_snapshot(state: MutableMapping[str, Any], snapshot: Mapping[str, Any])
     state["watchlist"] = watchlist
     state["watchlist_snapshots"] = normalize_snapshots(snapshot.get("watchlist_snapshots"), watchlist)
     state["watchlist_alerts"] = normalize_alerts(snapshot.get("watchlist_alerts"))
-    watchlist_ranges = (
-        snapshot.get("watchlist_ranges")
-        if isinstance(snapshot.get("watchlist_ranges"), Mapping)
-        else {}
-    )
+    watchlist_ranges = snapshot.get("watchlist_ranges") if isinstance(snapshot.get("watchlist_ranges"), Mapping) else {}
     for tab, state_key in RANGE_STATE_KEYS.items():
         state[f"watchlist_{state_key}"] = normalize_range(watchlist_ranges.get(tab))
     page = snapshot.get("page")
@@ -173,11 +163,7 @@ def apply_snapshot(state: MutableMapping[str, Any], snapshot: Mapping[str, Any])
 
 def payload_to_state(payload: Mapping[str, Any]) -> dict[str, Any]:
     ranges = payload.get("ranges") if isinstance(payload.get("ranges"), Mapping) else {}
-    watchlist_ranges = (
-        payload.get("watchlist_ranges")
-        if isinstance(payload.get("watchlist_ranges"), Mapping)
-        else {}
-    )
+    watchlist_ranges = payload.get("watchlist_ranges") if isinstance(payload.get("watchlist_ranges"), Mapping) else {}
     return {
         "selected_tickers": payload.get("selected_tickers"),
         "active_ticker": payload.get("active_ticker"),
@@ -188,10 +174,7 @@ def payload_to_state(payload: Mapping[str, Any]) -> dict[str, Any]:
         "watchlist_snapshots": payload.get("watchlist_snapshots"),
         "watchlist_alerts": payload.get("watchlist_alerts"),
         **{state_key: ranges.get(tab) for tab, state_key in RANGE_STATE_KEYS.items()},
-        **{
-            f"watchlist_{state_key}": watchlist_ranges.get(tab)
-            for tab, state_key in RANGE_STATE_KEYS.items()
-        },
+        **{f"watchlist_{state_key}": watchlist_ranges.get(tab) for tab, state_key in RANGE_STATE_KEYS.items()},
     }
 
 

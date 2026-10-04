@@ -7,7 +7,7 @@ from typing import Any
 import streamlit as st
 
 from ticker_analyzer import analyze_ticker
-from ticker_analyzer.ticker_symbols import looks_like_ticker, normalize_ticker
+from ticker_analyzer.ticker_symbols import deduplicate_ticker_options, looks_like_ticker, normalize_ticker
 
 logger = logging.getLogger(__name__)
 MAX_ANALYSIS_WORKERS = 5
@@ -32,8 +32,7 @@ def analyze_selected_tickers(
     completed: dict[str, TickerAnalysisOutcome] = {}
     with ThreadPoolExecutor(max_workers=analysis_worker_count(tickers)) as executor:
         futures = {
-            executor.submit(analyze_one_ticker, ticker, ranges, config, cache_token): ticker
-            for ticker in tickers
+            executor.submit(analyze_one_ticker, ticker, ranges, config, cache_token): ticker for ticker in tickers
         }
         for future in as_completed(futures):
             ticker = futures[future]
@@ -52,10 +51,7 @@ def analyze_tickers_sequentially(
     *,
     cache_token: int = 0,
 ) -> tuple[dict, dict]:
-    completed = {
-        ticker: analyze_one_ticker(ticker, ranges, config, cache_token)
-        for ticker in tickers
-    }
+    completed = {ticker: analyze_one_ticker(ticker, ranges, config, cache_token) for ticker in tickers}
     return ordered_analysis_results(tickers, completed)
 
 
@@ -86,10 +82,7 @@ def has_transient_data_failure(result: AnalysisResult) -> bool:
         for item in result.get("diagnostics", [])
         if isinstance(item, dict)
     )
-    incomplete_tab = any(
-        isinstance(tab, dict) and tab.get("score") is None
-        for tab in result.get("tabs", {}).values()
-    )
+    incomplete_tab = any(isinstance(tab, dict) and tab.get("score") is None for tab in result.get("tabs", {}).values())
     return provider_failure or incomplete_tab or result.get("current_price") is None
 
 
@@ -128,15 +121,7 @@ def search_tickers(searchterm: str) -> list[str]:
     if exact:
         exact_option = f"{exact} | Add exact Yahoo ticker"
         results = [exact_option, *results]
-    deduplicated = []
-    seen: set[str] = set()
-    for result in results:
-        ticker = result.split(" | ", maxsplit=1)[0]
-        if ticker in seen:
-            continue
-        seen.add(ticker)
-        deduplicated.append(result)
-    return deduplicated
+    return deduplicate_ticker_options(results)
 
 
 @st.cache_data(ttl=900, max_entries=MAX_SEARCH_CACHE_ENTRIES, show_spinner=False)

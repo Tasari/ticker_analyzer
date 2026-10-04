@@ -98,7 +98,7 @@ def add_watch_ticker(items: Any, value: Any) -> tuple[list[dict[str, Any]], bool
         or len(normalized) >= WATCHLIST_LIMIT
     ):
         return normalized, False
-    normalized.append({"ticker": ticker, **{field: None for field in THRESHOLD_FIELDS}})
+    normalized.append({"ticker": ticker, **dict.fromkeys(THRESHOLD_FIELDS)})
     return normalized, True
 
 
@@ -197,13 +197,9 @@ def _change_alerts(
     newly_missing = sorted(current_missing - old_missing)
     newly_available = sorted(old_missing - current_missing)
     if newly_missing:
-        alerts.append(
-            _alert(ticker, "missing_data", f"New missing data: {_summarize(newly_missing)}.", timestamp)
-        )
+        alerts.append(_alert(ticker, "missing_data", f"New missing data: {_summarize(newly_missing)}.", timestamp))
     if newly_available:
-        alerts.append(
-            _alert(ticker, "new_data", f"Data now available: {_summarize(newly_available)}.", timestamp)
-        )
+        alerts.append(_alert(ticker, "new_data", f"Data now available: {_summarize(newly_available)}.", timestamp))
     return alerts
 
 
@@ -226,8 +222,7 @@ def _threshold_conditions(
             continue
         key = f"{field}:{threshold:g}"
         conditions[key] = bool(
-            current is not None
-            and (current >= threshold if field.endswith("above") else current <= threshold)
+            current is not None and (current >= threshold if field.endswith("above") else current <= threshold)
         )
     return conditions
 

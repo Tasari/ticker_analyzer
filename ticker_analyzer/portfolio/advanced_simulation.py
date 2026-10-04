@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
-from math import ceil, sqrt
+from math import ceil, isfinite, sqrt
 from typing import Any, Literal
 
 import pandas as pd
@@ -96,6 +97,15 @@ class _Holding:
     entry_price: float | None = None
 
 
+@dataclass(frozen=True)
+class _PreparedMarketData:
+    calendar: pd.DatetimeIndex
+    prices: pd.DataFrame
+    dividends: pd.DataFrame
+    correlation: pd.DataFrame
+    trailing_returns: dict[str, tuple[tuple[str, float | None], ...]]
+
+
 def simulate_strategies(
     price_histories: dict[str, pd.Series],
     dividend_histories: dict[str, pd.Series],
@@ -106,9 +116,19 @@ def simulate_strategies(
     assumptions: SimulationAssumptions,
 ) -> SimulationComparison:
     _validate_inputs(weights, initial_capital, start_date, end_date, assumptions)
+    calendar = _calendar(start_date, end_date)
+    tickers = list(weights)
+    prices = _price_frame(price_histories, tickers, calendar, start_date, end_date)
+    dividends = _dividend_frame(dividend_histories, tickers, calendar, start_date, end_date)
+    market = _PreparedMarketData(
+        calendar,
+        prices,
+        dividends,
+        _asset_correlation(prices, dividends),
+        {ticker: calculate_trailing_returns(price_histories.get(ticker), end_date) for ticker in tickers},
+    )
     buy_and_hold = _simulate(
-        price_histories,
-        dividend_histories,
+        market,
         weights,
         initial_capital,
         start_date,
@@ -120,8 +140,7 @@ def simulate_strategies(
     rebalanced = None
     if assumptions.rebalance_frequency != "none":
         rebalanced = _simulate(
-            price_histories,
-            dividend_histories,
+            market,
             weights,
             initial_capital,
             start_date,
@@ -134,8 +153,7 @@ def simulate_strategies(
 
 
 def _simulate(
-    price_histories: dict[str, pd.Series],
-    dividend_histories: dict[str, pd.Series],
+    market: _PreparedMarketData,
     weights: dict[str, float],
     initial_capital: float,
     start_date: date,
@@ -145,10 +163,8 @@ def _simulate(
     rebalance_frequency: Frequency,
     strategy: str,
 ) -> AdvancedSimulationResult:
-    calendar = _calendar(start_date, end_date)
+    calendar, prices = market.calendar, market.prices
     tickers = list(weights)
-    prices = _price_frame(price_histories, tickers, calendar, start_date, end_date)
-    dividends = _dividend_frame(dividend_histories, tickers, calendar, start_date, end_date)
     holdings = {ticker: _Holding() for ticker in weights}
     pending = {ticker: initial_capital * weight for ticker, weight in weights.items()}
     for ticker, amount in pending.items():
@@ -166,7 +182,13 @@ def _simulate(
     external_flows: list[float] = []
     previous_day: pd.Timestamp | None = None
 
-    for current_day in calendar:
+    for current_day, price_row, dividend_row in zip(
+        calendar,
+        prices.itertuples(index=False, name=None),
+        market.dividends.itertuples(index=False, name=None),
+        strict=True,
+    ):
+        day_prices = dict(zip(tickers, price_row, strict=True))
         flow = 0.0
         if previous_day is not None and _is_period_event(
             previous_day,
@@ -182,8 +204,8 @@ def _simulate(
                 pending[ticker] += allocation
                 holdings[ticker].allocated += allocation
 
-        for ticker, holding in holdings.items():
-            dividend = float(dividends.at[current_day, ticker])
+        for (ticker, holding), dividend_value in zip(holdings.items(), dividend_row, strict=True):
+            dividend = float(dividend_value)
             if holding.shares <= 0 or dividend <= 0:
                 continue
             gross = holding.shares * dividend
@@ -196,7 +218,7 @@ def _simulate(
                 pending[ticker] += net
 
         for ticker, budget in pending.items():
-            price = prices.at[current_day, ticker]
+            price = day_prices[ticker]
             if budget <= 0 or pd.isna(price):
                 continue
             spent, fee = _buy(holdings[ticker], float(price), min(budget, cash), assumptions, current_day)
@@ -212,7 +234,7 @@ def _simulate(
         ):
             cash, fees, taxes, traded = _rebalance(
                 holdings,
-                prices.loc[current_day],
+                day_prices,
                 weights,
                 cash,
                 assumptions,
@@ -223,12 +245,7 @@ def _simulate(
             if traded:
                 rebalance_count += 1
 
-        values = {
-            ticker: holding.shares * float(prices.at[current_day, ticker])
-            if not pd.isna(prices.at[current_day, ticker])
-            else 0.0
-            for ticker, holding in holdings.items()
-        }
+        values = _holding_values(holdings, day_prices)
         total = cash + sum(values.values())
         portfolio_rows.append(total)
         cash_rows.append(cash)
@@ -248,9 +265,7 @@ def _simulate(
         if time_weighted_return > -1 and elapsed_days > 0
         else None
     )
-    inflation_factor = (1 + assumptions.annual_inflation_percent / 100) ** (
-        (calendar - calendar[0]).days / 365.2425
-    )
+    inflation_factor = (1 + assumptions.annual_inflation_percent / 100) ** ((calendar - calendar[0]).days / 365.2425)
     real_portfolio = portfolio / inflation_factor
     real_twr = (1 + time_weighted_return) / float(inflation_factor[-1]) - 1
     drawdowns = performance_index.div(performance_index.cummax()).sub(1)
@@ -262,7 +277,6 @@ def _simulate(
         float(drawdowns.min()),
         assumptions.annual_risk_free_rate_percent,
     )
-    correlation_matrix = _asset_correlation(prices, dividends)
     final_value = float(portfolio.iloc[-1])
 
     positions = tuple(
@@ -270,9 +284,8 @@ def _simulate(
             ticker,
             weights[ticker],
             holdings[ticker],
-            price_histories.get(ticker),
+            market.trailing_returns[ticker],
             prices.iloc[-1].get(ticker),
-            end_date,
         )
         for ticker in weights
     )
@@ -311,7 +324,7 @@ def _simulate(
         real_portfolio_values=real_portfolio,
         cash_values=cash_values,
         position_values=position_values,
-        correlation_matrix=correlation_matrix,
+        correlation_matrix=market.correlation.copy(),
         positions=positions,
     )
 
@@ -330,6 +343,7 @@ def _validate_inputs(
     if not weights:
         raise SimulationError("Select at least one ticker for the simulation.")
     numeric_values = [
+        initial_capital,
         assumptions.contribution_amount,
         assumptions.commission_percent,
         assumptions.commission_fixed,
@@ -341,6 +355,8 @@ def _validate_inputs(
         assumptions.cash_weight,
         *weights.values(),
     ]
+    if not all(isfinite(value) for value in numeric_values):
+        raise SimulationError("Simulation inputs must be finite numbers.")
     if any(value < 0 for value in numeric_values):
         raise SimulationError("Weights, contributions, costs, taxes, inflation, and cash cannot be negative.")
     if assumptions.cash_weight > 1:
@@ -461,16 +477,13 @@ def _sell(
 
 def _rebalance(
     holdings: dict[str, _Holding],
-    prices: pd.Series,
+    prices: Mapping[str, float],
     weights: dict[str, float],
     cash: float,
     assumptions: SimulationAssumptions,
     current_day: pd.Timestamp,
 ) -> tuple[float, float, float, bool]:
-    values = {
-        ticker: holding.shares * float(prices[ticker]) if not pd.isna(prices[ticker]) else 0.0
-        for ticker, holding in holdings.items()
-    }
+    values = _holding_values(holdings, prices)
     total = cash + sum(values.values())
     fees = taxes = 0.0
     traded = False
@@ -489,10 +502,7 @@ def _rebalance(
         taxes += tax
         traded = traded or proceeds > 0
 
-    total_after_sales = cash + sum(
-        holding.shares * float(prices[ticker]) if not pd.isna(prices[ticker]) else 0.0
-        for ticker, holding in holdings.items()
-    )
+    total_after_sales = cash + sum(_holding_values(holdings, prices).values())
     cash_reserve = total_after_sales * assumptions.cash_weight
     for ticker, holding in holdings.items():
         if pd.isna(prices[ticker]):
@@ -504,6 +514,13 @@ def _rebalance(
         fees += fee
         traded = traded or spent > 0
     return cash, fees, taxes, traded
+
+
+def _holding_values(holdings: dict[str, _Holding], prices: Mapping[str, float]) -> dict[str, float]:
+    return {
+        ticker: holding.shares * float(prices[ticker]) if not pd.isna(prices[ticker]) else 0.0
+        for ticker, holding in holdings.items()
+    }
 
 
 def _flow_adjusted_returns(portfolio: pd.Series, flows: pd.Series) -> pd.Series:
@@ -533,9 +550,7 @@ def _risk_statistics(
         else None
     )
     sortino = (
-        float(excess.mean() / downside_daily * sqrt(252))
-        if downside_daily is not None and downside_daily > 0
-        else None
+        float(excess.mean() / downside_daily * sqrt(252)) if downside_daily is not None and downside_daily > 0 else None
     )
     calmar = cagr / abs(maximum_drawdown) if cagr is not None and maximum_drawdown < 0 else None
     quantile = float(usable.quantile(0.05)) if len(usable) >= 2 else None
@@ -621,9 +636,8 @@ def _position_result(
     ticker: str,
     weight: float,
     holding: _Holding,
-    history: pd.Series | None,
+    trailing_returns: tuple[tuple[str, float | None], ...],
     final_price_value: float | None,
-    end_date: date,
 ) -> SimulationPosition:
     final_price = None if final_price_value is None or pd.isna(final_price_value) else float(final_price_value)
     final_value = holding.shares * final_price if final_price is not None else 0.0
@@ -638,6 +652,6 @@ def _position_result(
         final_value=final_value,
         profit_loss=final_value - holding.allocated,
         return_value=final_value / holding.allocated - 1 if holding.allocated > 0 else 0.0,
-        trailing_returns=calculate_trailing_returns(history, end_date),
+        trailing_returns=trailing_returns,
         status="Invested" if holding.entry_date else "Cash: no usable prices",
     )

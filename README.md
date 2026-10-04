@@ -164,6 +164,8 @@ Metric IDs referring to a historical median use `selected_median`, because the c
 
 See `docs/ARCHITECTURE.md` for runtime boundaries, lazy-loading rules, and resource invariants.
 
+The 2026-10-04 maintenance refactor separates stock-view orchestration, simulation data/results, configuration validation, and statement workbook parsing. Public imports and saved-data schemas remain compatible. See `docs/REFACTOR.md` for the verification scope and simulation benchmark.
+
 ## Scoring Robustness Audit
 
 Run the deterministic metric-dropout audit to measure how sensitive scores and ranks are to missing data. It removes the rounded metric count corresponding to 10% and 20% of each company's available metrics from positive-weight groups, recomputes tab coverage, Data Quality, overall score, and rating gates, then reports Spearman rank correlation, rating flips, unavailable scores, and rank movement for the whole sample and Industrial/Financial segments. The optional sample output makes later runs network-free:

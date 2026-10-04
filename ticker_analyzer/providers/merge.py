@@ -64,24 +64,26 @@ def merge_market_data(primary: MarketData, fallback: MarketData) -> None:
                     # whole frame with verified-unit fallback observations;
                     # never attach its currency to unknown primary amounts.
                     setattr(primary, name, other.copy())
-                    primary.diagnostics.append({
-                        "source": name, "kind": "fallback",
-                        "message": f"Statement with unknown currency replaced by fallback in {right_currency}.",
-                    })
+                    primary.diagnostics.append(
+                        {
+                            "source": name,
+                            "kind": "fallback",
+                            "message": f"Statement with unknown currency replaced by fallback in {right_currency}.",
+                        }
+                    )
                     continue
                 if not current.empty and left_currency != right_currency and (left_currency or right_currency):
-                    primary.diagnostics.append({
-                        "source": name, "kind": "currency_mismatch",
-                        "message": f"Fallback statement not merged: {left_currency or 'unknown'} vs {right_currency or 'unknown'}.",
-                    })
+                    primary.diagnostics.append(
+                        {
+                            "source": name,
+                            "kind": "currency_mismatch",
+                            "message": f"Fallback statement not merged: {left_currency or 'unknown'} vs {right_currency or 'unknown'}.",
+                        }
+                    )
                     continue
                 setattr(primary, name, merge_observations(current, other))
         elif isinstance(current, dict) and isinstance(other, dict):
-            populated = {
-                key: value
-                for key, value in current.items()
-                if value is not None and value != ""
-            }
+            populated = {key: value for key, value in current.items() if value is not None and value != ""}
             setattr(primary, name, {**other, **populated})
     primary.provenance = {**fallback.provenance, **primary.provenance}
     primary.official_ids = {**fallback.official_ids, **primary.official_ids}
@@ -119,19 +121,20 @@ def merge_observations(primary: pd.DataFrame, fallback: pd.DataFrame) -> pd.Data
     ]
     fallback_provenance = fallback.attrs.get("observation_provenance", {})
     primary_provenance = primary.attrs.get("observation_provenance", {})
+    period_labels = {period: _period_label(period) for period in merged.columns}
     for row in merged.index:
         for period in merged.columns:
             key = (row, period)
             if row in primary.index and period in primary.columns and pd.notna(primary.at[row, period]):
                 if row in fallback.index and period in fallback.columns and pd.notna(fallback.at[row, period]):
-                    left = pd.to_numeric(pd.Series([primary.at[row, period]]), errors="coerce").iloc[0]
-                    right = pd.to_numeric(pd.Series([fallback.at[row, period]]), errors="coerce").iloc[0]
+                    left = pd.to_numeric(primary.at[row, period], errors="coerce")
+                    right = pd.to_numeric(fallback.at[row, period], errors="coerce")
                     if pd.notna(left) and pd.notna(right):
                         scale = max(abs(float(left)), abs(float(right)), 1.0)
                         reconciliation.append(
                             {
                                 "fact": str(row),
-                                "period_end": _period_label(period),
+                                "period_end": period_labels[period],
                                 "relative_difference": abs(float(left) - float(right)) / scale,
                             }
                         )

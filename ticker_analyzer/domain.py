@@ -6,9 +6,7 @@ from typing import Any, Literal
 
 import pandas as pd
 
-RatingCode = Literal[
-    "very_strong", "strong", "neutral", "weak", "very_weak", "not_rated", "insufficient_data"
-]
+RatingCode = Literal["very_strong", "strong", "neutral", "weak", "very_weak", "not_rated", "insufficient_data"]
 
 FallbackLevel = Literal[
     "none",
@@ -229,6 +227,18 @@ class MarketData:
     diagnostics: list[dict[str, str]] = field(default_factory=list)
     provenance: dict[str, DataProvenance] = field(default_factory=dict)
     official_ids: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def annual_statements(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        return self.annual_income, self.annual_balance, self.annual_cashflow
+
+    @property
+    def quarterly_statements(self) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        return self.quarterly_income, self.quarterly_balance, self.quarterly_cashflow
+
+    @property
+    def statements(self) -> tuple[pd.DataFrame, ...]:
+        return (*self.annual_statements, *self.quarterly_statements)
 
 
 def _optional_float(value: Any) -> float | None:

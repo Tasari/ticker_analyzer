@@ -1,19 +1,90 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from contextlib import closing
 from datetime import date, datetime, timedelta
-from io import BytesIO
 from itertools import islice
 from typing import Any
-from zipfile import BadZipFile, ZipFile
 
-from openpyxl import load_workbook
-from openpyxl.utils.exceptions import InvalidFileException
+from ticker_analyzer.portfolio.statement_models import (
+    AccountStatementError as AccountStatementError,
+)
+from ticker_analyzer.portfolio.statement_models import (
+    DailyPerformancePoint as DailyPerformancePoint,
+)
+from ticker_analyzer.portfolio.statement_models import (
+    ExposureGroup as ExposureGroup,
+)
+from ticker_analyzer.portfolio.statement_models import (
+    ExternalCashFlow as ExternalCashFlow,
+)
+from ticker_analyzer.portfolio.statement_models import (
+    PositionContribution as PositionContribution,
+)
+from ticker_analyzer.portfolio.statement_models import (
+    SheetInfo as SheetInfo,
+)
+from ticker_analyzer.portfolio.statement_models import (
+    SheetPreview as SheetPreview,
+)
+from ticker_analyzer.portfolio.statement_models import (
+    StatementAnalysis as StatementAnalysis,
+)
+from ticker_analyzer.portfolio.statement_models import (
+    StatementOverview as StatementOverview,
+)
+from ticker_analyzer.portfolio.statement_models import (
+    StatementRangeAnalysis as StatementRangeAnalysis,
+)
+from ticker_analyzer.portfolio.statement_models import (
+    _UnrealizedEquityAnchor as _UnrealizedEquityAnchor,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    MAX_ARCHIVE_MEMBERS as MAX_ARCHIVE_MEMBERS,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    MAX_UNCOMPRESSED_BYTES as MAX_UNCOMPRESSED_BYTES,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    MAX_UPLOAD_BYTES as MAX_UPLOAD_BYTES,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    _key_value_rows as _key_value_rows,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    _load_statement_workbook as _load_statement_workbook,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    _number as _number,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    _optional_text as _optional_text,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    _parse_statement_datetime as _parse_statement_datetime,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    _required_datetime as _required_datetime,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    _required_number as _required_number,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    _row_value as _row_value,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    _sheet_rows,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    _unique_headers as _unique_headers,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    _worksheet_shape as _worksheet_shape,
+)
+from ticker_analyzer.portfolio.statement_workbook import (
+    validate_xlsx_payload as validate_xlsx_payload,
+)
 
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-MAX_UNCOMPRESSED_BYTES = 75 * 1024 * 1024
-MAX_ARCHIVE_MEMBERS = 250
 DEFAULT_PREVIEW_ROWS = 500
 REQUIRED_SHEETS = {"Account Summary"}
 ANALYSIS_SHEETS = {"Account Summary", "Account Activity", "Holdings"}
@@ -36,144 +107,19 @@ FEE_SUMMARY_KEYS = (
 )
 
 
-class AccountStatementError(ValueError):
-    """Raised when an uploaded workbook is not a supported account statement."""
-
-
-@dataclass(frozen=True)
-class SheetInfo:
-    name: str
-    data_rows: int
-    columns: int
-
-
-@dataclass(frozen=True)
-class StatementOverview:
-    currency: str | None
-    start_date: datetime | None
-    end_date: datetime | None
-    sheets: tuple[SheetInfo, ...]
-
-
-@dataclass(frozen=True)
-class SheetPreview:
-    columns: tuple[str, ...]
-    rows: tuple[tuple[Any, ...], ...]
-    total_rows: int
-
-    @property
-    def truncated(self) -> bool:
-        return self.total_rows > len(self.rows)
-
-
-@dataclass(frozen=True)
-class ExternalCashFlow:
-    occurred_at: datetime
-    amount: float
-    kind: str
-    estimated_date: bool = False
-
-
-@dataclass(frozen=True)
-class ExposureGroup:
-    name: str
-    value: float
-
-
-@dataclass(frozen=True)
-class PositionContribution:
-    asset: str
-    realized_profit_loss: float
-    fees_and_dividends: float
-    total_contribution: float
-    closed_positions: int
-
-
-@dataclass(frozen=True)
-class StatementAnalysis:
-    currency: str
-    start_date: datetime
-    end_date: datetime
-    beginning_realized_equity: float
-    ending_realized_equity: float
-    beginning_unrealized_equity: float
-    ending_unrealized_equity: float
-    net_external_flows: float
-    positive_contributions: float
-    total_profit_loss: float
-    closed_positions_profit_loss: float
-    dividends: float
-    fees: float
-    other_performance: float
-    unrealized_profit_loss_change: float
-    simple_roi: float | None
-    annualized_roi: float | None
-    modified_dietz_return: float | None
-    cash_flows: tuple[ExternalCashFlow, ...]
-    open_positions: int
-    long_exposure: float
-    short_exposure: float
-    exposure_by_type: tuple[ExposureGroup, ...]
-    warnings: tuple[str, ...]
-    holdings_snapshot_date: date | None = None
-
-
-@dataclass(frozen=True)
-class DailyPerformancePoint:
-    day: date
-    cumulative_profit_loss: float
-    estimated_cumulative_profit_loss: float | None = None
-
-
-@dataclass(frozen=True)
-class StatementRangeAnalysis:
-    start_date: date
-    end_date: date
-    realized_profit_loss: float
-    closed_positions_profit_loss: float
-    dividends: float
-    fees: float
-    other_performance: float
-    net_external_flows: float
-    positive_contributions: float
-    estimated_beginning_equity: float
-    estimated_ending_equity: float
-    estimated_total_profit_loss: float
-    estimated_roi: float | None
-    estimated_annualized_roi: float | None
-    estimated_modified_dietz_return: float | None
-    holdings_snapshot_count: int
-    max_boundary_anchor_distance_days: int
-    valuation_warnings: tuple[str, ...]
-    daily_performance: tuple[DailyPerformancePoint, ...]
-
-
-@dataclass(frozen=True)
-class _UnrealizedEquityAnchor:
-    day: date
-    unrealized_profit_loss: float
-    exact: bool
-
-
 def list_statement_assets(payload: bytes) -> tuple[str, ...]:
     """Return stable instrument labels that can be excluded from statement analysis."""
-    workbook = _load_statement_workbook(payload)
-    try:
+    with closing(_load_statement_workbook(payload)) as workbook:
         _, assets = _position_asset_index(workbook)
         return tuple(sorted(assets))
-    finally:
-        workbook.close()
 
 
 def inspect_account_statement(payload: bytes) -> StatementOverview:
-    workbook = _load_statement_workbook(payload)
-
-    try:
+    with closing(_load_statement_workbook(payload)) as workbook:
         missing = REQUIRED_SHEETS.difference(workbook.sheetnames)
         if missing:
             raise AccountStatementError(
-                "This does not look like an eToro account statement: "
-                f"missing sheet {', '.join(sorted(missing))}."
+                f"This does not look like an eToro account statement: missing sheet {', '.join(sorted(missing))}."
             )
         summary = _key_value_rows(workbook["Account Summary"])
         sheets = tuple(
@@ -187,8 +133,6 @@ def inspect_account_statement(payload: bytes) -> StatementOverview:
             end_date=_parse_statement_datetime(summary.get("End Date")),
             sheets=sheets,
         )
-    finally:
-        workbook.close()
 
 
 def read_statement_sheet(
@@ -199,9 +143,7 @@ def read_statement_sheet(
 ) -> SheetPreview:
     if max_rows < 1:
         raise ValueError("max_rows must be positive")
-    workbook = _load_statement_workbook(payload)
-
-    try:
+    with closing(_load_statement_workbook(payload)) as workbook:
         if sheet_name not in workbook.sheetnames:
             raise AccountStatementError(f"Sheet {sheet_name!r} is not present in the workbook.")
         worksheet = workbook[sheet_name]
@@ -219,8 +161,6 @@ def read_statement_sheet(
             rows=rows,
             total_rows=total_rows,
         )
-    finally:
-        workbook.close()
 
 
 def analyze_account_statement(
@@ -228,14 +168,11 @@ def analyze_account_statement(
     *,
     excluded_assets: tuple[str, ...] = (),
 ) -> StatementAnalysis:
-    workbook = _load_statement_workbook(payload)
-
-    try:
+    with closing(_load_statement_workbook(payload)) as workbook:
         missing_sheets = ANALYSIS_SHEETS.difference(workbook.sheetnames)
         if missing_sheets:
             raise AccountStatementError(
-                "Portfolio analysis is unavailable: missing sheet "
-                f"{', '.join(sorted(missing_sheets))}."
+                f"Portfolio analysis is unavailable: missing sheet {', '.join(sorted(missing_sheets))}."
             )
         summary = _key_value_rows(workbook["Account Summary"])
         start_date = _required_datetime(summary, "Start Date")
@@ -272,9 +209,7 @@ def analyze_account_statement(
         closed_profit_loss = _number(summary.get("Profit or Loss (Closed positions only)"))
         dividends = _number(summary.get("Dividends")) + _number(summary.get("Dividend CFD"))
         fees = sum(_number(summary.get(key)) for key in FEE_SUMMARY_KEYS)
-        unrealized_change = (
-            ending_unrealized - ending_realized
-        ) - (beginning_unrealized - beginning_realized)
+        unrealized_change = (ending_unrealized - ending_realized) - (beginning_unrealized - beginning_realized)
         other_performance = total_profit_loss - closed_profit_loss - dividends - fees - unrealized_change
 
         invested_capital = beginning_unrealized + positive_contributions
@@ -327,8 +262,6 @@ def analyze_account_statement(
             warnings=tuple(warnings),
             holdings_snapshot_date=holdings_snapshot_date,
         )
-    finally:
-        workbook.close()
 
 
 def modified_dietz_return(
@@ -363,22 +296,17 @@ def analyze_statement_range(
 ) -> StatementRangeAnalysis:
     if end_date < start_date:
         raise AccountStatementError("The selected end date must not be before the start date.")
-    workbook = _load_statement_workbook(payload)
-
-    try:
+    with closing(_load_statement_workbook(payload)) as workbook:
         missing_range_sheets = {"Account Activity", "Holdings"}.difference(workbook.sheetnames)
         if missing_range_sheets:
             raise AccountStatementError(
-                "Date-range analysis is unavailable: missing sheet "
-                f"{', '.join(sorted(missing_range_sheets))}."
+                f"Date-range analysis is unavailable: missing sheet {', '.join(sorted(missing_range_sheets))}."
             )
         summary = _key_value_rows(workbook["Account Summary"])
         statement_start = _required_datetime(summary, "Start Date").date()
         statement_end = _required_datetime(summary, "End Date").date()
         if start_date < statement_start or end_date > statement_end:
-            raise AccountStatementError(
-                "The selected dates must stay within the account statement period."
-            )
+            raise AccountStatementError("The selected dates must stay within the account statement period.")
         activity = workbook["Account Activity"]
         position_assets, _ = _position_asset_index(workbook)
         excluded = {_normalize_asset(value) for value in excluded_assets}
@@ -423,17 +351,13 @@ def analyze_statement_range(
         estimated_beginning_equity = start_realized + start_unrealized
         estimated_ending_equity = end_realized + end_unrealized
         cash_flows = tuple(
-            flow
-            for flow in _external_cash_flows(activity)
-            if start_date <= flow.occurred_at.date() <= end_date
+            flow for flow in _external_cash_flows(activity) if start_date <= flow.occurred_at.date() <= end_date
         )
         positive_contributions = sum(max(flow.amount, 0.0) for flow in cash_flows)
         if excluded:
             estimated_profit_loss = range_analysis.realized_profit_loss + end_unrealized - start_unrealized
             estimated_ending_equity = (
-                estimated_beginning_equity
-                + range_analysis.net_external_flows
-                + estimated_profit_loss
+                estimated_beginning_equity + range_analysis.net_external_flows + estimated_profit_loss
             )
             valuation_warnings = (
                 *valuation_warnings,
@@ -442,9 +366,7 @@ def analyze_statement_range(
             )
         else:
             estimated_profit_loss = (
-                estimated_ending_equity
-                - estimated_beginning_equity
-                - range_analysis.net_external_flows
+                estimated_ending_equity - estimated_beginning_equity - range_analysis.net_external_flows
             )
         invested_capital = estimated_beginning_equity + positive_contributions
         estimated_roi = estimated_profit_loss / invested_capital if invested_capital > 0 else None
@@ -493,8 +415,6 @@ def analyze_statement_range(
             valuation_warnings=valuation_warnings,
             daily_performance=daily_performance,
         )
-    finally:
-        workbook.close()
 
 
 def analyze_position_contributions(
@@ -507,8 +427,7 @@ def analyze_position_contributions(
     """Aggregate exact closed-position results by asset for the selected close-date range."""
     if end_date < start_date:
         raise AccountStatementError("The selected end date must not be before the start date.")
-    workbook = _load_statement_workbook(payload)
-    try:
+    with closing(_load_statement_workbook(payload)) as workbook:
         if "Closed Positions" not in workbook.sheetnames:
             return ()
         rows = workbook["Closed Positions"].iter_rows(values_only=True)
@@ -550,8 +469,6 @@ def analyze_position_contributions(
                 reverse=True,
             )
         )
-    finally:
-        workbook.close()
 
 
 def annualize_return(
@@ -567,50 +484,8 @@ def annualize_return(
     return (1 + period_return) ** (1 / years) - 1
 
 
-def validate_xlsx_payload(payload: bytes) -> None:
-    if not payload:
-        raise AccountStatementError("The uploaded file is empty.")
-    if len(payload) > MAX_UPLOAD_BYTES:
-        raise AccountStatementError("The workbook is larger than the 10 MB upload limit.")
-    try:
-        with ZipFile(BytesIO(payload)) as archive:
-            members = archive.infolist()
-            if len(members) > MAX_ARCHIVE_MEMBERS:
-                raise AccountStatementError("The workbook contains too many internal files.")
-            if sum(member.file_size for member in members) > MAX_UNCOMPRESSED_BYTES:
-                raise AccountStatementError("The expanded workbook is too large to process safely.")
-            if "xl/workbook.xml" not in archive.namelist():
-                raise AccountStatementError("The uploaded file is not an XLSX workbook.")
-    except BadZipFile as exc:
-        raise AccountStatementError("The uploaded file is not an XLSX workbook.") from exc
-
-
-def _load_statement_workbook(payload: bytes) -> Any:
-    validate_xlsx_payload(payload)
-    try:
-        return load_workbook(
-            BytesIO(payload),
-            read_only=True,
-            data_only=True,
-            keep_links=False,
-        )
-    except (BadZipFile, InvalidFileException, KeyError, OSError, ValueError) as exc:
-        raise AccountStatementError("The uploaded file is not a readable XLSX workbook.") from exc
-
-
-def _key_value_rows(worksheet: Any) -> dict[str, Any]:
-    values: dict[str, Any] = {}
-    for row in worksheet.iter_rows(min_col=1, max_col=2, values_only=True):
-        key = _optional_text(row[0])
-        if key:
-            values[key] = row[1]
-    return values
-
-
 def _external_cash_flows(worksheet: Any) -> tuple[ExternalCashFlow, ...]:
-    rows = worksheet.iter_rows(values_only=True)
-    header = next(rows, ())
-    columns = {_optional_text(value): index for index, value in enumerate(header)}
+    columns, rows = _sheet_rows(worksheet)
     required = {"Date", "Type", "Amount"}
     if not required.issubset(columns):
         return ()
@@ -641,14 +516,10 @@ def _range_activity_analysis(
     position_assets: dict[str, str] | None = None,
     excluded_assets: set[str] | None = None,
 ) -> StatementRangeAnalysis:
-    rows = worksheet.iter_rows(values_only=True)
-    header = next(rows, ())
-    columns = {_optional_text(value): index for index, value in enumerate(header)}
+    columns, rows = _sheet_rows(worksheet)
     required = {"Date", "Type", "Amount", "Realized Equity Change"}
     if not required.issubset(columns):
-        raise AccountStatementError(
-            "Date-range analysis is unavailable: Account Activity has unsupported columns."
-        )
+        raise AccountStatementError("Date-range analysis is unavailable: Account Activity has unsupported columns.")
 
     closed_profit_loss = 0.0
     dividends = 0.0
@@ -698,9 +569,7 @@ def _range_activity_analysis(
     current_day = start_date
     while current_day <= end_date:
         cumulative += daily_changes.get(current_day, 0.0)
-        daily_performance.append(
-            DailyPerformancePoint(day=current_day, cumulative_profit_loss=cumulative)
-        )
+        daily_performance.append(DailyPerformancePoint(day=current_day, cumulative_profit_loss=cumulative))
         current_day += timedelta(days=1)
     other_performance = realized_profit_loss - closed_profit_loss - dividends - fees
     return StatementRangeAnalysis(
@@ -733,9 +602,7 @@ def _unrealized_equity_anchors(
     beginning_unrealized_profit_loss: float,
     ending_unrealized_profit_loss: float,
 ) -> tuple[tuple[_UnrealizedEquityAnchor, ...], int, tuple[str, ...]]:
-    rows = worksheet.iter_rows(values_only=True)
-    header = next(rows, ())
-    columns = {_optional_text(value): index for index, value in enumerate(header)}
+    columns, rows = _sheet_rows(worksheet)
     required = {"Snapshot Date", "Direction", "Open Rate", "Current Rate", "Value in USD"}
     snapshot_totals: dict[date, float] = {}
     snapshot_exposure: dict[date, float] = {}
@@ -752,9 +619,7 @@ def _unrealized_equity_anchors(
             current_rate = _number(_row_value(row, columns["Current Rate"]))
             if value <= 0 or open_rate <= 0 or current_rate <= 0:
                 continue
-            direction = (
-                _optional_text(_row_value(row, columns["Direction"])) or "Long"
-            ).casefold()
+            direction = (_optional_text(_row_value(row, columns["Direction"])) or "Long").casefold()
             if direction == "short":
                 profit_loss = value * (open_rate / current_rate - 1)
             else:
@@ -762,10 +627,7 @@ def _unrealized_equity_anchors(
             snapshot_totals[day] = snapshot_totals.get(day, 0.0) + profit_loss
             covered_exposure[day] = covered_exposure.get(day, 0.0) + value
 
-    anchors_by_day = {
-        day: _UnrealizedEquityAnchor(day, value, exact=False)
-        for day, value in snapshot_totals.items()
-    }
+    anchors_by_day = {day: _UnrealizedEquityAnchor(day, value, exact=False) for day, value in snapshot_totals.items()}
     anchors_by_day[statement_start] = _UnrealizedEquityAnchor(
         statement_start,
         beginning_unrealized_profit_loss,
@@ -780,12 +642,8 @@ def _unrealized_equity_anchors(
     for day, exposure in snapshot_exposure.items():
         coverage = covered_exposure.get(day, 0.0) / exposure if exposure > 0 else 1.0
         if coverage < 0.9:
-            warnings.append(
-                f"Holdings valuation coverage on {day:%Y-%m-%d} was {coverage:.0%}."
-            )
-    intermediate_snapshot_count = sum(
-        day not in {statement_start, statement_end} for day in snapshot_totals
-    )
+            warnings.append(f"Holdings valuation coverage on {day:%Y-%m-%d} was {coverage:.0%}.")
+    intermediate_snapshot_count = sum(day not in {statement_start, statement_end} for day in snapshot_totals)
     if not intermediate_snapshot_count:
         warnings.append(
             "No usable intermediate Holdings snapshots were found; valuation is interpolated "
@@ -810,9 +668,7 @@ def _interpolate_unrealized(
         return before.unrealized_profit_loss, nearest_distance
     elapsed = (target - before.day).days
     weight = elapsed / duration
-    value = before.unrealized_profit_loss + weight * (
-        after.unrealized_profit_loss - before.unrealized_profit_loss
-    )
+    value = before.unrealized_profit_loss + weight * (after.unrealized_profit_loss - before.unrealized_profit_loss)
     return value, nearest_distance
 
 
@@ -823,9 +679,7 @@ def _realized_equity_at(
     inclusive: bool,
     fallback: float,
 ) -> float:
-    rows = worksheet.iter_rows(values_only=True)
-    header = next(rows, ())
-    columns = {_optional_text(value): index for index, value in enumerate(header)}
+    columns, rows = _sheet_rows(worksheet)
     if not {"Date", "Realized Equity"}.issubset(columns):
         return fallback
     result = fallback
@@ -850,9 +704,7 @@ def _estimated_daily_performance(
     *,
     filtered: bool = False,
 ) -> tuple[DailyPerformancePoint, ...]:
-    rows = worksheet.iter_rows(values_only=True)
-    header = next(rows, ())
-    columns = {_optional_text(value): index for index, value in enumerate(header)}
+    columns, rows = _sheet_rows(worksheet)
     realized_by_day: dict[date, float] = {}
     external_flows_by_day: dict[date, float] = {}
     if {"Date", "Type", "Amount", "Realized Equity", "Realized Equity Change"}.issubset(columns):
@@ -880,9 +732,7 @@ def _estimated_daily_performance(
         if filtered:
             estimated_total_profit_loss = point.cumulative_profit_loss + unrealized - starting_unrealized
         else:
-            estimated_total_profit_loss = (
-                current_realized + unrealized - starting_total_equity - cumulative_flows
-            )
+            estimated_total_profit_loss = current_realized + unrealized - starting_total_equity - cumulative_flows
         points.append(
             DailyPerformancePoint(
                 day=point.day,
@@ -924,9 +774,7 @@ def _holdings_exposure(
     position_assets: dict[str, str] | None = None,
     excluded_assets: set[str] | None = None,
 ) -> tuple[int, float, float, tuple[ExposureGroup, ...], date | None]:
-    rows = worksheet.iter_rows(values_only=True)
-    header = next(rows, ())
-    columns = {_optional_text(value): index for index, value in enumerate(header)}
+    columns, rows = _sheet_rows(worksheet)
     required = {"Direction", "Value in USD"}
     if not required.issubset(columns):
         return 0, 0.0, 0.0, (), None
@@ -960,9 +808,7 @@ def _holdings_exposure(
             continue
         exposure = abs(_number(raw_value))
         direction = (_optional_text(_row_value(row, columns["Direction"])) or "Long").casefold()
-        asset_type = (
-            _optional_text(_row_value(row, type_index)) if type_index is not None else None
-        ) or "Unknown"
+        asset_type = (_optional_text(_row_value(row, type_index)) if type_index is not None else None) or "Unknown"
         positions += 1
         if direction == "short":
             short_exposure += exposure
@@ -981,8 +827,7 @@ def _position_asset_index(workbook: Any) -> tuple[dict[str, str], set[str]]:
     assets: set[str] = set()
     name_aliases: dict[str, str] = {}
     if "Closed Positions" in workbook.sheetnames:
-        rows = workbook["Closed Positions"].iter_rows(values_only=True)
-        columns = {_optional_text(value): index for index, value in enumerate(next(rows, ()))}
+        columns, rows = _sheet_rows(workbook["Closed Positions"])
         if "Action" in columns:
             for row in rows:
                 action = _optional_text(_row_value(row, columns["Action"]))
@@ -994,8 +839,7 @@ def _position_asset_index(workbook: Any) -> tuple[dict[str, str], set[str]]:
                 if "Position ID" in columns:
                     position_assets[_position_id(_row_value(row, columns["Position ID"]))] = label
     if "Holdings" in workbook.sheetnames:
-        rows = workbook["Holdings"].iter_rows(values_only=True)
-        columns = {_optional_text(value): index for index, value in enumerate(next(rows, ()))}
+        columns, rows = _sheet_rows(workbook["Holdings"])
         if "Asset" in columns:
             for row in rows:
                 asset = _optional_text(_row_value(row, columns["Asset"]))
@@ -1032,77 +876,3 @@ def _position_id(value: Any) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value).strip() if value is not None else ""
-
-
-def _row_value(row: tuple[Any, ...], index: int) -> Any:
-    return row[index] if index < len(row) else None
-
-
-def _required_datetime(summary: dict[str, Any], key: str) -> datetime:
-    value = _parse_statement_datetime(summary.get(key))
-    if value is None:
-        raise AccountStatementError(f"Portfolio analysis is unavailable: missing {key}.")
-    return value
-
-
-def _required_number(summary: dict[str, Any], key: str) -> float:
-    if summary.get(key) is None:
-        raise AccountStatementError(f"Portfolio analysis is unavailable: missing {key}.")
-    return _number(summary[key])
-
-
-def _number(value: Any) -> float:
-    if isinstance(value, (int, float)):
-        return float(value)
-    text = _optional_text(value)
-    if not text or text == "-":
-        return 0.0
-    negative = text.startswith("(") and text.endswith(")")
-    normalized = text.strip("()").replace(",", "").replace("$", "")
-    try:
-        parsed = float(normalized)
-    except ValueError:
-        return 0.0
-    return -parsed if negative else parsed
-
-
-def _worksheet_shape(worksheet: Any) -> tuple[int, int]:
-    if worksheet.max_row and worksheet.max_column:
-        return max(worksheet.max_row - 1, 0), worksheet.max_column
-    row_count = 0
-    column_count = 0
-    for row in worksheet.iter_rows(values_only=True):
-        row_count += 1
-        column_count = max(column_count, len(row))
-    return max(row_count - 1, 0), column_count
-
-
-def _unique_headers(values: tuple[Any, ...]) -> tuple[str, ...]:
-    headers: list[str] = []
-    counts: dict[str, int] = {}
-    for index, value in enumerate(values, start=1):
-        base = _optional_text(value) or f"Column {index}"
-        counts[base] = counts.get(base, 0) + 1
-        headers.append(base if counts[base] == 1 else f"{base} ({counts[base]})")
-    return tuple(headers)
-
-
-def _optional_text(value: Any) -> str | None:
-    text = str(value).strip() if value is not None else ""
-    return text or None
-
-
-def _parse_statement_datetime(value: Any) -> datetime | None:
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, date):
-        return datetime.combine(value, datetime.min.time())
-    text = _optional_text(value)
-    if not text:
-        return None
-    for pattern in ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y"):
-        try:
-            return datetime.strptime(text, pattern)
-        except ValueError:
-            continue
-    return None

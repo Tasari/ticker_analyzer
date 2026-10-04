@@ -9,7 +9,18 @@ app.py
   |-- Large Cap Ranking -> ui/ranking_view.py -> ranking/storage.py
   |                                            -> ui/ranking_actions.py (refresh only)
   |
-  `-- Stock Analyzer    -> ui/sidebar.py
+  |-- ETF               -> ui/etf_view.py -> providers/etf.py
+  |                                      -> ui/etf_joint_view.py -> providers/etf_joint.py
+  |
+  |-- Simulation        -> ui/simulation_view.py -> providers/simulation_data.py
+  |                                             -> portfolio/advanced_simulation.py
+  |                                             -> ui/simulation_results_view.py
+  |
+  |-- Account Statement -> ui/account_statement_view.py -> portfolio/statement.py
+  |                                                    -> portfolio/statement_workbook.py
+  |                                                    -> ui/account_statement_charts.py
+  |
+  `-- Stock Analyzer    -> ui/stock_view.py -> ui/sidebar.py
                          -> ui/analysis_actions.py
                          -> analysis/engine.py
                               |-- providers/ -> market_data.py / sec.py / clients.py
@@ -28,6 +39,10 @@ Compatibility facades (`ticker_analyzer.engine`, `ticker_analyzer.providers`, `t
 - `scoring/` owns metric and tab scoring, data-quality calculations, robustness audits, labels, caps, and rating rules.
 - `portfolio/` owns statement parsing, return-series analysis, performance estimates, and simulations.
 - `config/` owns validated configuration persistence and defaults.
+- `config/validation.py` contains schema and scoring-policy validation without file access.
+- `portfolio/statement_models.py` defines statement result types; `statement_workbook.py` owns bounded XLSX loading and cell parsing. `statement.py` retains portfolio calculations and the original imports.
+- `file_io.py` publishes complete JSON files through unique temporary files. Configuration, rankings, and access configuration use the same cleanup and replacement rules. Configuration writes retain `fsync` durability; final replacements are serialized within the process for Windows.
+- `runtime_settings.py` keeps environment flags and production mutation rules consistent between widgets and background actions.
 - `providers/market_data.py` adapts `yfinance`; the rest of `providers/` contains reusable HTTP, SEC, reference-data, and merge infrastructure.
 - `ranking/universe.py`, `ranking/builder.py`, `ranking/provider.py`, and `ranking/storage.py` isolate discovery, scheduling, fallback data, and persistence.
 - `ui/` contains presentation and user actions. Analysis and ranking actions are independent so one page does not initialize the other page's dependencies.
@@ -39,6 +54,8 @@ Compatibility facades (`ticker_analyzer.engine`, `ticker_analyzer.providers`, `t
 - Checkpoints are written every 25 completions, atomically and as a JSON stream.
 - Progress polling parses a checkpoint only after its file metadata changes.
 - Ranking snapshots are parsed once per unchanged file and reused across Streamlit reruns.
+- The ranking read cache retains up to eight file identities so Stocks, ETFs, Crypto, and checkpoints do not evict each other on every rerun.
+- Simulation prices, dividends, trailing returns, and correlations are prepared once for both strategies. Their trading state and returned mutable tables remain independent.
 - Full stock analyses have a 15-minute, 32-entry cache; ticker searches use a separate 128-entry cache.
 - Financial statements fetched from `yfinance` are copied once before normalization.
 - Public Yahoo fallback sessions are isolated per ranking worker.

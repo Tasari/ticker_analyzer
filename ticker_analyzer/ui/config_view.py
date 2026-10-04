@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 
 import streamlit as st
 
 from ticker_analyzer.config import save_config
+from ticker_analyzer.runtime_settings import mutation_allowed as mutation_allowed
 
 
 def render_config_editor(config: dict) -> None:
@@ -30,9 +30,3 @@ def render_config_editor(config: dict) -> None:
                 st.error(f"Could not save settings: {exc}")
         if cols[1].button("Reload settings", width="stretch"):
             st.rerun()
-
-
-def mutation_allowed(setting: str) -> bool:
-    if os.getenv("APP_MODE", "local").strip().lower() != "production":
-        return True
-    return os.getenv(setting, "").strip().lower() in {"1", "true", "yes", "on"}

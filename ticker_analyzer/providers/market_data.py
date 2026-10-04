@@ -18,6 +18,7 @@ from ticker_analyzer.markets import (
     normalize_price_targets,
     normalize_quote_info,
 )
+from ticker_analyzer.ranges import years_from_range
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,14 @@ CORE_INFO_FIELDS = frozenset(
         "totalRevenue",
         "returnOnEquity",
     }
+)
+STATEMENT_SOURCES = (
+    ("annual_income", "financials", "annual income statement"),
+    ("annual_balance", "balance_sheet", "annual balance sheet"),
+    ("annual_cashflow", "cashflow", "annual cash flow"),
+    ("quarterly_income", "quarterly_financials", "quarterly income statement"),
+    ("quarterly_balance", "quarterly_balance_sheet", "quarterly balance sheet"),
+    ("quarterly_cashflow", "quarterly_cashflow", "quarterly cash flow"),
 )
 
 
@@ -59,8 +68,7 @@ YFINANCE_CACHE_DIR = configure_yfinance_cache()
 
 
 class MarketDataProvider(Protocol):
-    def fetch(self, ticker_symbol: str, ranges: AnalysisRanges) -> MarketData:
-        ...
+    def fetch(self, ticker_symbol: str, ranges: AnalysisRanges) -> MarketData: ...
 
 
 class YFinanceProvider:
@@ -86,51 +94,36 @@ class YFinanceProvider:
         result = MarketData(
             ticker=ticker_symbol,
             info=safe_dict(lambda: ticker.info, label="company info", diagnostics=diagnostics),
-            annual_income=safe_statement(
-                lambda: ticker.financials,
-                label="annual income statement",
-                diagnostics=diagnostics,
-            ),
-            annual_balance=safe_statement(
-                lambda: ticker.balance_sheet,
-                label="annual balance sheet",
-                diagnostics=diagnostics,
-            ),
-            annual_cashflow=safe_statement(
-                lambda: ticker.cashflow,
-                label="annual cash flow",
-                diagnostics=diagnostics,
-            ),
-            quarterly_income=safe_statement(
-                lambda: ticker.quarterly_financials,
-                label="quarterly income statement",
-                diagnostics=diagnostics,
-            ),
-            quarterly_balance=safe_statement(
-                lambda: ticker.quarterly_balance_sheet,
-                label="quarterly balance sheet",
-                diagnostics=diagnostics,
-            ),
-            quarterly_cashflow=safe_statement(
-                lambda: ticker.quarterly_cashflow,
-                label="quarterly cash flow",
-                diagnostics=diagnostics,
-            ),
+            **{
+                field: safe_statement(
+                    lambda attribute=attribute: getattr(ticker, attribute),
+                    label=label,
+                    diagnostics=diagnostics,
+                )
+                for field, attribute, label in STATEMENT_SOURCES
+            },
             growth_history=growth_history,
             # Valuation multiples must use the price shareholders actually paid.
             # Adjusted prices are useful for total-return/growth charts, but applying
             # them to today's share count makes historical P/E and P/S split-sensitive.
             value_history=value_history,
-            analyst_targets=safe_dict(lambda: ticker.analyst_price_targets, label="analyst price targets", diagnostics=diagnostics),
-            revenue_estimate=safe_frame(lambda: ticker.revenue_estimate, label="revenue estimates", diagnostics=diagnostics),
-            earnings_estimate=safe_frame(lambda: ticker.earnings_estimate, label="earnings estimates", diagnostics=diagnostics),
+            analyst_targets=safe_dict(
+                lambda: ticker.analyst_price_targets, label="analyst price targets", diagnostics=diagnostics
+            ),
+            revenue_estimate=safe_frame(
+                lambda: ticker.revenue_estimate, label="revenue estimates", diagnostics=diagnostics
+            ),
+            earnings_estimate=safe_frame(
+                lambda: ticker.earnings_estimate, label="earnings estimates", diagnostics=diagnostics
+            ),
             eps_trend=safe_frame(lambda: ticker.eps_trend, label="EPS trend", diagnostics=diagnostics),
-            growth_estimates=safe_frame(lambda: ticker.growth_estimates, label="growth estimates", diagnostics=diagnostics),
+            growth_estimates=safe_frame(
+                lambda: ticker.growth_estimates, label="growth estimates", diagnostics=diagnostics
+            ),
             diagnostics=diagnostics,
         )
         normalize_market_data(result)
-        for frame in (result.annual_income, result.annual_balance, result.annual_cashflow,
-                      result.quarterly_income, result.quarterly_balance, result.quarterly_cashflow):
+        for frame in result.statements:
             if result.info.get("financialCurrency"):
                 frame.attrs["financial_currency"] = result.info["financialCurrency"]
         result.provenance = build_yfinance_provenance(result, fetched_at)
@@ -140,7 +133,7 @@ class YFinanceProvider:
 
 def fill_missing_core_data(data: MarketData, ranges: AnalysisRanges) -> None:
     """Recover core prices/statements when yfinance returns a partial response."""
-    annual_statements = (data.annual_income, data.annual_balance, data.annual_cashflow)
+    annual_statements = data.annual_statements
     missing_prices = data.value_history.empty
     meaningful_statements = sum(
         statement_has_any_row(frame, expected_rows)
@@ -151,21 +144,22 @@ def fill_missing_core_data(data: MarketData, ranges: AnalysisRanges) -> None:
     missing_financials = meaningful_statements < len(annual_statements)
     share_rows = frozenset({"Ordinary Shares Number", "Share Issued", "Common Stock Shares Outstanding"})
     missing_shares = not any(
-        statement_has_any_row(frame, share_rows)
-        for frame in (data.annual_balance, data.quarterly_balance)
-    )
-    statement_frames = (
-        *annual_statements, data.quarterly_income, data.quarterly_balance, data.quarterly_cashflow,
+        statement_has_any_row(frame, share_rows) for frame in (data.annual_balance, data.quarterly_balance)
     )
     missing_statement_currency = not data.info.get("financialCurrency") and any(
-        not frame.empty and not frame.attrs.get("financial_currency") for frame in statement_frames
+        not frame.empty and not frame.attrs.get("financial_currency") for frame in data.statements
     )
     has_price = clean_info_price(data.info) is not None
     missing_profile = not (data.info.get("industry") or data.info.get("industryDisp") or data.info.get("sector"))
     sparse_info = sum(data.info.get(field) is not None for field in CORE_INFO_FIELDS) < 2
     needs_fallback = (
-        missing_prices or not has_price or missing_financials or missing_shares
-        or missing_statement_currency or missing_profile or sparse_info
+        missing_prices
+        or not has_price
+        or missing_financials
+        or missing_shares
+        or missing_statement_currency
+        or missing_profile
+        or sparse_info
     )
     if not needs_fallback:
         return
@@ -202,9 +196,7 @@ def statement_has_any_row(frame: pd.DataFrame, expected_rows: frozenset[str]) ->
     if frame.empty:
         return False
     return any(
-        pd.to_numeric(frame.loc[row], errors="coerce").notna().any()
-        for row in frame.index
-        if str(row) in expected_rows
+        pd.to_numeric(frame.loc[row], errors="coerce").notna().any() for row in frame.index if str(row) in expected_rows
     )
 
 
@@ -372,13 +364,7 @@ def history_start_date(range_label: str) -> str:
 
 
 def range_years(range_label: str) -> int:
-    normalized = str(range_label or "2Y").strip().lower()
-    if normalized.endswith("y"):
-        try:
-            return max(1, int(normalized[:-1]))
-        except ValueError:
-            return 2
-    return 2
+    return years_from_range(str(range_label or "2Y"))
 
 
 def build_yfinance_provenance(data: MarketData, fetched_at: datetime) -> dict[str, DataProvenance]:
@@ -387,11 +373,7 @@ def build_yfinance_provenance(data: MarketData, fetched_at: datetime) -> dict[st
             provider="yfinance",
             fetched_at=fetched_at,
             period_end=latest_statement_period(data),
-            observation_count=max(
-                len(data.annual_income.columns),
-                len(data.annual_balance.columns),
-                len(data.annual_cashflow.columns),
-            ),
+            observation_count=max(len(frame.columns) for frame in data.annual_statements),
             fallback_level="secondary_source",
             is_primary_source=False,
         ),
@@ -415,14 +397,7 @@ def build_yfinance_provenance(data: MarketData, fetched_at: datetime) -> dict[st
 
 def latest_statement_period(data: MarketData) -> datetime | None:
     dates = []
-    for frame in (
-        data.quarterly_income,
-        data.quarterly_balance,
-        data.quarterly_cashflow,
-        data.annual_income,
-        data.annual_balance,
-        data.annual_cashflow,
-    ):
+    for frame in data.statements:
         if not frame.empty:
             dates.extend(pd.to_datetime(frame.columns, errors="coerce").dropna().tolist())
     if not dates:
