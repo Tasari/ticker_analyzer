@@ -4,6 +4,7 @@ import unittest
 
 import pandas as pd
 from ticker_analyzer.metrics.periods import free_cash_flow_periods, valuation_periods
+from ticker_analyzer.metrics.utils import value_on_or_before
 from ticker_analyzer.metrics.valuation import (
     build_historical_ratio_context,
     current_valuation_multiple,
@@ -16,6 +17,24 @@ def statements(values, dates, row="Net Income"):
 
 
 class ValuationPeriodTests(unittest.TestCase):
+    def test_timezone_aware_prices_do_not_select_future_statement_observations(self):
+        values = pd.Series([10., 99.], index=pd.to_datetime(["2025-03-31", "2025-06-30"]))
+        self.assertEqual(value_on_or_before(values, pd.Timestamp("2025-05-31", tz="America/New_York")), 10.)
+        self.assertIsNone(value_on_or_before(values, pd.Timestamp("2025-01-31", tz="America/New_York")))
+        self.assertIsNone(value_on_or_before(values, "invalid date"))
+
+    def test_historical_ratios_match_for_naive_and_exchange_timezone_prices(self):
+        index = pd.to_datetime(["2025-04-30", "2025-07-31"])
+        history = pd.DataFrame({"Close": [10., 20.]}, index=index)
+        income = statements([100., 200.], ["2024-12-31", "2025-03-31"])
+        balance = statements([100., 100.], ["2024-12-31", "2025-03-31"], "Ordinary Shares Number")
+        naive = build_historical_ratio_context(history, income, balance, pd.DataFrame(), years=1)
+        history.index = history.index.tz_localize("America/New_York")
+        aware = build_historical_ratio_context(history, income, balance, pd.DataFrame(), years=1)
+
+        self.assertEqual(aware.historical_ratios("pe"), naive.historical_ratios("pe"))
+        self.assertEqual(aware.historical_ratios("pe"), [10., 10.])
+
     def test_analysis_entry_points_remain_available_with_metrics_imported_first(self):
         import ticker_analyzer.analysis as analysis
         from ticker_analyzer.analysis.engine import StockAnalysisEngine, analyze_ticker

@@ -150,6 +150,9 @@ known currency; unknown amounts are never relabelled or mixed with known units.
 Price histories are aligned by trading date in the primary timezone before
 merging, so UTC-naive chart timestamps and exchange-timezone yfinance bars cannot
 abort recovery or introduce duplicate daily observations.
+Historical statement lookup aligns timezone-aware price dates with report
+availability dates. An invalid date leaves the observation unavailable instead
+of substituting the latest report into an earlier valuation.
 The fallback keeps successful statements and prices independently when the other
 endpoint fails. An unrated Value tab explains the coverage or required-component
 failure and shows valuation-basis/download diagnostics with an Analyze retry

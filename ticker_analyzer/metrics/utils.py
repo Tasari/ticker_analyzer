@@ -230,10 +230,19 @@ def value_on_or_before(values: pd.Series, date: Any) -> float | None:
     try:
         index = pd.to_datetime(series.index)
         target = pd.Timestamp(date)
+        # Statement availability is normally a timezone-naive calendar date,
+        # while exchange prices carry a timezone. Compare on the statement's
+        # calendar basis instead of falling back to the latest (future) report.
+        if index.tz is None:
+            target = target.tz_localize(None)
+        elif target.tzinfo is None:
+            target = target.tz_localize(index.tz)
+        else:
+            target = target.tz_convert(index.tz)
         dated = pd.Series(series.to_numpy(), index=index).sort_index()
         eligible = dated[dated.index <= target]
         if eligible.empty:
             return None
         return clean_number(eligible.iloc[-1])
-    except Exception:
-        return clean_number(series.iloc[-1])
+    except (TypeError, ValueError):
+        return None
