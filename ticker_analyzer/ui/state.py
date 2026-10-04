@@ -64,6 +64,12 @@ def add_ticker_to_state(state: MutableMapping[str, Any], value: Any) -> bool:
     return bool(add_tickers_to_state(state, [value]))
 
 
+def add_companies_to_analyzer(tickers: list[str]) -> None:
+    add_tickers_to_state(st.session_state, tickers)
+    if any(normalize_ticker(ticker) in st.session_state.get("selected_tickers", []) for ticker in tickers):
+        st.session_state["page"] = "Stock Analyzer"
+
+
 def add_tickers_to_state(state: MutableMapping[str, Any], values: list[Any]) -> list[str]:
     selected = state.setdefault("selected_tickers", [])
     added: list[str] = []

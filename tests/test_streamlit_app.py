@@ -339,6 +339,25 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertEqual(app.sidebar.radio[0].value, "Stock Analyzer")
         self.assertNotIn("Watchlist", app.sidebar.radio[0].options)
 
+    def test_etf_and_simulation_share_company_search_selection_and_removal(self):
+        app = AppTest.from_file("app.py", default_timeout=10)
+        app.session_state["_site_access_authenticated"] = True
+        app.session_state["page"] = "ETF"
+        app.session_state["selected_tickers"] = ["NVDA", "FUTU"]
+        with patch("ticker_analyzer.ui.analysis_actions.analyze_selected_tickers") as analyze:
+            app.run()
+            for page in ("ETF", "Simulation"):
+                app.sidebar.radio[0].set_value(page).run()
+                self.assertFalse(app.exception)
+                self.assertTrue(any(field.label == "Ticker symbol" for field in app.sidebar.text_input))
+                self.assertEqual([widget.label for widget in app.sidebar.checkbox], ["Select NVDA", "Select FUTU"])
+            app.sidebar.checkbox(key="select_remove_NVDA").check().run()
+            next(button for button in app.sidebar.button if button.label == "Remove selected (1)").click().run()
+            app.sidebar.radio[0].set_value("ETF").run()
+            self.assertEqual(app.session_state["selected_tickers"], ["FUTU"])
+            self.assertEqual([widget.label for widget in app.sidebar.checkbox], ["Select FUTU"])
+            analyze.assert_not_called()
+
     def test_imported_account_statement_ticker_can_be_selected_from_sidebar(self):
         app = AppTest.from_file("app.py", default_timeout=10)
         app.session_state["_site_access_authenticated"] = True

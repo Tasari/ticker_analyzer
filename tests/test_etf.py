@@ -103,6 +103,31 @@ class EtfProviderTest(unittest.TestCase):
 
 
 class EtfViewTest(unittest.TestCase):
+    def test_selected_holdings_follow_display_order_and_map_known_us_share_classes(self):
+        from ticker_analyzer.ui.etf_view import selected_holding_tickers
+        frame = pd.DataFrame({"Ticker": ["AAPL", "BRK.B", "9988.HK", "—", "AAPL"]}, index=[9, 8, 7, 6, 5])
+        self.assertEqual(selected_holding_tickers(frame, [1, 2, 0, 3, 4, 99, -1], "Stock Analysis / Finnhub"), ["BRK-B", "9988.HK", "AAPL"])
+        self.assertEqual(selected_holding_tickers(frame, [], "Yahoo Finance"), [])
+
+    def test_selected_etf_rows_add_companies_and_open_analyzer(self):
+        with patch.dict("os.environ", {"TICKER_ANALYZER_DISABLE_BROWSER_STORAGE": "1"}):
+            app = AppTest.from_file("app.py", default_timeout=10)
+            app.session_state["_site_access_authenticated"] = True
+            app.session_state["page"] = "ETF"
+            app.session_state["selected_tickers"] = ["NVDA"]
+            app.session_state["etf_holdings"] = fund_result()
+            app.run()
+            add = next(button for button in app.button if button.label == "Add selected companies to Analyzer")
+            self.assertTrue(add.disabled)
+            app.session_state[app.dataframe[0].key] = {"selection": {"rows": [0, 1], "columns": [], "cells": []}}
+            app.run()
+            with patch("ticker_analyzer.ui.analysis_actions.analyze_selected_tickers", return_value=({}, {})):
+                next(button for button in app.button if button.label == "Add selected companies to Analyzer").click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state["selected_tickers"], ["NVDA", "AAPL"])
+            self.assertEqual(app.sidebar.radio[0].value, "Stock Analyzer")
+            self.assertTrue(app.session_state["analysis_pending_changes"])
+
     def test_etf_lookup_is_independent_and_does_not_keep_old_result_after_failure(self):
         with patch.dict("os.environ", {"TICKER_ANALYZER_DISABLE_BROWSER_STORAGE": "1"}):
             app = AppTest.from_file("app.py", default_timeout=10)

@@ -1,10 +1,23 @@
 import unittest
 from unittest.mock import patch
 
-from ticker_analyzer.ui.state import add_tickers_to_state, initialize_state, remove_tickers_from_state
+from ticker_analyzer.ui.state import (
+    add_companies_to_analyzer,
+    add_tickers_to_state,
+    initialize_state,
+    remove_tickers_from_state,
+)
 
 
 class UiStateTest(unittest.TestCase):
+    def test_existing_company_selection_opens_analyzer_without_duplicating_or_refetching(self):
+        state = {"page": "ETF", "selected_tickers": ["NVDA"], "analysis_pending_changes": False}
+        with patch("ticker_analyzer.ui.state.st.session_state", state):
+            add_companies_to_analyzer(["NVDA", "NVDA"])
+        self.assertEqual(state["page"], "Stock Analyzer")
+        self.assertEqual(state["selected_tickers"], ["NVDA"])
+        self.assertFalse(state["analysis_pending_changes"])
+
     def test_initialize_state_includes_persisted_range_defaults(self):
         state = {}
         with patch("ticker_analyzer.ui.state.st.session_state", state):

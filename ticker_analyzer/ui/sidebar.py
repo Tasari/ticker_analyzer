@@ -43,11 +43,8 @@ def render_auto_analysis_countdown() -> None:
 
 
 def render_sidebar(config: dict) -> tuple[dict[str, str], bool]:
+    render_company_selector()
     with st.sidebar:
-        st.header("Analysis")
-        render_ticker_search()
-        render_account_statement_ticker()
-        render_selected_tickers()
         range_options = ["1Y", "2Y", "3Y"]
         growth_range = st.selectbox("Growth range", range_options, key="growth_range")
         fundamentals_range = st.selectbox("Fundamentals range", range_options, key="fundamentals_range")
@@ -77,6 +74,14 @@ def render_sidebar(config: dict) -> tuple[dict[str, str], bool]:
         "Fundamentals": fundamentals_range,
         "Value": value_range,
     }, analyze_clicked
+
+
+def render_company_selector() -> None:
+    with st.sidebar:
+        st.header("Companies")
+        render_ticker_search()
+        render_account_statement_ticker()
+        render_selected_tickers()
 
 
 def render_ticker_search() -> None:

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import pandas as pd
 import plotly.express as px
 import streamlit as st
 
 from ticker_analyzer.providers.etf import EtfDataError, EtfHoldings, fetch_etf_holdings
 from ticker_analyzer.ticker_symbols import normalize_ticker
+from ticker_analyzer.ui.state import add_companies_to_analyzer
 
 
 @st.cache_data(ttl=3600, max_entries=32, show_spinner=False)
@@ -53,9 +55,18 @@ def render_etf() -> None:
     columns = st.columns(2)
     columns[0].metric("Positions shown", len(displayed))
     columns[1].metric("Share of the fund shown", f"{displayed['Weight (%)'].sum():.2f}%")
-    st.dataframe(
+    table_event = st.dataframe(
         displayed, hide_index=True, width="stretch",
+        key=f"etf_holdings_table_{result.ticker}_{count}_{result.fetched_at.isoformat()}",
+        on_select="rerun", selection_mode="multi-row",
         column_config={"Weight (%)": st.column_config.NumberColumn("Weight (%)", format="%.2f%%")},
+    )
+    selected_tickers = selected_holding_tickers(displayed, table_event.selection.rows, result.source)
+    st.button(
+        "Add selected companies to Analyzer", type="primary",
+        disabled=not selected_tickers,
+        help="Select one or more rows, then add those companies to Stock Analyzer.",
+        on_click=add_companies_to_analyzer, args=(selected_tickers,),
     )
     chart_data = displayed.assign(Position=displayed["Company"] + " (" + displayed["Ticker"] + ")")
     figure = px.bar(chart_data, x="Weight (%)", y="Position", orientation="h", text="Weight (%)")
@@ -63,3 +74,20 @@ def render_etf() -> None:
     figure.update_layout(yaxis={"autorange": "reversed"}, height=max(300, 32 * len(displayed)), margin={"t": 10})
     st.plotly_chart(figure, width="stretch")
     st.caption("Weights refer to the entire fund. Other holdings and assets account for the remaining allocation. Holdings can change after the reported date.")
+
+
+def selected_holding_tickers(displayed: pd.DataFrame, rows: list[int], source: str) -> list[str]:
+    tickers = []
+    for row in rows:
+        if not isinstance(row, int) or not 0 <= row < len(displayed):
+            continue
+        ticker = normalize_ticker(displayed.iloc[row]["Ticker"])
+        if not ticker or ticker == "ACC_STMT" or not any(char.isalnum() for char in ticker):
+            continue
+        # The public US table uses dots for Berkshire share classes; Yahoo
+        # uses hyphens. Preserve exchange suffixes on international symbols.
+        if source == "Stock Analysis / Finnhub" and ticker in {"BRK.A", "BRK.B"}:
+            ticker = ticker.replace(".", "-")
+        if ticker not in tickers:
+            tickers.append(ticker)
+    return tickers

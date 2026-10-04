@@ -39,6 +39,10 @@ def main() -> None:
             key="page",
         )
         st.sidebar.caption("This browser remembers your companies and preferences for 30 days.")
+        if page in {"ETF", "Simulation"}:
+            from ticker_analyzer.ui.sidebar import render_company_selector
+
+            render_company_selector()
         if page == "ETF":
             from ticker_analyzer.ui.etf_view import render_etf
 
