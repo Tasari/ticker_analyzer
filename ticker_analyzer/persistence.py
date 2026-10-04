@@ -115,6 +115,7 @@ def build_snapshot(state: Mapping[str, Any], *, now: datetime | None = None) -> 
         "selected_tickers": tickers,
         "active_ticker": active_ticker,
         "etf_ticker": normalize_ticker(state.get("etf_ticker")) or "VOO",
+        "selected_etfs": normalize_etf_tickers(state),
         "ranges": ranges,
         "watchlist": watchlist,
         "watchlist_snapshots": normalize_snapshots(state.get("watchlist_snapshots"), watchlist),
@@ -148,6 +149,7 @@ def apply_snapshot(state: MutableMapping[str, Any], snapshot: Mapping[str, Any])
     active_ticker = normalize_ticker(snapshot.get("active_ticker"))
     state["active_ticker"] = active_ticker if active_ticker in tickers else (tickers[0] if tickers else None)
     state["etf_ticker"] = normalize_ticker(snapshot.get("etf_ticker")) or "VOO"
+    state["selected_etfs"] = normalize_etf_tickers(snapshot)
     ranges = snapshot.get("ranges") if isinstance(snapshot.get("ranges"), Mapping) else {}
     for tab, state_key in RANGE_STATE_KEYS.items():
         state[state_key] = normalize_range(ranges.get(tab))
@@ -180,6 +182,7 @@ def payload_to_state(payload: Mapping[str, Any]) -> dict[str, Any]:
         "selected_tickers": payload.get("selected_tickers"),
         "active_ticker": payload.get("active_ticker"),
         "etf_ticker": payload.get("etf_ticker"),
+        "selected_etfs": normalize_etf_tickers(payload),
         "page": payload.get("page"),
         "watchlist": payload.get("watchlist"),
         "watchlist_snapshots": payload.get("watchlist_snapshots"),
@@ -201,6 +204,13 @@ def normalize_tickers(value: Any) -> list[str]:
         if ticker and ticker not in normalized:
             normalized.append(ticker)
     return normalized
+
+
+def normalize_etf_tickers(state: Mapping[str, Any]) -> list[str]:
+    values = state.get("selected_etfs")
+    if not isinstance(values, list):
+        values = [normalize_ticker(state.get("etf_ticker")) or "VOO"]
+    return [ticker for ticker in normalize_tickers(values) if ticker != "ACC_STMT"]
 
 
 def normalize_range(value: Any) -> str:

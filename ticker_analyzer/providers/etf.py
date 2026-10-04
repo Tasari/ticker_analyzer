@@ -11,6 +11,11 @@ import yfinance as yf
 
 from ticker_analyzer.ticker_symbols import normalize_ticker
 
+PUBLIC_EXCHANGES = {
+    ".DE": "etr", ".L": "lon", ".PA": "epa", ".MI": "bit",
+    ".AS": "ams", ".SW": "swx", ".TO": "tsx", ".AX": "asx",
+}
+
 
 class EtfDataError(ValueError):
     pass
@@ -71,9 +76,9 @@ def fetch_etf_holdings(symbol: str) -> EtfHoldings:
         raise
     except Exception:
         # FundsData depends on Yahoo's quoteSummary cookie/crumb. The public
-        # holdings table below provides an independent path for US ETFs.
+        # holdings table below provides an independent path for supported venues.
         pass
-    if re.fullmatch(r"[A-Z0-9-]{1,12}", ticker):
+    if public_holdings_location(ticker):
         try:
             return fetch_public_etf_holdings(ticker)
         except (requests.RequestException, EtfDataError):
@@ -127,14 +132,30 @@ class HoldingsTableParser(HTMLParser):
             self.cell.append(data)
 
 
+def public_holdings_location(ticker: str) -> tuple[str, str] | None:
+    """Map the exact listing, retaining exchange identity instead of substituting funds."""
+    for suffix, exchange in PUBLIC_EXCHANGES.items():
+        if ticker.endswith(suffix):
+            local = ticker[:-len(suffix)]
+            if re.fullmatch(r"[A-Z0-9-]{1,16}", local):
+                return f"https://stockanalysis.com/quote/{exchange}/{local}/holdings/", f"{exchange.upper()}:{local}"
+            return None
+    if re.fullmatch(r"[A-Z0-9-]{1,12}", ticker):
+        return f"https://stockanalysis.com/etf/{ticker.lower()}/holdings/", ticker
+    return None
+
+
 def fetch_public_etf_holdings(ticker: str) -> EtfHoldings:
-    url = f"https://stockanalysis.com/etf/{ticker.lower()}/holdings/"
+    location = public_holdings_location(ticker)
+    if location is None:
+        raise EtfDataError("This exchange has no supported public holdings source.")
+    url, page_symbol = location
     response = requests.get(url, timeout=15, headers={"User-Agent": "TickerAnalyzer/0.1"})
     response.raise_for_status()
     parser = HoldingsTableParser()
     parser.feed(response.text)
     text = " ".join(" ".join(parser.visible_text).split())
-    if not re.search(rf"\b{re.escape(ticker)} Holdings Information\b", text, re.IGNORECASE):
+    if not re.search(rf"\b{re.escape(page_symbol)} Holdings Information\b", text, re.IGNORECASE):
         raise EtfDataError("The public page did not match the requested ETF.")
     for table in parser.tables:
         if table:

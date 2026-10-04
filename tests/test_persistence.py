@@ -119,6 +119,18 @@ class PersistenceTest(unittest.TestCase):
                 apply_snapshot(restored, snapshot)
                 self.assertEqual(restored["page"], page)
                 self.assertEqual(restored["etf_ticker"], "EUNL.DE")
+                self.assertEqual(restored["selected_etfs"], ["EUNL.DE"])
+
+    def test_multiple_etf_selection_round_trip_preserves_empty_and_normalizes_symbols(self):
+        for values, expected in (
+            (["vvsm.de", "VOO", "VVSM.DE", "ACC_STMT", "bad ticker"], ["VVSM.DE", "VOO"]),
+            ([], []),
+        ):
+            with self.subTest(values=values):
+                snapshot = parse_snapshot(json.dumps(build_snapshot({"selected_etfs": values}, now=self.now)), now=self.now)
+                state = {}
+                apply_snapshot(state, snapshot)
+                self.assertEqual(state["selected_etfs"], expected)
 
     def test_legacy_watchlist_data_is_retained_but_retired_page_returns_to_analyzer(self):
         state = {

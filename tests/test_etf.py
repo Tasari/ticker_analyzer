@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,6 +15,7 @@ from ticker_analyzer.providers.etf import (
     fetch_etf_holdings,
     fetch_public_etf_holdings,
     normalize_holdings,
+    public_holdings_location,
 )
 
 PUBLIC_HTML = """
@@ -77,12 +79,15 @@ class EtfProviderTest(unittest.TestCase):
             fetch_etf_holdings("NVDA")
         public.assert_not_called()
 
-    @patch("ticker_analyzer.providers.etf.fetch_public_etf_holdings")
+    @patch("ticker_analyzer.providers.etf.fetch_public_etf_holdings", side_effect=EtfDataError("Unavailable"))
     @patch("ticker_analyzer.providers.etf.yf.Ticker", side_effect=requests.HTTPError("401"))
     def test_international_ticker_is_not_replaced_with_a_different_us_fund(self, ticker, public):
         with self.assertRaisesRegex(EtfDataError, "EUNL.DE"):
             fetch_etf_holdings("EUNL.DE")
-        public.assert_not_called()
+        public.assert_called_once_with("EUNL.DE")
+        self.assertEqual(public_holdings_location("EUNL.DE"), ("https://stockanalysis.com/quote/etr/EUNL/holdings/", "ETR:EUNL"))
+        self.assertIsNone(public_holdings_location("ETF.WA"))
+        self.assertIsNone(public_holdings_location(".DE"))
         with self.assertRaises(EtfDataError):
             fetch_etf_holdings("bad ticker")
         with self.assertRaises(EtfDataError):
@@ -101,8 +106,83 @@ class EtfProviderTest(unittest.TestCase):
             with self.assertRaises(EtfDataError):
                 fetch_public_etf_holdings("VOO")
 
+    @patch("ticker_analyzer.providers.etf.requests.get")
+    @patch("ticker_analyzer.providers.etf.yf.Ticker", side_effect=requests.HTTPError("401 Invalid Crumb"))
+    def test_vvsm_recovers_exact_xetra_listing_and_rejects_wrong_exchange(self, ticker, get):
+        get.return_value = SimpleNamespace(text=PUBLIC_HTML.replace("VOO Holdings", "ETR:VVSM Holdings"), raise_for_status=lambda: None)
+        result = fetch_etf_holdings("vvsm.de")
+        self.assertEqual(result.ticker, "VVSM.DE")
+        self.assertEqual(result.as_of, "Aug 31, 2026")
+        self.assertEqual(result.holdings["Weight (%)"].tolist(), [8.08, 7.03])
+        self.assertEqual(get.call_args.args[0], "https://stockanalysis.com/quote/etr/VVSM/holdings/")
+        get.return_value.text = PUBLIC_HTML.replace("VOO Holdings", "LON:VVSM Holdings")
+        with self.assertRaises(EtfDataError):
+            fetch_etf_holdings("VVSM.DE")
+
 
 class EtfViewTest(unittest.TestCase):
+    def test_multiple_funds_keep_independent_results_errors_and_selection_after_navigation(self):
+        with patch.dict("os.environ", {"TICKER_ANALYZER_DISABLE_BROWSER_STORAGE": "1"}):
+            app = AppTest.from_file("app.py", default_timeout=10)
+            app.session_state["_site_access_authenticated"] = True
+            app.session_state["page"] = "ETF"
+            app.session_state["selected_tickers"] = ["NVDA"]
+            app.session_state["selected_etfs"] = ["VOO", "VVSM.DE", "QQQ"]
+
+            def fetch(ticker):
+                if ticker == "QQQ":
+                    raise EtfDataError("Holdings unavailable for QQQ")
+                return replace(fund_result(), ticker=ticker)
+
+            with patch("ticker_analyzer.ui.etf_view.cached_etf_holdings", side_effect=fetch):
+                app.run()
+                next(button for button in app.button if button.label == "Show holdings").click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(len(app.dataframe), 2)
+            self.assertTrue(any("QQQ" in warning.value for warning in app.warning))
+            self.assertEqual(app.session_state["selected_tickers"], ["NVDA"])
+            self.assertEqual(set(app.session_state["etf_holdings_by_ticker"]), {"VOO", "VVSM.DE"})
+            app.multiselect(key="etf_selection").set_value(["VVSM.DE"]).run()
+            self.assertFalse(app.exception)
+            self.assertEqual(len(app.dataframe), 1)
+            app.sidebar.radio[0].set_value("Simulation").run()
+            app.sidebar.radio[0].set_value("ETF").run()
+            self.assertEqual(app.multiselect(key="etf_selection").value, ["VVSM.DE"])
+            self.assertEqual(len(app.dataframe), 1)
+            app.multiselect(key="etf_selection").set_value([]).run()
+            self.assertFalse(app.dataframe)
+            self.assertFalse(app.exception)
+
+    def test_suggestion_adds_an_etf_without_replacing_previous_funds_or_companies(self):
+        with patch.dict("os.environ", {"TICKER_ANALYZER_DISABLE_BROWSER_STORAGE": "1"}):
+            app = AppTest.from_file("app.py", default_timeout=10)
+            app.session_state["_site_access_authenticated"] = True
+            app.session_state["page"] = "ETF"
+            app.session_state["selected_tickers"] = ["NVDA"]
+            with (
+                patch("ticker_analyzer.ui.etf_view.st_searchbox", return_value="VVSM.DE | VanEck Semiconductor UCITS ETF"),
+                patch("ticker_analyzer.ui.etf_view.cached_etf_holdings", side_effect=lambda ticker: replace(fund_result(), ticker=ticker)),
+            ):
+                app.run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state["selected_etfs"], ["VOO", "VVSM.DE"])
+            self.assertEqual(app.session_state["selected_tickers"], ["NVDA"])
+            self.assertEqual(len(app.dataframe), 2)
+
+    def test_manual_add_accepts_multiple_symbols_and_preserves_existing_funds(self):
+        with patch.dict("os.environ", {"TICKER_ANALYZER_DISABLE_BROWSER_STORAGE": "1"}):
+            app = AppTest.from_file("app.py", default_timeout=10)
+            app.session_state["_site_access_authenticated"] = True
+            app.session_state["page"] = "ETF"
+            app.session_state["selected_tickers"] = []
+            app.run()
+            next(field for field in app.text_input if field.label == "ETF tickers").set_value("vvsm.de, QQQ; VOO")
+            with patch("ticker_analyzer.ui.etf_view.cached_etf_holdings", side_effect=lambda ticker: replace(fund_result(), ticker=ticker)):
+                next(button for button in app.button if button.label == "Add ETFs").click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state["selected_etfs"], ["VOO", "VVSM.DE", "QQQ"])
+            self.assertEqual(len(app.dataframe), 3)
+
     def test_selected_holdings_follow_display_order_and_map_known_us_share_classes(self):
         from ticker_analyzer.ui.etf_view import selected_holding_tickers
         frame = pd.DataFrame({"Ticker": ["AAPL", "BRK.B", "9988.HK", "—", "AAPL"]}, index=[9, 8, 7, 6, 5])
@@ -140,15 +220,15 @@ class EtfViewTest(unittest.TestCase):
             ):
                 app.run()
                 fetch.assert_not_called()
-                app.button[0].click().run()
+                next(button for button in app.button if button.label == "Show holdings").click().run()
                 analyze.assert_not_called()
             self.assertFalse(app.exception)
             self.assertEqual(app.dataframe[0].value["Ticker"].tolist(), ["NVDA", "AAPL"])
             self.assertEqual(next(metric for metric in app.metric if metric.label == "Share of the fund shown").value, "15.11%")
             self.assertEqual(app.session_state["selected_tickers"], ["NVDA"])
-            app.text_input[0].set_value("QQQ")
+            app.multiselect(key="etf_selection").set_value(["VOO"])
             with patch("ticker_analyzer.ui.etf_view.cached_etf_holdings", side_effect=EtfDataError("Unavailable")):
-                app.button[0].click().run()
+                next(button for button in app.button if button.label == "Show holdings").click().run()
             self.assertFalse(app.exception)
             self.assertFalse(app.dataframe)
             self.assertTrue(any(warning.value == "Unavailable" for warning in app.warning))

@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 from ticker_analyzer.ui.state import (
     add_companies_to_analyzer,
+    add_etfs_to_state,
+    add_etfs_to_view,
     add_tickers_to_state,
     initialize_state,
     remove_tickers_from_state,
@@ -10,6 +12,18 @@ from ticker_analyzer.ui.state import (
 
 
 class UiStateTest(unittest.TestCase):
+    def test_etfs_merge_and_open_holdings_without_queuing_company_analysis(self):
+        state = {"page": "Large Cap Ranking", "selected_tickers": ["NVDA"], "selected_etfs": ["VOO"]}
+        self.assertEqual(add_etfs_to_state(state, ["vvsm.de", "VOO", "ACC_STMT", "bad ticker"]), ["VVSM.DE"])
+        with patch("ticker_analyzer.ui.state.st.session_state", state):
+            add_etfs_to_view(["QQQ", "VVSM.DE"])
+        self.assertEqual(state["selected_etfs"], ["VOO", "VVSM.DE", "QQQ"])
+        self.assertEqual(state["etf_selection"], state["selected_etfs"])
+        self.assertEqual(state["selected_tickers"], ["NVDA"])
+        self.assertEqual(state["page"], "ETF")
+        self.assertTrue(state["etf_load_requested"])
+        self.assertNotIn("analysis_pending_changes", state)
+
     def test_existing_company_selection_opens_analyzer_without_duplicating_or_refetching(self):
         state = {"page": "ETF", "selected_tickers": ["NVDA"], "analysis_pending_changes": False}
         with patch("ticker_analyzer.ui.state.st.session_state", state):

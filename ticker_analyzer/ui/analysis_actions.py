@@ -140,7 +140,7 @@ def search_tickers(searchterm: str) -> list[str]:
 
 
 @st.cache_data(ttl=900, max_entries=MAX_SEARCH_CACHE_ENTRIES, show_spinner=False)
-def cached_ticker_search(query: str) -> list[str]:
+def cached_ticker_search(query: str, quote_type: str | None = None) -> list[str]:
     import yfinance as yf
 
     if len(query) < 1:
@@ -164,7 +164,7 @@ def cached_ticker_search(query: str) -> list[str]:
 
     suggestions = []
     for result in results:
-        if result.get("quoteType") not in {"EQUITY", "ETF"}:
+        if result.get("quoteType") not in ({quote_type} if quote_type else {"EQUITY", "ETF"}):
             continue
         symbol = normalize_ticker(result.get("symbol"))
         if not symbol:

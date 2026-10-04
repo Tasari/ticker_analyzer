@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 from ticker_analyzer.ranking.storage import CRYPTO_RANKING_PATH, ETF_RANKING_PATH, load_ranking
+from ticker_analyzer.ui.state import add_etfs_to_view
 
 
 def render_etf_ranking() -> None:
@@ -94,9 +96,13 @@ def _render_market_ranking(
         label: st.column_config.NumberColumn(format="%.2f%%")
         for field, label in columns.items() if field.startswith("return_") or field == "ath_drawdown"
     }
-    st.dataframe(
+    # Reset selected row indexes whenever filtering changes their meaning.
+    selection_id = hashlib.sha256("|".join(frame["ticker"].astype(str)).encode()).hexdigest()[:16]
+    event = st.dataframe(
         frame[available].rename(columns=columns), hide_index=True, width="stretch",
-        key=f"{key}_ranking_table",
+        key=f"{key}_ranking_table_{selection_id}" if key == "etf" else f"{key}_ranking_table",
+        on_select="rerun" if key == "etf" else "ignore",
+        selection_mode="multi-row",
         column_config={
             **percent_columns,
             "Market Score": st.column_config.NumberColumn(format="%.1f"),
@@ -105,6 +111,13 @@ def _render_market_ranking(
             "Volume": st.column_config.NumberColumn(format="$%.0f"),
         },
     )
+    if key == "etf":
+        selected = [filtered[index]["ticker"] for index in event.selection.rows if 0 <= index < len(filtered)]
+        st.button(
+            "Show selected ETFs", type="primary", disabled=not selected,
+            help="Add the selected funds to the ETF view and load their holdings.",
+            on_click=add_etfs_to_view, args=(selected,),
+        )
     errors = payload.get("errors", [])
     if errors:
         with st.expander(f"Provider errors ({len(errors)})", expanded=False):

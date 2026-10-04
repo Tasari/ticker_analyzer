@@ -22,6 +22,7 @@ def initialize_state() -> None:
         "analysis_result_version": None,
         "active_ticker": "AFRM",
         "etf_ticker": "VOO",
+        "selected_etfs": [st.session_state.get("etf_ticker", "VOO")],
         "growth_range": "2Y",
         "fundamentals_range": "2Y",
         "value_range": "2Y",
@@ -68,6 +69,28 @@ def add_companies_to_analyzer(tickers: list[str]) -> None:
     add_tickers_to_state(st.session_state, tickers)
     if any(normalize_ticker(ticker) in st.session_state.get("selected_tickers", []) for ticker in tickers):
         st.session_state["page"] = "Stock Analyzer"
+
+
+def add_etfs_to_state(state: MutableMapping[str, Any], values: list[Any]) -> list[str]:
+    selected = list(state.get("selected_etfs", []))
+    added = []
+    for value in values:
+        ticker = normalize_ticker(value)
+        if ticker and ticker != "ACC_STMT" and ticker not in selected:
+            selected.append(ticker)
+            added.append(ticker)
+    state["selected_etfs"] = selected
+    state["etf_selection"] = selected.copy()
+    if added:
+        state["etf_load_requested"] = True
+    return added
+
+
+def add_etfs_to_view(tickers: list[str]) -> None:
+    add_etfs_to_state(st.session_state, tickers)
+    if st.session_state.get("selected_etfs"):
+        st.session_state["etf_load_requested"] = True
+        st.session_state["page"] = "ETF"
 
 
 def add_tickers_to_state(state: MutableMapping[str, Any], values: list[Any]) -> list[str]:
