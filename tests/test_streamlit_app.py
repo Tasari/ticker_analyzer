@@ -232,7 +232,7 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertEqual(analyze.call_count, 2)
         self.assertFalse(app.session_state["analysis_pending_changes"])
 
-    def test_stock_analyzer_exposes_simulation_tab_for_analyzed_tickers(self):
+    def test_simulation_is_separate_and_reuses_analysis_without_refetching(self):
         result = {
             "ticker": "AAPL",
             "company_name": "Apple",
@@ -266,9 +266,20 @@ class StreamlitAppTest(unittest.TestCase):
             app.run()
 
         self.assertFalse(app.exception)
-        self.assertTrue(any(tab.label == "Simulation" for tab in app.tabs))
-        self.assertTrue(any(header.value == "Portfolio Simulation" for header in app.subheader))
+        self.assertFalse(any(tab.label == "Simulation" for tab in app.tabs))
+        self.assertFalse(any(header.value == "Portfolio Simulation" for header in app.subheader))
         self.assertTrue(any(tab.label == "Fair Value" for tab in app.tabs))
+
+        with patch("ticker_analyzer.ui.analysis_actions.analyze_selected_tickers") as analyze:
+            app.sidebar.radio[0].set_value("Simulation").run()
+        analyze.assert_not_called()
+        self.assertFalse(app.exception)
+        self.assertTrue(any(header.value == "Portfolio Simulation" for header in app.subheader))
+        next(widget for widget in app.number_input if widget.label == "Initial capital").set_value(25_000.).run()
+        app.sidebar.radio[0].set_value("ETF").run()
+        app.sidebar.radio[0].set_value("Simulation").run()
+        self.assertEqual(next(widget for widget in app.number_input if widget.label == "Initial capital").value, 25_000.)
+        next(widget for widget in app.number_input if widget.label == "Initial capital").set_value(10_000.).run()
 
         def market_data(_results, start_date, end_date, _currency, **_kwargs):
             prices = pd.Series([100.0, 110.0], index=pd.to_datetime([start_date, end_date]))
@@ -291,6 +302,7 @@ class StreamlitAppTest(unittest.TestCase):
     def test_account_statement_pseudo_ticker_can_open_simulation_without_stocks(self):
         app = AppTest.from_file("app.py", default_timeout=10)
         app.session_state["_site_access_authenticated"] = True
+        app.session_state["page"] = "Simulation"
         app.session_state["selected_tickers"] = [ACCOUNT_STATEMENT_TICKER]
         app.session_state["analysis_results"] = {}
         app.session_state["analysis_errors"] = {}
@@ -299,44 +311,33 @@ class StreamlitAppTest(unittest.TestCase):
         app.run()
 
         self.assertFalse(app.exception)
-        self.assertTrue(any(tab.label == "Simulation" for tab in app.tabs))
+        self.assertEqual(app.sidebar.radio[0].value, "Simulation")
         self.assertTrue(any("ACC_STMT represents" in item.value for item in app.info))
 
-    def test_watchlist_is_a_separate_top_level_page(self):
+    def test_etf_replaces_watchlist_as_a_separate_top_level_page(self):
         app = AppTest.from_file("app.py", default_timeout=10)
         app.session_state["_site_access_authenticated"] = True
         app.session_state["selected_tickers"] = []
         app.run()
 
-        next(widget for widget in app.sidebar.radio if widget.label == "View").set_value("Watchlist").run()
+        self.assertNotIn("Watchlist", app.sidebar.radio[0].options)
+        next(widget for widget in app.sidebar.radio if widget.label == "View").set_value("ETF").run()
 
         self.assertFalse(app.exception)
-        self.assertTrue(any(header.value == "Watchlist and Alerts" for header in app.subheader))
-        self.assertTrue(any("independent of Stock Analyzer" in caption.value for caption in app.caption))
+        self.assertTrue(any(header.value == "ETF Holdings" for header in app.subheader))
+        self.assertFalse(any(button.label == "Analyze" for button in app.sidebar.button))
 
-    def test_watchlist_refresh_persists_snapshot_and_threshold_alert(self):
+    def test_retired_watchlist_page_returns_to_analyzer(self):
         app = AppTest.from_file("app.py", default_timeout=10)
         app.session_state["_site_access_authenticated"] = True
         app.session_state["page"] = "Watchlist"
         app.session_state["watchlist"] = [{"ticker": "AAPL", "price_above": 150}]
-        result = {
-            "ticker": "AAPL",
-            "company_name": "Apple",
-            "current_price": 160,
-            "overall_score": 82,
-            "rating": "Buy",
-            "missing": [],
-        }
-        with patch(
-            "ticker_analyzer.ui.watchlist_view.analyze_selected_tickers",
-            return_value=({"AAPL": result}, {}),
-        ):
-            app.run()
-            next(button for button in app.button if button.label == "Refresh all").click().run()
+        app.session_state["selected_tickers"] = []
+        app.run()
 
         self.assertFalse(app.exception)
-        self.assertEqual(app.session_state["watchlist_snapshots"]["AAPL"]["price"], 160)
-        self.assertEqual(app.session_state["watchlist_alerts"][0]["kind"], "threshold")
+        self.assertEqual(app.sidebar.radio[0].value, "Stock Analyzer")
+        self.assertNotIn("Watchlist", app.sidebar.radio[0].options)
 
     def test_imported_account_statement_ticker_can_be_selected_from_sidebar(self):
         app = AppTest.from_file("app.py", default_timeout=10)

@@ -110,7 +110,17 @@ class PersistenceTest(unittest.TestCase):
         self.assertEqual(payload["selected_tickers"], ["FUTU"])
         self.assertNotIn("analysis_results", payload)
 
-    def test_watchlist_thresholds_snapshots_and_alerts_round_trip(self):
+    def test_etf_and_simulation_pages_and_etf_symbol_round_trip(self):
+        for page in ("ETF", "Simulation"):
+            with self.subTest(page=page):
+                state = {"page": page, "etf_ticker": "eunl.de"}
+                snapshot = parse_snapshot(json.dumps(build_snapshot(state, now=self.now)), now=self.now)
+                restored = {}
+                apply_snapshot(restored, snapshot)
+                self.assertEqual(restored["page"], page)
+                self.assertEqual(restored["etf_ticker"], "EUNL.DE")
+
+    def test_legacy_watchlist_data_is_retained_but_retired_page_returns_to_analyzer(self):
         state = {
             "watchlist": [{"ticker": "futu", "price_above": 150, "score_below": 70}],
             "watchlist_snapshots": {
@@ -132,7 +142,7 @@ class PersistenceTest(unittest.TestCase):
 
         restored = parse_snapshot(json.dumps(build_snapshot(state, now=self.now)), now=self.now)
 
-        self.assertEqual(restored["page"], "Watchlist")
+        self.assertEqual(restored["page"], "Stock Analyzer")
         self.assertEqual(restored["watchlist"][0]["ticker"], "FUTU")
         self.assertEqual(restored["watchlist_snapshots"]["FUTU"]["rating"], "Buy")
         self.assertEqual(restored["watchlist_alerts"][0]["kind"], "rating")

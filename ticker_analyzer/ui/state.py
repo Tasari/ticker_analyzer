@@ -10,12 +10,18 @@ from ticker_analyzer.ticker_symbols import normalize_ticker
 
 
 def initialize_state() -> None:
+    # Streamlit removes widget-owned keys when navigating away from a view.
+    # Detach simulation preferences so returning to the page retains its setup.
+    for key in list(st.session_state):
+        if key.startswith("simulation_"):
+            st.session_state[key] = st.session_state[key]
     defaults = {
         "selected_tickers": ["AFRM"],
         "analysis_results": {},
         "analysis_errors": {},
         "analysis_result_version": None,
         "active_ticker": "AFRM",
+        "etf_ticker": "VOO",
         "growth_range": "2Y",
         "fundamentals_range": "2Y",
         "value_range": "2Y",

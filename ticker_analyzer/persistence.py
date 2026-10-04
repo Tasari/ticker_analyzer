@@ -14,7 +14,7 @@ from ticker_analyzer.watchlist import normalize_alerts, normalize_snapshots, nor
 PERSISTENCE_VERSION = 1
 PERSISTENCE_TTL = timedelta(days=30)
 STORAGE_KEY = "ticker_analyzer.preferences.v1"
-VALID_PAGES = {"Stock Analyzer", "Watchlist", "Large Cap Ranking", "Account Statement"}
+VALID_PAGES = {"Stock Analyzer", "ETF", "Simulation", "Large Cap Ranking", "Account Statement"}
 VALID_RANGES = {"1Y", "2Y", "3Y"}
 RANGE_STATE_KEYS = {
     "Growth": "growth_range",
@@ -114,6 +114,7 @@ def build_snapshot(state: Mapping[str, Any], *, now: datetime | None = None) -> 
         "saved_at": (now or datetime.now(UTC)).astimezone(UTC).isoformat(),
         "selected_tickers": tickers,
         "active_ticker": active_ticker,
+        "etf_ticker": normalize_ticker(state.get("etf_ticker")) or "VOO",
         "ranges": ranges,
         "watchlist": watchlist,
         "watchlist_snapshots": normalize_snapshots(state.get("watchlist_snapshots"), watchlist),
@@ -146,6 +147,7 @@ def apply_snapshot(state: MutableMapping[str, Any], snapshot: Mapping[str, Any])
     state["selected_tickers"] = tickers
     active_ticker = normalize_ticker(snapshot.get("active_ticker"))
     state["active_ticker"] = active_ticker if active_ticker in tickers else (tickers[0] if tickers else None)
+    state["etf_ticker"] = normalize_ticker(snapshot.get("etf_ticker")) or "VOO"
     ranges = snapshot.get("ranges") if isinstance(snapshot.get("ranges"), Mapping) else {}
     for tab, state_key in RANGE_STATE_KEYS.items():
         state[state_key] = normalize_range(ranges.get(tab))
@@ -177,6 +179,7 @@ def payload_to_state(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "selected_tickers": payload.get("selected_tickers"),
         "active_ticker": payload.get("active_ticker"),
+        "etf_ticker": payload.get("etf_ticker"),
         "page": payload.get("page"),
         "watchlist": payload.get("watchlist"),
         "watchlist_snapshots": payload.get("watchlist_snapshots"),
