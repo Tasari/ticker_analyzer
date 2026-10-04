@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, PropertyMock, patch
 
 import pandas as pd
 from ticker_analyzer.domain import AnalysisRanges
@@ -180,6 +180,83 @@ class DataProviderTest(unittest.TestCase):
         fill_missing_core_data(market_data(), AnalysisRanges.from_input("2Y"))
 
         provider_class.assert_not_called()
+
+    @patch("ticker_analyzer.ranking.provider.PublicYahooRankingProvider")
+    def test_missing_reporting_currency_triggers_recovery_despite_complete_statements(self, provider_class):
+        from tests.test_analysis_engine import FakeProvider, market_data
+        from ticker_analyzer.analysis.engine import StockAnalysisEngine
+        from ticker_analyzer.config import load_config
+
+        primary = market_data()
+        primary.info.pop("financialCurrency")
+        fallback = market_data()
+        fallback.info.pop("financialCurrency")
+        for name in ("annual_income", "annual_balance", "annual_cashflow",
+                     "quarterly_income", "quarterly_balance", "quarterly_cashflow"):
+            getattr(fallback, name).attrs["financial_currency"] = "USD"
+        provider_class.return_value.fetch.return_value = fallback
+
+        fill_missing_core_data(primary, AnalysisRanges.from_input("2Y"))
+        result = StockAnalysisEngine(provider=FakeProvider(primary)).analyze("NVDA", "2Y", load_config())
+
+        provider_class.return_value.fetch.assert_called_once()
+        self.assertEqual(result.valuation_basis["reporting_currency"], "USD")
+        self.assertIsNotNone(result.tabs["Value"]["score"])
+
+    def test_invalid_crumb_info_failure_recovers_value_from_public_statements(self):
+        import requests
+        from tests.test_analysis_engine import market_data
+        from ticker_analyzer.analysis.engine import StockAnalysisEngine
+        from ticker_analyzer.config import load_config
+        from ticker_analyzer.ranking.provider import PublicYahooRankingProvider
+
+        healthy = market_data()
+        ticker = Mock()
+        ticker_history = healthy.value_history.copy()
+        ticker_history.index = ticker_history.index.tz_localize("America/New_York")
+        ticker.history.return_value = ticker_history
+        public_history = ticker_history.copy()
+        public_history.index = public_history.index.tz_convert("UTC").tz_localize(None)
+        fields = {
+            "financials": "annual_income", "balance_sheet": "annual_balance", "cashflow": "annual_cashflow",
+            "quarterly_financials": "quarterly_income", "quarterly_balance_sheet": "quarterly_balance",
+            "quarterly_cashflow": "quarterly_cashflow",
+        }
+        statements = {}
+        for prop, field in fields.items():
+            setattr(ticker, prop, getattr(healthy, field))
+            frame = getattr(healthy, field).copy()
+            frame.attrs["financial_currency"] = "USD"
+            statements[field.removeprefix("annual_")] = frame
+        ticker.analyst_price_targets = {}
+        ticker.revenue_estimate = ticker.earnings_estimate = ticker.eps_trend = ticker.growth_estimates = pd.DataFrame()
+        # yfinance can either raise the 401 or hide it and return partial info.
+        for info_response in (
+            {"return_value": {"symbol": "NVDA"}},
+            {"side_effect": requests.HTTPError("HTTP Error 401: Unauthorized, Invalid Crumb")},
+        ):
+            with (
+                self.subTest(info_response=info_response),
+                patch.object(type(ticker), "info", new_callable=PropertyMock, create=True, **info_response),
+                patch("ticker_analyzer.providers.market_data.yf.Ticker", return_value=ticker),
+                patch.object(PublicYahooRankingProvider, "_profile", return_value={"industry": "Semiconductors"}),
+                patch.object(PublicYahooRankingProvider, "_statements", return_value=statements),
+                patch.object(PublicYahooRankingProvider, "_history", return_value=(
+                    public_history, public_history, {"currency": "USD", "regularMarketPrice": 150.}
+                )),
+            ):
+                result = StockAnalysisEngine(provider=YFinanceProvider()).analyze("NVDA", "2Y", load_config())
+
+            self.assertEqual(result.valuation_basis["reporting_currency"], "USD")
+            self.assertIsNotNone(result.tabs["Value"]["score"])
+            self.assertFalse(any(
+                item.get("source") == "public Yahoo core-data fallback" and item.get("kind") == "provider_error"
+                for item in result.diagnostics
+            ))
+            self.assertTrue(all(
+                result.raw[name]["value"] is not None
+                for name in ("pe_current", "price_to_sales_current", "ev_ebitda_current", "fcf_yield_ttm")
+            ))
 
     def test_core_statement_rows_without_numeric_values_are_missing(self):
         for value in (None, float("nan"), "unavailable"):

@@ -53,8 +53,22 @@ def merge_market_data(primary: MarketData, fallback: MarketData) -> None:
         other = getattr(fallback, name)
         if isinstance(current, pd.DataFrame):
             if isinstance(other, pd.DataFrame) and not other.empty:
+                if name in {"growth_history", "value_history"}:
+                    setattr(primary, name, merge_price_history(current, other))
+                    continue
                 left_currency = current.attrs.get("financial_currency")
                 right_currency = other.attrs.get("financial_currency")
+                if not current.empty and not left_currency and right_currency and right_currency != "MIXED":
+                    # A failed quote/info endpoint can leave usable-looking
+                    # statements without a reporting currency. Replace the
+                    # whole frame with verified-unit fallback observations;
+                    # never attach its currency to unknown primary amounts.
+                    setattr(primary, name, other.copy())
+                    primary.diagnostics.append({
+                        "source": name, "kind": "fallback",
+                        "message": f"Statement with unknown currency replaced by fallback in {right_currency}.",
+                    })
+                    continue
                 if not current.empty and left_currency != right_currency and (left_currency or right_currency):
                     primary.diagnostics.append({
                         "source": name, "kind": "currency_mismatch",
@@ -71,6 +85,26 @@ def merge_market_data(primary: MarketData, fallback: MarketData) -> None:
             setattr(primary, name, {**other, **populated})
     primary.provenance = {**fallback.provenance, **primary.provenance}
     primary.official_ids = {**fallback.official_ids, **primary.official_ids}
+
+
+def merge_price_history(primary: pd.DataFrame, fallback: pd.DataFrame) -> pd.DataFrame:
+    """Align price observations to dates in the primary history's timezone."""
+    if primary.empty:
+        return fallback.copy()
+    if isinstance(primary.index, pd.DatetimeIndex) and isinstance(fallback.index, pd.DatetimeIndex):
+        if primary.index.tz != fallback.index.tz:
+            fallback = fallback.copy()
+            fallback.index = pd.to_datetime(fallback.index, utc=True).tz_convert(primary.index.tz)
+        # Chart timestamps mark the session open; yfinance daily bars mark
+        # midnight. Equal trading dates must not become duplicate observations.
+        primary = primary.copy()
+        fallback = fallback.copy()
+        primary.index = primary.index.normalize()
+        fallback.index = fallback.index.normalize()
+    merged = primary.combine_first(fallback).sort_index()
+    merged.attrs.update(fallback.attrs)
+    merged.attrs.update(primary.attrs)
+    return merged
 
 
 def merge_observations(primary: pd.DataFrame, fallback: pd.DataFrame) -> pd.DataFrame:

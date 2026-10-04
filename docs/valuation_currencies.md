@@ -143,6 +143,13 @@ complete three-year valuation history; those observations are deliberately exclu
 The Analyzer attempts public Yahoo recovery when any core annual statement or
 all balance-sheet share observations are missing, even if two other statements
 are usable. Rows with no numeric observations do not count as available data.
+Recovery also runs when a partial or failed yfinance info response leaves
+statements without a reporting currency (including `401 Invalid Crumb`).
+An unlabelled statement is replaced as a whole by a fallback statement with a
+known currency; unknown amounts are never relabelled or mixed with known units.
+Price histories are aligned by trading date in the primary timezone before
+merging, so UTC-naive chart timestamps and exchange-timezone yfinance bars cannot
+abort recovery or introduce duplicate daily observations.
 The fallback keeps successful statements and prices independently when the other
 endpoint fails. An unrated Value tab explains the coverage or required-component
 failure and shows valuation-basis/download diagnostics with an Analyze retry

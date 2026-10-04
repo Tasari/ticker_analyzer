@@ -27,6 +27,21 @@ def example(ticker="TSM", quote="USD", reporting="TWD"):
 
 
 class ValuationBasisTests(unittest.TestCase):
+    def test_unknown_currency_statement_is_replaced_whole_without_relabelling_original_values(self):
+        primary = example(quote="USD", reporting="")
+        fallback = example(quote="USD", reporting="EUR")
+        original = primary.annual_income.copy()
+        primary.annual_income.loc["Unverified Extra Row"] = 999
+        fallback.annual_income *= 2
+        fallback.annual_income.attrs["financial_currency"] = "EUR"
+
+        merge_market_data(primary, fallback)
+
+        self.assertNotIn("Unverified Extra Row", primary.annual_income.index)
+        pd.testing.assert_frame_equal(primary.annual_income, fallback.annual_income)
+        self.assertEqual(primary.annual_income.iloc[0, 0], original.iloc[0, 0] * 2)
+        self.assertTrue(any(item["kind"] == "fallback" for item in primary.diagnostics))
+
     def test_merging_providers_does_not_mix_statement_currencies(self):
         primary = example()
         fallback = example()

@@ -154,10 +154,19 @@ def fill_missing_core_data(data: MarketData, ranges: AnalysisRanges) -> None:
         statement_has_any_row(frame, share_rows)
         for frame in (data.annual_balance, data.quarterly_balance)
     )
+    statement_frames = (
+        *annual_statements, data.quarterly_income, data.quarterly_balance, data.quarterly_cashflow,
+    )
+    missing_statement_currency = not data.info.get("financialCurrency") and any(
+        not frame.empty and not frame.attrs.get("financial_currency") for frame in statement_frames
+    )
     has_price = clean_info_price(data.info) is not None
     missing_profile = not (data.info.get("industry") or data.info.get("industryDisp") or data.info.get("sector"))
     sparse_info = sum(data.info.get(field) is not None for field in CORE_INFO_FIELDS) < 2
-    needs_fallback = missing_prices or not has_price or missing_financials or missing_shares or missing_profile or sparse_info
+    needs_fallback = (
+        missing_prices or not has_price or missing_financials or missing_shares
+        or missing_statement_currency or missing_profile or sparse_info
+    )
     if not needs_fallback:
         return
 
@@ -182,7 +191,7 @@ def fill_missing_core_data(data: MarketData, ranges: AnalysisRanges) -> None:
         merge_market_data(data, fallback)
         if missing_prices and "prices" in fallback.provenance:
             data.provenance["prices"] = fallback.provenance["prices"]
-        if missing_financials and "financials" in fallback.provenance:
+        if (missing_financials or missing_statement_currency or missing_shares) and "financials" in fallback.provenance:
             data.provenance["financials"] = fallback.provenance["financials"]
         data.diagnostics.extend(fallback.diagnostics)
     except Exception as exc:

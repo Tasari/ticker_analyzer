@@ -16,6 +16,7 @@ from ticker_analyzer.providers import (
     latest_sec_filing,
     sec_statement,
 )
+from ticker_analyzer.providers.merge import merge_price_history
 
 
 def empty_market_data(ticker: str, **kwargs):
@@ -82,6 +83,34 @@ class ApiSession:
 
 
 class ProvidersTest(unittest.TestCase):
+    def test_price_history_merges_utc_naive_with_exchange_timezone_across_dst(self):
+        index = pd.DatetimeIndex(["2026-03-06", "2026-03-09"], tz="America/New_York")
+        primary = pd.DataFrame({"Close": [100.0, float("nan")]}, index=index)
+        fallback = pd.DataFrame(
+            {"Close": [99.0, 101.0]},
+            index=(index + pd.Timedelta(hours=9, minutes=30)).tz_convert("UTC").tz_localize(None),
+        )
+        primary.attrs["source"] = "primary"
+        fallback.attrs["source"] = "fallback"
+        original = fallback.copy()
+
+        result = merge_price_history(primary, fallback)
+
+        pd.testing.assert_index_equal(result.index, index)
+        self.assertEqual(result["Close"].tolist(), [100.0, 101.0])
+        self.assertEqual(result.attrs["source"], "primary")
+        pd.testing.assert_frame_equal(fallback, original)
+
+    def test_price_history_merges_aware_fallback_into_naive_primary(self):
+        index = pd.DatetimeIndex(["2026-03-09 04:00"])
+        primary = pd.DataFrame({"Close": [float("nan")]}, index=index)
+        fallback = pd.DataFrame({"Close": [101.0]}, index=index.tz_localize("UTC").tz_convert("America/New_York"))
+
+        result = merge_price_history(primary, fallback)
+
+        pd.testing.assert_index_equal(result.index, index.normalize())
+        self.assertEqual(result["Close"].tolist(), [101.0])
+
     def test_json_client_uses_etag_cache_and_distinguishes_params(self):
         session = ApiSession(
             [
