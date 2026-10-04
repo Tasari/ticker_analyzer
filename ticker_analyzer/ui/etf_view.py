@@ -57,7 +57,8 @@ def render_etf() -> None:
         displayed, hide_index=True, width="stretch",
         column_config={"Weight (%)": st.column_config.NumberColumn("Weight (%)", format="%.2f%%")},
     )
-    figure = px.bar(displayed, x="Weight (%)", y="Company", orientation="h", text="Weight (%)")
+    chart_data = displayed.assign(Position=displayed["Company"] + " (" + displayed["Ticker"] + ")")
+    figure = px.bar(chart_data, x="Weight (%)", y="Position", orientation="h", text="Weight (%)")
     figure.update_traces(texttemplate="%{x:.2f}%", textposition="outside")
     figure.update_layout(yaxis={"autorange": "reversed"}, height=max(300, 32 * len(displayed)), margin={"t": 10})
     st.plotly_chart(figure, width="stretch")
