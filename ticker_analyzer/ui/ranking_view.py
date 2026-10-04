@@ -9,11 +9,14 @@ from ticker_analyzer.config import load_config
 from ticker_analyzer.ranking import (
     DEFAULT_RANKING_PATH,
     RankingSnapshotError,
-    import_ranking,
     load_ranking,
-    save_ranking,
 )
-from ticker_analyzer.ranking.bundle import available_ranking_snapshots, build_rankings_archive
+from ticker_analyzer.ranking.bundle import (
+    RANKING_LABELS,
+    available_ranking_snapshots,
+    build_rankings_archive,
+    import_rankings_archive,
+)
 from ticker_analyzer.ranking.filters import RankingFilters, filter_ranking_companies
 from ticker_analyzer.ranking.quality import build_ranking_quality_report, ranking_compatibility
 from ticker_analyzer.ui.config_view import mutation_allowed
@@ -37,7 +40,7 @@ def _render_all_ranking_controls() -> None:
     refresh_allowed = mutation_allowed("ALLOW_RANKING_REFRESH")
     restart_confirmed = bool(st.session_state.pop("ranking_restart_confirmed", False))
     refresh_running = ranking_refresh_is_running()
-    update_col, download_col, note_col = st.columns([1, 1, 2])
+    update_col, download_col, import_col, note_col = st.columns([1, 1, 1, 2])
     update_clicked = update_col.button(
         "Update all rankings",
         type="primary",
@@ -53,6 +56,11 @@ def _render_all_ranking_controls() -> None:
         disabled=not snapshot_count,
         help=f"Download {snapshot_count}/3 available ranking snapshots as one ZIP archive.",
     )
+    with import_col:
+        _render_archive_import(refresh_running=refresh_running)
+    message = st.session_state.pop("ranking_archive_import_message", None)
+    if message:
+        st.success(message)
     note_col.caption("Updates replace each snapshot only after that ranking completes successfully.")
     if not refresh_allowed:
         note_col.caption("Ranking refresh is read-only in production unless explicitly enabled by an administrator.")
@@ -177,7 +185,6 @@ def _load_stock_ranking_for_display() -> tuple[dict, bool]:
 def _render_stock_ranking() -> None:
     st.subheader("Large Cap Ranking — Scoring v5.2")
     payload, is_checkpoint = _load_stock_ranking_for_display()
-    _render_snapshot_transfer(payload)
     metadata = payload.get("metadata", {})
     companies = payload.get("companies", [])
     errors = payload.get("errors", [])
@@ -384,40 +391,36 @@ def _filter_options(companies: list[dict], field: str) -> list[str]:
     return sorted({str(row[field]) for row in companies if row.get(field)})
 
 
-def _render_snapshot_transfer(payload: dict) -> None:
-    with st.expander("Import stock ranking snapshot", expanded=False):
-        st.caption(
-            "Import a previously downloaded stock ranking JSON. The file is validated before replacement."
-        )
-        import_allowed = mutation_allowed("ALLOW_RANKING_IMPORT")
+def _render_archive_import(*, refresh_running: bool) -> None:
+    import_allowed = mutation_allowed("ALLOW_RANKING_IMPORT")
+    with st.popover("Load rankings", disabled=not import_allowed or refresh_running):
+        st.caption("Upload a ZIP from Download all rankings. Stocks, ETFs and Crypto in the archive replace their saved rankings; absent tabs keep their current data.")
         uploaded = st.file_uploader(
-            "Import ranking JSON",
-            type=["json"],
+            "Ranking ZIP",
+            type=["zip"],
             accept_multiple_files=False,
-            disabled=not import_allowed,
-            key="ranking_snapshot_import",
+            disabled=not import_allowed or refresh_running,
+            max_upload_size=50,
+            key="ranking_archive_import",
         )
-        confirm = st.checkbox(
-            "Replace the current ranking with this validated snapshot",
-            disabled=uploaded is None or not import_allowed,
-            key="ranking_snapshot_import_confirm",
-        )
-        if st.button(
-            "Import snapshot",
-            disabled=uploaded is None or not confirm or not import_allowed,
+        import_clicked = st.button(
+            "Import ZIP",
+            disabled=uploaded is None or not import_allowed or refresh_running,
             width="stretch",
-        ):
+        )
+        if import_clicked and uploaded is not None and import_allowed and not refresh_running:
             try:
-                imported = import_ranking(uploaded.getvalue())
-                imported["metadata"]["quality_report"] = build_ranking_quality_report(imported, payload)
-                save_ranking(imported)
+                imported = import_rankings_archive(uploaded.getvalue())
             except (RankingSnapshotError, OSError, ValueError) as exc:
                 st.error(f"Ranking import failed: {exc}")
             else:
-                st.success(f"Imported {len(imported.get('companies', [])):,} ranking rows.")
+                summary = "; ".join(f"{RANKING_LABELS[name]} — {len(snapshot['companies']):,} rows" for name, snapshot in imported.items())
+                st.session_state["ranking_archive_import_message"] = f"Imported rankings: {summary}."
                 st.rerun()
-        if not import_allowed:
-            st.caption("Set ALLOW_RANKING_IMPORT=true to enable imports in production mode.")
+    if not import_allowed:
+        st.caption("Set ALLOW_RANKING_IMPORT=true to enable imports in production mode.")
+    elif refresh_running:
+        st.caption("Load rankings after the current update finishes.")
 
 
 def _render_quality_report(payload: dict) -> None:

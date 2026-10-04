@@ -11,9 +11,9 @@ from ticker_analyzer.ticker_symbols import normalize_ticker
 
 def initialize_state() -> None:
     # Streamlit removes widget-owned keys when navigating away from a view.
-    # Detach simulation preferences so returning to the page retains its setup.
+    # Detach portfolio and ETF allocation preferences so returning retains the setup.
     for key in list(st.session_state):
-        if key.startswith("simulation_"):
+        if key.startswith(("simulation_", "etf_joint_allocation_")) or key in {"etf_joint_equal_weights", "etf_joint_shared_only"}:
             st.session_state[key] = st.session_state[key]
     defaults = {
         "selected_tickers": ["AFRM"],

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import pandas as pd
 import plotly.express as px
 import streamlit as st
 from streamlit_searchbox import st_searchbox
 
 from ticker_analyzer.providers.etf import EtfDataError, EtfHoldings, fetch_etf_holdings
 from ticker_analyzer.ticker_symbols import normalize_ticker
-from ticker_analyzer.ui.etf_actions import search_etfs
+from ticker_analyzer.ui.etf_actions import search_etfs, selected_holding_tickers
+from ticker_analyzer.ui.etf_joint_view import render_joint
 from ticker_analyzer.ui.state import add_companies_to_analyzer, add_etfs_to_state
 
 
@@ -70,14 +70,18 @@ def render_etf() -> None:
     if not tickers:
         st.info("Search for ETFs or select them in Large Cap Ranking → ETFs.")
         return
-    count = st.selectbox("Largest positions per ETF", [5, 10, 25], index=1, key="etf_position_count")
-    for ticker in tickers:
-        if ticker in errors:
-            st.warning(errors[ticker])
-        elif isinstance(results.get(ticker), EtfHoldings):
-            _render_holdings(results[ticker], count)
-        else:
-            st.info(f"Select Show holdings to load {ticker}.")
+    holdings_tab, joint_tab = st.tabs(["Holdings", "Joint"])
+    with holdings_tab:
+        count = st.selectbox("Largest positions per ETF", [5, 10, 25], index=1, key="etf_position_count")
+        for ticker in tickers:
+            if ticker in errors:
+                st.warning(errors[ticker])
+            elif isinstance(results.get(ticker), EtfHoldings):
+                _render_holdings(results[ticker], count)
+            else:
+                st.info(f"Select Show holdings to load {ticker}.")
+    with joint_tab:
+        render_joint(tickers, results)
 
 
 def _update_etf_selection() -> None:
@@ -116,20 +120,3 @@ def _render_holdings(result: EtfHoldings, count: int) -> None:
     figure.update_layout(yaxis={"autorange": "reversed"}, height=max(300, 32 * len(displayed)), margin={"t": 10})
     st.plotly_chart(figure, width="stretch", key=f"etf_chart_{result.ticker}")
     st.caption("Weights refer to the entire fund. Other holdings and assets account for the remaining allocation. Holdings can change after the reported date.")
-
-
-def selected_holding_tickers(displayed: pd.DataFrame, rows: list[int], source: str) -> list[str]:
-    tickers = []
-    for row in rows:
-        if not isinstance(row, int) or not 0 <= row < len(displayed):
-            continue
-        ticker = normalize_ticker(displayed.iloc[row]["Ticker"])
-        if not ticker or ticker == "ACC_STMT" or not any(char.isalnum() for char in ticker):
-            continue
-        # The public US table uses dots for Berkshire share classes; Yahoo
-        # uses hyphens. Preserve exchange suffixes on international symbols.
-        if source == "Stock Analysis / Finnhub" and ticker in {"BRK.A", "BRK.B"}:
-            ticker = ticker.replace(".", "-")
-        if ticker not in tickers:
-            tickers.append(ticker)
-    return tickers

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pandas as pd
+
+from ticker_analyzer.providers.etf import normalize_holding_ticker
 from ticker_analyzer.ranking.storage import ETF_RANKING_PATH, load_ranking
 from ticker_analyzer.ticker_symbols import looks_like_ticker, normalize_ticker
 from ticker_analyzer.ui.analysis_actions import cached_ticker_search
@@ -31,3 +34,14 @@ def search_etfs(searchterm: str) -> list[str]:
             seen.add(ticker)
             result.append(suggestion)
     return result[:20]
+
+
+def selected_holding_tickers(displayed: pd.DataFrame, rows: list[int], source: str) -> list[str]:
+    tickers = []
+    for row in rows:
+        if not isinstance(row, int) or not 0 <= row < len(displayed):
+            continue
+        ticker = normalize_holding_ticker(displayed.iloc[row]["Ticker"], source)
+        if ticker and ticker not in tickers:
+            tickers.append(ticker)
+    return tickers

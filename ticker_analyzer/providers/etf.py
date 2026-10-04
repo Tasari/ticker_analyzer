@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from html.parser import HTMLParser
+from typing import Any
 
 import pandas as pd
 import requests
@@ -34,6 +35,15 @@ class EtfHoldings:
     fetched_at: datetime
     as_of: str | None = None
     warnings: tuple[str, ...] = ()
+
+
+def normalize_holding_ticker(value: Any, source: str) -> str | None:
+    ticker = normalize_ticker(value)
+    if not ticker or ticker == "ACC_STMT" or not any(char.isalnum() for char in ticker):
+        return None
+    if source == "Stock Analysis / Finnhub" and ticker in {"BRK.A", "BRK.B"}:
+        return ticker.replace(".", "-")
+    return ticker
 
 
 def normalize_holdings(frame: pd.DataFrame, *, fractions: bool) -> pd.DataFrame:

@@ -138,17 +138,17 @@ class EtfViewTest(unittest.TestCase):
                 app.run()
                 next(button for button in app.button if button.label == "Show holdings").click().run()
             self.assertFalse(app.exception)
-            self.assertEqual(len(app.dataframe), 2)
+            self.assertEqual(len(app.tabs[0].dataframe), 2)
             self.assertTrue(any("QQQ" in warning.value for warning in app.warning))
             self.assertEqual(app.session_state["selected_tickers"], ["NVDA"])
             self.assertEqual(set(app.session_state["etf_holdings_by_ticker"]), {"VOO", "VVSM.DE"})
             app.multiselect(key="etf_selection").set_value(["VVSM.DE"]).run()
             self.assertFalse(app.exception)
-            self.assertEqual(len(app.dataframe), 1)
+            self.assertEqual(len(app.tabs[0].dataframe), 1)
             app.sidebar.radio[0].set_value("Simulation").run()
             app.sidebar.radio[0].set_value("ETF").run()
             self.assertEqual(app.multiselect(key="etf_selection").value, ["VVSM.DE"])
-            self.assertEqual(len(app.dataframe), 1)
+            self.assertEqual(len(app.tabs[0].dataframe), 1)
             app.multiselect(key="etf_selection").set_value([]).run()
             self.assertFalse(app.dataframe)
             self.assertFalse(app.exception)
@@ -167,7 +167,7 @@ class EtfViewTest(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertEqual(app.session_state["selected_etfs"], ["VOO", "VVSM.DE"])
             self.assertEqual(app.session_state["selected_tickers"], ["NVDA"])
-            self.assertEqual(len(app.dataframe), 2)
+            self.assertEqual(len(app.tabs[0].dataframe), 2)
 
     def test_manual_add_accepts_multiple_symbols_and_preserves_existing_funds(self):
         with patch.dict("os.environ", {"TICKER_ANALYZER_DISABLE_BROWSER_STORAGE": "1"}):
@@ -181,7 +181,7 @@ class EtfViewTest(unittest.TestCase):
                 next(button for button in app.button if button.label == "Add ETFs").click().run()
             self.assertFalse(app.exception)
             self.assertEqual(app.session_state["selected_etfs"], ["VOO", "VVSM.DE", "QQQ"])
-            self.assertEqual(len(app.dataframe), 3)
+            self.assertEqual(len(app.tabs[0].dataframe), 3)
 
     def test_selected_holdings_follow_display_order_and_map_known_us_share_classes(self):
         from ticker_analyzer.ui.etf_view import selected_holding_tickers

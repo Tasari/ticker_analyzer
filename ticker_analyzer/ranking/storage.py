@@ -54,6 +54,13 @@ def export_ranking(payload: dict[str, Any]) -> bytes:
 
 
 def import_ranking(payload: bytes, path: Path = DEFAULT_RANKING_PATH) -> dict[str, Any]:
+    parsed = parse_ranking_snapshot(payload)
+    save_ranking(parsed, path)
+    return parsed
+
+
+def parse_ranking_snapshot(payload: bytes) -> dict[str, Any]:
+    """Validate an import without modifying the active snapshot."""
     if not payload:
         raise RankingSnapshotError("The uploaded ranking snapshot is empty.")
     if len(payload) > MAX_RANKING_IMPORT_BYTES:
@@ -63,7 +70,6 @@ def import_ranking(payload: bytes, path: Path = DEFAULT_RANKING_PATH) -> dict[st
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
         raise RankingSnapshotError("The uploaded file is not valid UTF-8 JSON.") from exc
     validate_ranking_payload(parsed)
-    save_ranking(parsed, path)
     return parsed
 
 
