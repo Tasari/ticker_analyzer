@@ -58,7 +58,9 @@ def main() -> None:
             render_simulation(st.session_state.analysis_results)
             return
         if page == "Large Cap Ranking":
-            views.render_large_cap_ranking()
+            from ticker_analyzer.ui.ranking_view import render_large_cap_ranking
+
+            render_large_cap_ranking()
             return
         if page == "Account Statement":
             views.render_account_statement()

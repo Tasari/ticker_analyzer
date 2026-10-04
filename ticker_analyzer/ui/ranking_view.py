@@ -39,6 +39,7 @@ def render_large_cap_ranking() -> None:
 def _render_all_ranking_controls() -> None:
     refresh_allowed = mutation_allowed("ALLOW_RANKING_REFRESH")
     restart_confirmed = bool(st.session_state.pop("ranking_restart_confirmed", False))
+    restart_scope = st.session_state.pop("ranking_restart_scope", "all")
     refresh_running = ranking_refresh_is_running()
     update_col, download_col, import_col, note_col = st.columns([1, 1, 1, 2])
     update_clicked = update_col.button(
@@ -47,6 +48,18 @@ def _render_all_ranking_controls() -> None:
         disabled=not refresh_allowed,
         help="Refresh Stocks, ETFs, and Crypto in one operation.",
     )
+    scope = "all" if update_clicked else None
+    with update_col:
+        for key, label in (("stocks", "Stocks"), ("etfs", "ETFs"), ("crypto", "Crypto")):
+            with st.expander(label, expanded=False):
+                if st.button(
+                    f"Update {label} only",
+                    key=f"ranking_update_{key}",
+                    disabled=not refresh_allowed,
+                    width="stretch",
+                    help=f"Refresh only {label}; the other ranking snapshots keep their current data.",
+                ):
+                    scope = key
     snapshot_count = available_ranking_snapshots()
     download_col.download_button(
         "Download all rankings",
@@ -66,13 +79,22 @@ def _render_all_ranking_controls() -> None:
         note_col.caption("Ranking refresh is read-only in production unless explicitly enabled by an administrator.")
     if refresh_running:
         _render_running_stock_progress()
-    if update_clicked and refresh_running:
-        _confirm_ranking_restart()
+    outcome_panel = st.empty()
+    with outcome_panel.container():
+        _render_refresh_outcomes(st.session_state.get("ranking_update_outcomes", []))
+    if scope in {"all", "stocks"} and refresh_running:
+        _confirm_ranking_restart(scope)
         return
-    if not update_clicked and not restart_confirmed:
+    if restart_confirmed:
+        scope = restart_scope
+    if scope is None or not refresh_allowed:
         return
 
-    progress_bar = st.progress(0.0, text="Preparing the stock universe...")
+    # Persist small status records so completed stages stay visible after reruns.
+    outcomes: list[tuple[str, bool, str]] = []
+    st.session_state["ranking_update_outcomes"] = outcomes
+    outcome_panel.empty()
+    progress_bar = st.progress(0.0, text="Preparing the ranking update...")
 
     def update_progress(progress: dict) -> None:
         requested = int(progress.get("requested", 0) or 0)
@@ -80,58 +102,76 @@ def _render_all_ranking_controls() -> None:
             progress.get(
                 "processed",
                 int(progress.get("analyzed", 0) or 0) + int(progress.get("failed", 0) or 0),
-            ) or 0
+            )
+            or 0
         )
         stock_fraction = min(1.0, processed / requested) if requested else 0.0
         progress_bar.progress(
-            stock_fraction * 0.85,
+            0.15 + stock_fraction * 0.85 if scope == "all" else stock_fraction,
             text=(f"Stocks: {processed:,}/{requested:,} processed" if requested else "Preparing the stock universe..."),
         )
 
-    outcomes: list[tuple[str, bool, str]] = []
-    with st.spinner("Updating all rankings; keep this page open..."):
-        success, message, metadata = refresh_large_cap_ranking(
-            progress_callback=update_progress,
-            restart_running=restart_confirmed,
-        )
-        outcomes.append(("Stocks", success, message))
-        if metadata.get("cancelled"):
-            progress_bar.progress(0.0, text="Previous ranking update stopped.")
-            st.info(message)
-            return
-        if metadata.get("restart_failed"):
-            progress_bar.progress(0.0, text="Could not restart the ranking update.")
-            st.error(message)
-            return
+    with st.spinner("Updating selected rankings; keep this page open..."):
         from ticker_analyzer.ranking.assets import refresh_crypto_ranking, refresh_etf_ranking
 
+        # Publish the short asset refreshes before the long stock build. They
+        # must not depend on that build finishing or the page remaining open.
         for label, fraction, refresh in (
-            ("ETFs", 0.92, refresh_etf_ranking),
-            ("Crypto", 1.0, refresh_crypto_ranking),
+            ("ETFs", 0.07, refresh_etf_ranking),
+            ("Crypto", 0.15, refresh_crypto_ranking),
         ):
-            progress_bar.progress(fraction, text=f"Updating {label}...")
+            if scope != "all" and scope != label.casefold():
+                continue
+            progress_bar.progress(fraction if scope == "all" else 0.0, text=f"Updating {label}...")
             try:
                 payload = refresh()
             except Exception as exc:
                 outcomes.append((label, False, f"{type(exc).__name__}: {exc}"))
             else:
-                outcomes.append((label, True, f"{len(payload.get('companies', [])):,} instruments scored"))
+                count = len(payload.get("companies", []))
+                errors = len(payload.get("errors", []))
+                message = f"{count:,} instruments saved"
+                if errors:
+                    message += f"; {errors:,} provider errors (partial coverage)"
+                outcomes.append((label, True, message))
+            st.session_state["ranking_update_outcomes"] = outcomes.copy()
+            with outcome_panel.container():
+                _render_refresh_outcomes(outcomes)
+
+        if scope in {"all", "stocks"}:
+            progress_bar.progress(0.15 if scope == "all" else 0.0, text="Preparing the stock universe...")
+            try:
+                success, message, _metadata = refresh_large_cap_ranking(
+                    progress_callback=update_progress,
+                    restart_running=restart_confirmed,
+                )
+            except Exception as exc:
+                outcomes.append(("Stocks", False, f"{type(exc).__name__}: {exc}"))
+            else:
+                outcomes.append(("Stocks", success, message))
+            st.session_state["ranking_update_outcomes"] = outcomes.copy()
     progress_bar.progress(1.0, text="Ranking update finished.")
+    with outcome_panel.container():
+        _render_refresh_outcomes(outcomes)
+    if all(success for _, success, _ in outcomes):
+        st.rerun()
+
+
+def _render_refresh_outcomes(outcomes: list[tuple[str, bool, str]]) -> None:
     failures = [(label, message) for label, success, message in outcomes if not success]
     successes = [(label, message) for label, success, message in outcomes if success]
     if successes:
         st.success("Updated: " + "; ".join(f"{label} — {message}" for label, message in successes))
     if failures:
         st.error("Failed: " + "; ".join(f"{label} — {message}" for label, message in failures))
-    if not failures:
-        st.rerun()
 
 
 @st.dialog("Restart the ranking update?")
-def _confirm_ranking_restart() -> None:
+def _confirm_ranking_restart(scope: str = "all") -> None:
+    target = "all rankings" if scope == "all" else "Stocks"
     st.warning(
         "A ranking update is already running. Restarting will stop that process, "
-        "discard its unfinished checkpoint, and begin all rankings again from 0%."
+        f"discard its unfinished checkpoint, and begin {target} again from 0%."
     )
     confirm_col, keep_col = st.columns(2)
     confirm_col.button(
@@ -139,12 +179,14 @@ def _confirm_ranking_restart() -> None:
         type="primary",
         width="stretch",
         on_click=_mark_ranking_restart_confirmed,
+        args=(scope,),
     )
     keep_col.button("No, keep running", width="stretch")
 
 
-def _mark_ranking_restart_confirmed() -> None:
+def _mark_ranking_restart_confirmed(scope: str = "all") -> None:
     st.session_state["ranking_restart_confirmed"] = True
+    st.session_state["ranking_restart_scope"] = scope
 
 
 @st.fragment(run_every=1)
@@ -159,7 +201,8 @@ def _render_running_stock_progress() -> None:
         metadata.get(
             "processed",
             int(metadata.get("analyzed", 0) or 0) + int(metadata.get("failed", 0) or 0),
-        ) or 0
+        )
+        or 0
     )
     fraction = min(1.0, processed / requested) if requested else 0.0
     text = (
@@ -291,15 +334,11 @@ def _render_stock_ranking() -> None:
         )
 
         tab_score_cols = st.columns(3)
-        minimum_growth = tab_score_cols[0].slider(
-            "Minimum Growth Score", 0, 100, 0, key="ranking_filter_growth"
-        )
+        minimum_growth = tab_score_cols[0].slider("Minimum Growth Score", 0, 100, 0, key="ranking_filter_growth")
         minimum_fundamentals = tab_score_cols[1].slider(
             "Minimum Fundamentals Score", 0, 100, 0, key="ranking_filter_fundamentals"
         )
-        minimum_value = tab_score_cols[2].slider(
-            "Minimum Value Score", 0, 100, 0, key="ranking_filter_value"
-        )
+        minimum_value = tab_score_cols[2].slider("Minimum Value Score", 0, 100, 0, key="ranking_filter_value")
 
     matching = filter_ranking_companies(
         companies,
@@ -322,13 +361,12 @@ def _render_stock_ranking() -> None:
         ),
     )
     filtered = matching[:maximum_rows]
-    st.caption(
-        f"Showing {len(filtered):,} of {len(matching):,} matching companies "
-        f"({len(companies):,} in snapshot)."
-    )
+    st.caption(f"Showing {len(filtered):,} of {len(matching):,} matching companies ({len(companies):,} in snapshot).")
     table = pd.DataFrame(filtered)
     if any(row.get("market_cap_currency") != "USD" for row in companies):
-        st.caption("This snapshot contains unlabelled capitalization amounts. Update it to enable reliable USD capitalization filtering.")
+        st.caption(
+            "This snapshot contains unlabelled capitalization amounts. Update it to enable reliable USD capitalization filtering."
+        )
     if table.empty:
         st.info("No companies match the selected ranking filters.")
         _render_quality_report(payload)
@@ -363,7 +401,10 @@ def _render_stock_ranking() -> None:
         on_select="rerun",
         selection_mode="multi-row",
         column_config={
-            "Market Cap": st.column_config.NumberColumn(format="%.0f", help="USD for new snapshots; see Cap Currency. Regenerate legacy snapshots without a currency label."),
+            "Market Cap": st.column_config.NumberColumn(
+                format="%.0f",
+                help="USD for new snapshots; see Cap Currency. Regenerate legacy snapshots without a currency label.",
+            ),
             "Price": st.column_config.NumberColumn(format="%.2f"),
             "Overall": st.column_config.NumberColumn(format="%.1f"),
             "Data Quality": st.column_config.NumberColumn(format="%.1f points"),
@@ -383,7 +424,9 @@ def _render_stock_ranking() -> None:
         on_click=add_ranking_tickers_to_analyzer,
         args=(selected_tickers,),
     )
-    st.caption("Ranking is a model-based screening tool, not investment advice. Missing tabs are never treated as neutral scores.")
+    st.caption(
+        "Ranking is a model-based screening tool, not investment advice. Missing tabs are never treated as neutral scores."
+    )
     _render_quality_report(payload)
 
 
@@ -394,7 +437,9 @@ def _filter_options(companies: list[dict], field: str) -> list[str]:
 def _render_archive_import(*, refresh_running: bool) -> None:
     import_allowed = mutation_allowed("ALLOW_RANKING_IMPORT")
     with st.popover("Load rankings", disabled=not import_allowed or refresh_running):
-        st.caption("Upload a ZIP from Download all rankings. Stocks, ETFs and Crypto in the archive replace their saved rankings; absent tabs keep their current data.")
+        st.caption(
+            "Upload a ZIP from Download all rankings. Stocks, ETFs and Crypto in the archive replace their saved rankings; absent tabs keep their current data."
+        )
         uploaded = st.file_uploader(
             "Ranking ZIP",
             type=["zip"],
@@ -414,7 +459,10 @@ def _render_archive_import(*, refresh_running: bool) -> None:
             except (RankingSnapshotError, OSError, ValueError) as exc:
                 st.error(f"Ranking import failed: {exc}")
             else:
-                summary = "; ".join(f"{RANKING_LABELS[name]} — {len(snapshot['companies']):,} rows" for name, snapshot in imported.items())
+                summary = "; ".join(
+                    f"{RANKING_LABELS[name]} — {len(snapshot['companies']):,} rows"
+                    for name, snapshot in imported.items()
+                )
                 st.session_state["ranking_archive_import_message"] = f"Imported rankings: {summary}."
                 st.rerun()
     if not import_allowed:
@@ -474,12 +522,16 @@ def _render_ranking_compatibility(payload: dict) -> None:
     for warning in compatibility["warnings"]:
         st.warning(warning)
     with st.expander("Ranking calculation versions", expanded=False):
-        st.caption("Matching versions do not guarantee matching scores: fetch dates, ranges and available data also matter.")
+        st.caption(
+            "Matching versions do not guarantee matching scores: fetch dates, ranges and available data also matter."
+        )
         if compatibility["differences"]:
             st.dataframe(pd.DataFrame(compatibility["differences"]).astype(str), hide_index=True, width="stretch")
         elif compatibility["compatible"]:
             st.success("Calculation versions and configuration match the current application.")
-        st.caption(f"Snapshot range: {metadata.get('ranges', 'Unknown')} · data as of {metadata.get('data_as_of', 'Unknown')}")
+        st.caption(
+            f"Snapshot range: {metadata.get('ranges', 'Unknown')} · data as of {metadata.get('data_as_of', 'Unknown')}"
+        )
 
 
 def add_ranking_tickers_to_analyzer(tickers: list[str]) -> None:

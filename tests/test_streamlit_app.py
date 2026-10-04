@@ -121,6 +121,16 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertTrue(any("Remembered setup overwritten" in element.value for element in app.sidebar.success))
 
     def test_running_ranking_update_asks_before_restarting(self):
+        from ticker_analyzer.ui import ranking_view
+
+        for name in (
+            "mutation_allowed",
+            "ranking_refresh_is_running",
+            "available_ranking_snapshots",
+            "load_ranking",
+            "refresh_large_cap_ranking",
+        ):
+            self.addCleanup(setattr, ranking_view, name, getattr(ranking_view, name))
         app = AppTest.from_string(
             textwrap.dedent(
                 """
@@ -156,7 +166,11 @@ class StreamlitAppTest(unittest.TestCase):
         self.assertTrue(any(button.label == "No, keep running" for button in app.button))
         self.assertTrue(any("discard its unfinished checkpoint" in item.value for item in app.warning))
 
-        next(button for button in app.button if button.label == "Yes, restart").click().run()
+        with (
+            patch("ticker_analyzer.ranking.assets.refresh_etf_ranking", return_value={"companies": []}),
+            patch("ticker_analyzer.ranking.assets.refresh_crypto_ranking", return_value={"companies": []}),
+        ):
+            next(button for button in app.button if button.label == "Yes, restart").click().run()
 
         self.assertFalse(app.exception)
         self.assertTrue(app.session_state["restart_argument"])
