@@ -189,6 +189,12 @@ class EtfViewTest(unittest.TestCase):
         self.assertEqual(selected_holding_tickers(frame, [1, 2, 0, 3, 4, 99, -1], "Stock Analysis / Finnhub"), ["BRK-B", "9988.HK", "AAPL"])
         self.assertEqual(selected_holding_tickers(frame, [], "Yahoo Finance"), [])
 
+    def test_selected_taiwan_listings_are_analyzable_without_guessing_unknown_exchanges(self):
+        from ticker_analyzer.ui.etf_view import selected_holding_tickers
+
+        frame = pd.DataFrame({"Ticker": ["TPE: 2330", "twse:2330", "2330.TW", "UNKNOWN: 2330"]})
+        self.assertEqual(selected_holding_tickers(frame, [0, 1, 2, 3], "Stock Analysis / Finnhub"), ["2330.TW"])
+
     def test_selected_etf_rows_add_companies_and_open_analyzer(self):
         with patch.dict("os.environ", {"TICKER_ANALYZER_DISABLE_BROWSER_STORAGE": "1"}):
             app = AppTest.from_file("app.py", default_timeout=10)

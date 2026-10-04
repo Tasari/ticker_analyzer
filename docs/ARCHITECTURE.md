@@ -61,6 +61,7 @@ Compatibility facades (`ticker_analyzer.engine`, `ticker_analyzer.providers`, `t
 - Financial statements fetched from `yfinance` are copied once before normalization.
 - The stock provider enables yfinance's public exception reporting consistently across the process. Authentication and network failures reach bounded retries and diagnostics instead of being swallowed into empty results. Attribute retries use a fresh Ticker scraper, because yfinance can mark failed metadata as already fetched. Exhausted requests still retain successful data and use the existing public core-data fallback.
 - Public Yahoo fallback sessions are isolated per ranking worker.
+- ETF Joint identity uses normalized company names and confirmed name aliases, with ticker identity only when the company name is unavailable. Distinct listings of one issuer contribute separately; duplicate aliases of one listing within a fund contribute once. Original symbols remain visible, and only a supported listing can be sent to Stock Analyzer. Portfolio percentages are summed without share-count conversion or renormalizing partial holdings.
 - Validated configuration is cached by file identity while every caller receives an independent mutable copy.
 
 ## Compatibility and test rules

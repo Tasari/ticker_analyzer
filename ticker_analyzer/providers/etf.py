@@ -13,8 +13,14 @@ import yfinance as yf
 from ticker_analyzer.ticker_symbols import normalize_ticker
 
 PUBLIC_EXCHANGES = {
-    ".DE": "etr", ".L": "lon", ".PA": "epa", ".MI": "bit",
-    ".AS": "ams", ".SW": "swx", ".TO": "tsx", ".AX": "asx",
+    ".DE": "etr",
+    ".L": "lon",
+    ".PA": "epa",
+    ".MI": "bit",
+    ".AS": "ams",
+    ".SW": "swx",
+    ".TO": "tsx",
+    ".AX": "asx",
 }
 
 
@@ -38,6 +44,10 @@ class EtfHoldings:
 
 
 def normalize_holding_ticker(value: Any, source: str) -> str | None:
+    # Public tables use exchange-qualified local symbols; Yahoo needs a suffix.
+    qualified = re.fullmatch(r"\s*(TPE|TWSE)\s*:\s*(\d{4,6})\s*", str(value or ""), flags=re.IGNORECASE)
+    if qualified:
+        value = f"{qualified.group(2)}.TW"
     ticker = normalize_ticker(value)
     if not ticker or ticker == "ACC_STMT" or not any(char.isalnum() for char in ticker):
         return None
@@ -59,11 +69,13 @@ def normalize_holdings(frame: pd.DataFrame, *, fractions: bool) -> pd.DataFrame:
     if not fractions:
         weights = weights.astype(str).str.replace("%", "", regex=False).str.replace(",", "", regex=False)
     weights = pd.to_numeric(weights, errors="coerce") * (100 if fractions else 1)
-    result = pd.DataFrame({
-        "Ticker": data["Symbol"].fillna("—").astype(str),
-        "Company": data["Name"].fillna("").astype(str),
-        "Weight (%)": weights,
-    })
+    result = pd.DataFrame(
+        {
+            "Ticker": data["Symbol"].fillna("—").astype(str),
+            "Company": data["Name"].fillna("").astype(str),
+            "Weight (%)": weights,
+        }
+    )
     result = result[result["Weight (%)"].gt(0) & result["Weight (%)"].le(100) & result["Company"].str.strip().ne("")]
     result = result.sort_values("Weight (%)", ascending=False).drop_duplicates(["Ticker", "Company"])
     if result.empty or result["Weight (%)"].sum() > 100.5:
@@ -81,7 +93,9 @@ def fetch_etf_holdings(symbol: str) -> EtfHoldings:
         if quote_type and quote_type != "ETF":
             raise NotAnEtfError(f"{ticker} is not classified as an ETF. Enter an ETF ticker.")
         holdings = normalize_holdings(funds.top_holdings, fractions=True)
-        return EtfHoldings(ticker, holdings, "Yahoo Finance", f"https://finance.yahoo.com/quote/{ticker}/holdings/", datetime.now(UTC))
+        return EtfHoldings(
+            ticker, holdings, "Yahoo Finance", f"https://finance.yahoo.com/quote/{ticker}/holdings/", datetime.now(UTC)
+        )
     except NotAnEtfError:
         raise
     except Exception:
@@ -146,7 +160,7 @@ def public_holdings_location(ticker: str) -> tuple[str, str] | None:
     """Map the exact listing, retaining exchange identity instead of substituting funds."""
     for suffix, exchange in PUBLIC_EXCHANGES.items():
         if ticker.endswith(suffix):
-            local = ticker[:-len(suffix)]
+            local = ticker[: -len(suffix)]
             if re.fullmatch(r"[A-Z0-9-]{1,16}", local):
                 return f"https://stockanalysis.com/quote/{exchange}/{local}/holdings/", f"{exchange.upper()}:{local}"
             return None
@@ -177,7 +191,11 @@ def fetch_public_etf_holdings(ticker: str) -> EtfHoldings:
         holdings = normalize_holdings(frame, fractions=False)
         as_of = re.search(r"As of ([A-Z][a-z]{2} \d{1,2}, \d{4})", text)
         return EtfHoldings(
-            ticker, holdings, "Stock Analysis / Finnhub", url, datetime.now(UTC),
+            ticker,
+            holdings,
+            "Stock Analysis / Finnhub",
+            url,
+            datetime.now(UTC),
             as_of=as_of.group(1) if as_of else None,
             warnings=("Yahoo holdings were unavailable; showing the public Stock Analysis holdings table.",),
         )
