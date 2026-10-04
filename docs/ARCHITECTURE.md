@@ -59,6 +59,7 @@ Compatibility facades (`ticker_analyzer.engine`, `ticker_analyzer.providers`, `t
 - Simulation prices, dividends, trailing returns, and correlations are prepared once for both strategies. Their trading state and returned mutable tables remain independent.
 - Full stock analyses have a 15-minute, 32-entry cache; ticker searches use a separate 128-entry cache.
 - Financial statements fetched from `yfinance` are copied once before normalization.
+- The stock provider enables yfinance's public exception reporting consistently across the process. Authentication and network failures reach bounded retries and diagnostics instead of being swallowed into empty results. Attribute retries use a fresh Ticker scraper, because yfinance can mark failed metadata as already fetched. Exhausted requests still retain successful data and use the existing public core-data fallback.
 - Public Yahoo fallback sessions are isolated per ranking worker.
 - Validated configuration is cached by file identity while every caller receives an independent mutable copy.
 

@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, PropertyMock, patch
 
 import pandas as pd
@@ -7,10 +8,12 @@ from ticker_analyzer.providers.market_data import (
     YFinanceProvider,
     adjusted_price_history,
     clean_info_price,
+    configure_yfinance_error_reporting,
     fill_missing_core_data,
     is_minor_gbp_currency,
     is_transient_provider_error,
     normalize_statement,
+    retryable_attribute,
     safe_dict,
     safe_frame,
     safe_statement,
@@ -20,11 +23,87 @@ from ticker_analyzer.providers.market_data import (
 
 
 class DataProviderTest(unittest.TestCase):
+    def test_yfinance_hidden_errors_are_enabled_for_retry_and_diagnostics(self):
+        config = SimpleNamespace(debug=SimpleNamespace(hide_exceptions=True))
+        with patch("ticker_analyzer.providers.market_data.yf.config", config, create=True):
+            configure_yfinance_error_reporting()
+        self.assertFalse(config.debug.hide_exceptions)
+        with patch("ticker_analyzer.providers.market_data.yf.config", None, create=True):
+            configure_yfinance_error_reporting()
+
+    @patch("ticker_analyzer.providers.market_data.time.sleep")
+    def test_auth_retry_uses_fresh_ticker_instead_of_cached_failed_info(self, sleep):
+        class FailedTicker:
+            @property
+            def info(self):
+                raise RuntimeError('HTTP Error 401: {"error":{"description":"Invalid Crumb"}}')
+
+        recovered = SimpleNamespace(info={"currentPrice": 100, "marketCap": 1000})
+        diagnostics = []
+        with patch("ticker_analyzer.providers.market_data.yf.Ticker", return_value=recovered) as factory:
+            info = safe_dict(retryable_attribute(FailedTicker(), "NVDA", "info"), diagnostics=diagnostics)
+        self.assertEqual(info, recovered.info)
+        factory.assert_called_once_with("NVDA")
+        sleep.assert_called_once()
+        self.assertEqual(diagnostics, [])
+
+    @patch("ticker_analyzer.providers.market_data.time.sleep")
+    def test_persistent_auth_failure_is_bounded_and_reported(self, sleep):
+        class FailedTicker:
+            @property
+            def info(self):
+                raise RuntimeError("HTTP Error 401: Invalid Crumb")
+
+        diagnostics = []
+        with patch("ticker_analyzer.providers.market_data.yf.Ticker", return_value=FailedTicker()) as factory:
+            info = safe_dict(
+                retryable_attribute(FailedTicker(), "NVDA", "info"), label="company info", diagnostics=diagnostics
+            )
+        self.assertEqual(info, {})
+        factory.assert_called_once_with("NVDA")
+        sleep.assert_called_once()
+        self.assertEqual(len(diagnostics), 1)
+        self.assertEqual(diagnostics[0]["source"], "company info")
+        self.assertEqual(diagnostics[0]["kind"], "provider_error")
+        self.assertIn("Invalid Crumb", diagnostics[0]["message"])
+
+    @patch("ticker_analyzer.providers.market_data.time.sleep")
+    @patch("ticker_analyzer.ranking.provider.PublicYahooRankingProvider")
+    def test_persistent_info_401_keeps_public_fallback_and_value_scoring(self, provider_class, sleep):
+        from tests.test_analysis_engine import FakeProvider, market_data
+        from ticker_analyzer.analysis.engine import StockAnalysisEngine
+        from ticker_analyzer.config import load_config
+
+        fallback = market_data()
+        fake = Mock()
+        type(fake).info = PropertyMock(side_effect=RuntimeError("HTTP Error 401: Invalid Crumb"))
+        fake.history.return_value = fallback.value_history
+        fake.financials = fallback.annual_income
+        fake.balance_sheet = fallback.annual_balance
+        fake.cashflow = fallback.annual_cashflow
+        fake.quarterly_financials = fallback.quarterly_income
+        fake.quarterly_balance_sheet = fallback.quarterly_balance
+        fake.quarterly_cashflow = fallback.quarterly_cashflow
+        fake.analyst_price_targets = fallback.analyst_targets
+        for attribute in ("revenue_estimate", "earnings_estimate", "eps_trend", "growth_estimates"):
+            setattr(fake, attribute, getattr(fallback, attribute))
+        provider_class.return_value.fetch.return_value = fallback
+
+        with patch("ticker_analyzer.providers.market_data.yf.Ticker", return_value=fake):
+            recovered = YFinanceProvider().fetch("TEST", AnalysisRanges.from_input("2Y"))
+        result = StockAnalysisEngine(provider=FakeProvider(recovered)).analyze("TEST", "2Y", load_config())
+
+        self.assertIsNotNone(result.tabs["Value"]["score"])
+        self.assertTrue(any(item.get("source") == "company info" for item in recovered.diagnostics))
+        provider_class.return_value.fetch.assert_called_once()
+        sleep.assert_called_once()
+
     @patch("ticker_analyzer.ranking.provider.PublicYahooRankingProvider")
     def test_value_history_uses_raw_close_and_growth_uses_adjusted_close(self, provider_class):
         from ticker_analyzer.providers.sec import empty_market_data
 
         provider_class.return_value.fetch.return_value = empty_market_data("ABC")
+
         class FakeTicker:
             info = {"symbol": "ABC"}
             financials = balance_sheet = cashflow = pd.DataFrame()
@@ -191,8 +270,14 @@ class DataProviderTest(unittest.TestCase):
         primary.info.pop("financialCurrency")
         fallback = market_data()
         fallback.info.pop("financialCurrency")
-        for name in ("annual_income", "annual_balance", "annual_cashflow",
-                     "quarterly_income", "quarterly_balance", "quarterly_cashflow"):
+        for name in (
+            "annual_income",
+            "annual_balance",
+            "annual_cashflow",
+            "quarterly_income",
+            "quarterly_balance",
+            "quarterly_cashflow",
+        ):
             getattr(fallback, name).attrs["financial_currency"] = "USD"
         provider_class.return_value.fetch.return_value = fallback
 
@@ -218,8 +303,11 @@ class DataProviderTest(unittest.TestCase):
         public_history = ticker_history.copy()
         public_history.index = public_history.index.tz_convert("UTC").tz_localize(None)
         fields = {
-            "financials": "annual_income", "balance_sheet": "annual_balance", "cashflow": "annual_cashflow",
-            "quarterly_financials": "quarterly_income", "quarterly_balance_sheet": "quarterly_balance",
+            "financials": "annual_income",
+            "balance_sheet": "annual_balance",
+            "cashflow": "annual_cashflow",
+            "quarterly_financials": "quarterly_income",
+            "quarterly_balance_sheet": "quarterly_balance",
             "quarterly_cashflow": "quarterly_cashflow",
         }
         statements = {}
@@ -241,29 +329,35 @@ class DataProviderTest(unittest.TestCase):
                 patch("ticker_analyzer.providers.market_data.yf.Ticker", return_value=ticker),
                 patch.object(PublicYahooRankingProvider, "_profile", return_value={"industry": "Semiconductors"}),
                 patch.object(PublicYahooRankingProvider, "_statements", return_value=statements),
-                patch.object(PublicYahooRankingProvider, "_history", return_value=(
-                    public_history, public_history, {"currency": "USD", "regularMarketPrice": 150.}
-                )),
+                patch.object(
+                    PublicYahooRankingProvider,
+                    "_history",
+                    return_value=(public_history, public_history, {"currency": "USD", "regularMarketPrice": 150.0}),
+                ),
             ):
                 result = StockAnalysisEngine(provider=YFinanceProvider()).analyze("NVDA", "2Y", load_config())
 
             self.assertEqual(result.valuation_basis["reporting_currency"], "USD")
             self.assertIsNotNone(result.tabs["Value"]["score"])
-            self.assertFalse(any(
-                item.get("source") == "public Yahoo core-data fallback" and item.get("kind") == "provider_error"
-                for item in result.diagnostics
-            ))
-            self.assertTrue(all(
-                result.raw[name]["value"] is not None
-                for name in ("pe_current", "price_to_sales_current", "ev_ebitda_current", "fcf_yield_ttm")
-            ))
+            self.assertFalse(
+                any(
+                    item.get("source") == "public Yahoo core-data fallback" and item.get("kind") == "provider_error"
+                    for item in result.diagnostics
+                )
+            )
+            self.assertTrue(
+                all(
+                    result.raw[name]["value"] is not None
+                    for name in ("pe_current", "price_to_sales_current", "ev_ebitda_current", "fcf_yield_ttm")
+                )
+            )
 
     def test_core_statement_rows_without_numeric_values_are_missing(self):
         for value in (None, float("nan"), "unavailable"):
             with self.subTest(value=value):
                 sparse = pd.DataFrame({pd.Timestamp("2025-12-31"): [value]}, index=["Total Revenue"])
                 self.assertFalse(statement_has_any_row(sparse, frozenset({"Total Revenue"})))
-        zero = pd.DataFrame({pd.Timestamp("2025-12-31"): [0.]}, index=["Total Revenue"])
+        zero = pd.DataFrame({pd.Timestamp("2025-12-31"): [0.0]}, index=["Total Revenue"])
         self.assertTrue(statement_has_any_row(zero, frozenset({"Total Revenue"})))
 
     def test_london_pence_history_is_converted_for_valuation_only(self):

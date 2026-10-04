@@ -73,6 +73,7 @@ class MarketDataProvider(Protocol):
 
 class YFinanceProvider:
     def fetch(self, ticker_symbol: str, ranges: AnalysisRanges) -> MarketData:
+        configure_yfinance_error_reporting()
         ticker = yf.Ticker(ticker_symbol)
         growth_start = history_start_date(ranges.growth)
         value_start = history_start_date(ranges.value)
@@ -93,10 +94,12 @@ class YFinanceProvider:
             )
         result = MarketData(
             ticker=ticker_symbol,
-            info=safe_dict(lambda: ticker.info, label="company info", diagnostics=diagnostics),
+            info=safe_dict(
+                retryable_attribute(ticker, ticker_symbol, "info"), label="company info", diagnostics=diagnostics
+            ),
             **{
                 field: safe_statement(
-                    lambda attribute=attribute: getattr(ticker, attribute),
+                    retryable_attribute(ticker, ticker_symbol, attribute),
                     label=label,
                     diagnostics=diagnostics,
                 )
@@ -108,17 +111,27 @@ class YFinanceProvider:
             # them to today's share count makes historical P/E and P/S split-sensitive.
             value_history=value_history,
             analyst_targets=safe_dict(
-                lambda: ticker.analyst_price_targets, label="analyst price targets", diagnostics=diagnostics
+                retryable_attribute(ticker, ticker_symbol, "analyst_price_targets"),
+                label="analyst price targets",
+                diagnostics=diagnostics,
             ),
             revenue_estimate=safe_frame(
-                lambda: ticker.revenue_estimate, label="revenue estimates", diagnostics=diagnostics
+                retryable_attribute(ticker, ticker_symbol, "revenue_estimate"),
+                label="revenue estimates",
+                diagnostics=diagnostics,
             ),
             earnings_estimate=safe_frame(
-                lambda: ticker.earnings_estimate, label="earnings estimates", diagnostics=diagnostics
+                retryable_attribute(ticker, ticker_symbol, "earnings_estimate"),
+                label="earnings estimates",
+                diagnostics=diagnostics,
             ),
-            eps_trend=safe_frame(lambda: ticker.eps_trend, label="EPS trend", diagnostics=diagnostics),
+            eps_trend=safe_frame(
+                retryable_attribute(ticker, ticker_symbol, "eps_trend"), label="EPS trend", diagnostics=diagnostics
+            ),
             growth_estimates=safe_frame(
-                lambda: ticker.growth_estimates, label="growth estimates", diagnostics=diagnostics
+                retryable_attribute(ticker, ticker_symbol, "growth_estimates"),
+                label="growth estimates",
+                diagnostics=diagnostics,
             ),
             diagnostics=diagnostics,
         )
@@ -129,6 +142,31 @@ class YFinanceProvider:
         result.provenance = build_yfinance_provenance(result, fetched_at)
         fill_missing_core_data(result, ranges)
         return result
+
+
+def configure_yfinance_error_reporting() -> None:
+    """Let our bounded retries and diagnostics handle failures hidden by yfinance.
+
+    This public setting is process-wide, as are yfinance's cookie and crumb state.
+    Configure it consistently rather than toggling it around concurrent requests.
+    """
+    config = getattr(yf, "config", None)
+    debug = getattr(config, "debug", None)
+    if debug is not None and hasattr(debug, "hide_exceptions"):
+        debug.hide_exceptions = False
+
+
+def retryable_attribute(ticker: Any, symbol: str, attribute: str) -> Callable[[], Any]:
+    """Retry with a new scraper because failed metadata can be cached on Ticker."""
+    attempts = 0
+
+    def read() -> Any:
+        nonlocal attempts
+        current = ticker if attempts == 0 else yf.Ticker(symbol)
+        attempts += 1
+        return getattr(current, attribute)
+
+    return read
 
 
 def fill_missing_core_data(data: MarketData, ranges: AnalysisRanges) -> None:
