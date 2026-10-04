@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 SCORING_VERSION = 5
-PROVIDER_SCHEMA_VERSION = "providers-v4-fx-adr"
+PROVIDER_SCHEMA_VERSION = "providers-v5-partial-statements-mufg"
 METRIC_SCHEMA_VERSION = "metrics-v7-ev-evidence"
 
 

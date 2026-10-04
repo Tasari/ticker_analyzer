@@ -324,6 +324,19 @@ def render_tabs(result: dict) -> None:
     for name, tab in tab_map.items():
         with tab:
             render_tab(name, result["tabs"].get(name, {}), result.get("charts", {}))
+            if name == "Value" and result["tabs"].get(name, {}).get("score") is None:
+                for diagnostic in result.get("diagnostics", []):
+                    if diagnostic.get("source") == "valuation basis":
+                        st.warning(diagnostic["message"])
+                failures = [
+                    item for item in result.get("diagnostics", [])
+                    if item.get("kind") in {"network_error", "provider_error"}
+                ]
+                if failures:
+                    st.warning("Market-data downloads failed. Click Analyze to retry with fresh data.")
+                    with st.expander("Data download failures", expanded=False):
+                        for failure in failures:
+                            st.text(f"{failure.get('source', 'Provider')}: {failure.get('message', 'Download failed')}")
     with fair_value_tab:
         render_fair_value(result)
 
@@ -335,6 +348,21 @@ def render_tab(name: str, tab_result: dict, charts: dict) -> None:
     score_col.metric(f"{name} Score", score_text)
     rating_col.metric(f"{name} Rating", tab_result.get("rating", "Not Rated"))
     coverage_col.metric("Metric Coverage", format_coverage(tab_result.get("coverage", {})))
+    if score is None:
+        breakdown = tab_result.get("group_breakdown", {})
+        reason = breakdown.get("reason")
+        if reason == "minimum_weight_coverage":
+            available = float(tab_result.get("coverage", {}).get("percentage", 0))
+            required = float(breakdown.get("minimum_coverage", 0))
+            st.warning(
+                f"{name} is not rated: usable metric coverage is {available:.1f}%; "
+                f"the model requires at least {required:.1f}%. See missing metrics below."
+            )
+        elif reason == "required_group_missing":
+            group = str(breakdown.get("failed_group", "required component")).replace("_", " ")
+            st.warning(f"{name} is not rated: too few usable metrics for {group}. See missing metrics below.")
+        else:
+            st.warning(f"{name} is not rated: insufficient usable data. See missing metrics below.")
     metrics = tab_result.get("metrics", [])
     render_metrics_table(metrics)
 

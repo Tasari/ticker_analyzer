@@ -13,6 +13,7 @@ from ticker_analyzer.providers.fx import exchange_rate, rates_on_dates
 # Effective dates bound historical assumptions; overrides must provide their
 # validity start instead of inferring a ratio from prices or share counts.
 ADR_PROGRAMS = {
+    "MUFG": (1.0, "2007-09-30", "https://www.mufg.jp/dam/ir/report/annual_report/backnumber/pdf/ar_all2008_en.pdf"),
     "TSM": (5.0, "2003-01-01", "https://www.sec.gov/Archives/edgar/data/1046179/000095016803002302/d424b1.htm"),
     "FUTU": (8.0, "2019-03-08", "https://ir.futuholdings.com/news-releases/news-release-details/futu-announces-pricing-initial-public-offering/"),
     "BABA": (8.0, "2019-07-30", "https://www.sec.gov/Archives/edgar/data/1577552/000110465919042446/a19-16252_1ex99d1.htm"),

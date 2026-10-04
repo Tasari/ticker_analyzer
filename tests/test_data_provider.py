@@ -20,7 +20,11 @@ from ticker_analyzer.providers.market_data import (
 
 
 class DataProviderTest(unittest.TestCase):
-    def test_value_history_uses_raw_close_and_growth_uses_adjusted_close(self):
+    @patch("ticker_analyzer.ranking.provider.PublicYahooRankingProvider")
+    def test_value_history_uses_raw_close_and_growth_uses_adjusted_close(self, provider_class):
+        from ticker_analyzer.providers.sec import empty_market_data
+
+        provider_class.return_value.fetch.return_value = empty_market_data("ABC")
         class FakeTicker:
             info = {"symbol": "ABC"}
             financials = balance_sheet = cashflow = pd.DataFrame()
@@ -134,6 +138,56 @@ class DataProviderTest(unittest.TestCase):
         sparse = pd.DataFrame({pd.Timestamp("2025-12-31"): [1.0]}, index=["Tax Effect Of Unusual Items"])
 
         self.assertFalse(statement_has_any_row(sparse, frozenset({"Total Revenue"})))
+
+    @patch("ticker_analyzer.ranking.provider.PublicYahooRankingProvider")
+    def test_one_missing_statement_is_recovered_before_value_scoring(self, provider_class):
+        from tests.test_analysis_engine import FakeProvider, market_data
+        from ticker_analyzer.analysis.engine import StockAnalysisEngine
+        from ticker_analyzer.config import load_config
+
+        for statement in ("income", "balance", "cashflow"):
+            with self.subTest(statement=statement):
+                primary = market_data()
+                setattr(primary, f"annual_{statement}", pd.DataFrame())
+                setattr(primary, f"quarterly_{statement}", pd.DataFrame())
+                before = StockAnalysisEngine(provider=FakeProvider(primary)).analyze("TEST", "2Y", load_config())
+                self.assertIsNone(before.tabs["Value"]["score"])
+                provider_class.return_value.fetch.return_value = market_data()
+
+                fill_missing_core_data(primary, AnalysisRanges.from_input("2Y"))
+
+                after = StockAnalysisEngine(provider=FakeProvider(primary)).analyze("TEST", "2Y", load_config())
+                self.assertIsNotNone(after.tabs["Value"]["score"])
+                self.assertFalse(getattr(primary, f"annual_{statement}").empty)
+
+    @patch("ticker_analyzer.ranking.provider.PublicYahooRankingProvider")
+    def test_missing_share_history_is_recovered_despite_populated_statements(self, provider_class):
+        from tests.test_analysis_engine import market_data
+
+        primary = market_data()
+        primary.annual_balance = primary.annual_balance.drop(index="Ordinary Shares Number")
+        primary.quarterly_balance = primary.quarterly_balance.drop(index="Ordinary Shares Number")
+        provider_class.return_value.fetch.return_value = market_data()
+
+        fill_missing_core_data(primary, AnalysisRanges.from_input("2Y"))
+
+        self.assertIn("Ordinary Shares Number", primary.annual_balance.index)
+
+    @patch("ticker_analyzer.ranking.provider.PublicYahooRankingProvider")
+    def test_complete_data_does_not_trigger_extra_provider_requests(self, provider_class):
+        from tests.test_analysis_engine import market_data
+
+        fill_missing_core_data(market_data(), AnalysisRanges.from_input("2Y"))
+
+        provider_class.assert_not_called()
+
+    def test_core_statement_rows_without_numeric_values_are_missing(self):
+        for value in (None, float("nan"), "unavailable"):
+            with self.subTest(value=value):
+                sparse = pd.DataFrame({pd.Timestamp("2025-12-31"): [value]}, index=["Total Revenue"])
+                self.assertFalse(statement_has_any_row(sparse, frozenset({"Total Revenue"})))
+        zero = pd.DataFrame({pd.Timestamp("2025-12-31"): [0.]}, index=["Total Revenue"])
+        self.assertTrue(statement_has_any_row(zero, frozenset({"Total Revenue"})))
 
     def test_london_pence_history_is_converted_for_valuation_only(self):
         history = pd.DataFrame({"Close": [13_620.0], "Adj Close": [13_500.0]})

@@ -99,10 +99,27 @@ class PublicYahooRankingProvider:
         item = self.universe_by_ticker.get(ticker_symbol, {})
         needs_profile = not (item.get("industry") or item.get("sector"))
         profile = self._profile(ticker_symbol) if self.enrich_profile and needs_profile else {}
-        statements = self._statements(ticker_symbol)
-        growth_history, value_history, chart_meta = self._history(
-            ticker_symbol, max(_years(value) for value in ranges.as_dict().values())
-        )
+        diagnostics = [{
+            "source": "batch provider", "kind": "fallback",
+            "message": "Public Yahoo timeseries fallback; analyst consensus data unavailable",
+        }]
+        # Each endpoint can fail independently on hosted/shared IPs. Preserve
+        # successful statements or prices so the caller can fill its own gaps.
+        try:
+            statements = self._statements(ticker_symbol)
+        except (requests.RequestException, KeyError, TypeError, ValueError, IndexError) as exc:
+            diagnostics.append(_download_failure("public Yahoo financial statements", exc))
+            statements = {
+                name: pd.DataFrame()
+                for name in ("income", "balance", "cashflow", "quarterly_income", "quarterly_balance", "quarterly_cashflow")
+            }
+        try:
+            growth_history, value_history, chart_meta = self._history(
+                ticker_symbol, max(_years(value) for value in ranges.as_dict().values())
+            )
+        except (requests.RequestException, KeyError, TypeError, ValueError, IndexError) as exc:
+            diagnostics.append(_download_failure("public Yahoo price history", exc))
+            growth_history, value_history, chart_meta = pd.DataFrame(), pd.DataFrame(), {}
         current_price = chart_meta.get("regularMarketPrice")
         currency = chart_meta.get("currency") or ""
         info = {
@@ -161,13 +178,7 @@ class PublicYahooRankingProvider:
             earnings_estimate=empty,
             eps_trend=empty,
             growth_estimates=empty,
-            diagnostics=[
-                {
-                    "source": "batch provider",
-                    "kind": "fallback",
-                    "message": "Public Yahoo timeseries fallback; analyst consensus data unavailable",
-                }
-            ],
+            diagnostics=diagnostics,
             provenance={
                 "financials": DataProvenance(
                     provider="Yahoo Finance public",
@@ -271,6 +282,14 @@ def _statement_frame(rows: dict[str, dict[pd.Timestamp, float]]) -> pd.DataFrame
     if not rows:
         return pd.DataFrame()
     return pd.DataFrame.from_dict(rows, orient="index").sort_index(axis=1)
+
+
+def _download_failure(source: str, exc: Exception) -> dict[str, str]:
+    return {
+        "source": source,
+        "kind": "network_error" if isinstance(exc, (requests.ConnectionError, requests.Timeout)) else "provider_error",
+        "message": (str(exc).strip() or type(exc).__name__)[:240],
+    }
 
 
 def _latest_value(frame: pd.DataFrame, row: str) -> float | None:

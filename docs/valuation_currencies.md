@@ -27,6 +27,9 @@ currency metadata are not merged cell by cell.
 
 The verified program registry covers:
 
+- MUFG: one ordinary share per ADS from 2007-09-30, following the
+  1,000-for-one stock split, confirmed in the issuer's
+  [2008 annual report, American Depositary Shares](https://www.mufg.jp/dam/ir/report/annual_report/backnumber/pdf/ar_all2008_en.pdf).
 - TSM: five ordinary shares per ADR, documented in the
   [2003 prospectus](https://www.sec.gov/Archives/edgar/data/1046179/000095016803002302/d424b1.htm)
   and [2026 quarterly financial statements](https://investor.tsmc.com/chinese/encrypt/files/encrypt_file/qr/phase4_reports/2026-04/5b6b7f218129782a5bf0366e7fd06aadc5c1515a/FS.pdf).
@@ -136,3 +139,12 @@ Data limitations remain visible in the Analyzer's valuation-basis section and
 missing-data details. For example, live BGEO.L testing on 2026-09-08 recovered a
 current GBP/GEL conversion, but Yahoo exposed too little historical GEL FX for a
 complete three-year valuation history; those observations are deliberately excluded.
+
+The Analyzer attempts public Yahoo recovery when any core annual statement or
+all balance-sheet share observations are missing, even if two other statements
+are usable. Rows with no numeric observations do not count as available data.
+The fallback keeps successful statements and prices independently when the other
+endpoint fails. An unrated Value tab explains the coverage or required-component
+failure and shows valuation-basis/download diagnostics with an Analyze retry
+instruction. These changes do not lower scoring requirements or guarantee access
+when Yahoo blocks all available endpoints on a hosted IP.

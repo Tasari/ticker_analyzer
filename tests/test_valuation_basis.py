@@ -87,6 +87,7 @@ class ValuationBasisTests(unittest.TestCase):
 
     def test_ordinary_share_and_verified_receipt_metadata(self):
         self.assertEqual(share_basis("PKN.WA", {})[0], 1.)
+        self.assertEqual(share_basis("MUFG", {"country": "Japan"})[:2], (1., "2007-09-30"))
         self.assertEqual(share_basis("FUTU", {})[0], 8.)
         self.assertEqual(share_basis("BABA", {})[:2], (8., "2019-07-30"))
         self.assertEqual(share_basis("HTHT", {})[0], 10.)
@@ -95,6 +96,44 @@ class ValuationBasisTests(unittest.TestCase):
         self.assertEqual(share_basis("OTHER", {"country": "Canada", "instrumentType": "ordinary_share", "instrumentTypeSource": "Issuer filing"})[0], 1.)
         self.assertIsNone(share_basis("OTHER", {"country": "China"})[0])
         self.assertEqual(share_basis("OTHER", {"ordinarySharesPerReceipt": 2, "shareRatioEffectiveFrom": "2020-01-01"})[0], 2.)
+
+    @patch("ticker_analyzer.analysis.valuation_basis.exchange_rate", return_value=150.)
+    @patch("ticker_analyzer.analysis.valuation_basis.rates_on_dates")
+    def test_mufg_and_futu_financial_value_retains_usable_adr_history(self, rates, rate):
+        from tests.test_analysis_engine import market_data
+
+        for ticker, country, reporting, ratio in (
+            ("MUFG", "Japan", "JPY", 1.),
+            ("FUTU", "Hong Kong", "HKD", 8.),
+        ):
+            with self.subTest(ticker=ticker):
+                data = market_data(industry="Banks - Diversified" if ticker == "MUFG" else "Capital Markets")
+                data.ticker = ticker
+                data.info.update(country=country, financialCurrency=reporting)
+                original = data.value_history.copy()
+                rates.return_value = pd.Series(150., index=data.value_history.index)
+                result = StockAnalysisEngine(provider=Mock(fetch=Mock(return_value=data))).analyze(
+                    ticker, "2Y", load_config()
+                )
+
+                self.assertEqual(result.valuation_basis["ordinary_shares_per_receipt"], ratio)
+                self.assertIsNotNone(result.tabs["Value"]["score"])
+                metrics = {metric.id: metric for metric in result.tabs["Value"]["metrics"]}
+                self.assertIsNotNone(metrics["pe_vs_selected_median"].score)
+                self.assertIsNotNone(metrics["pb_vs_selected_median"].score)
+                pd.testing.assert_frame_equal(data.value_history, original)
+
+    @patch("ticker_analyzer.analysis.valuation_basis.exchange_rate", return_value=150.)
+    @patch("ticker_analyzer.analysis.valuation_basis.rates_on_dates")
+    def test_mufg_one_to_one_ratio_is_bounded_by_stock_split_date(self, rates, rate):
+        data = example(ticker="MUFG", reporting="JPY")
+        data.value_history = pd.DataFrame(
+            {"Close": [10., 10.]}, index=pd.to_datetime(["2007-09-29", "2007-09-30"])
+        )
+        rates.return_value = pd.Series(150., index=data.value_history.index)
+        history = prepare_valuation_basis(data)
+        self.assertTrue(pd.isna(history.Close.iloc[0]))
+        self.assertEqual(history.Close.iloc[1], 1500.)
 
     @patch("ticker_analyzer.analysis.valuation_basis.exchange_rate", return_value=1.)
     @patch("ticker_analyzer.analysis.valuation_basis.rates_on_dates")

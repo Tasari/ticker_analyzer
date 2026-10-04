@@ -146,11 +146,18 @@ def fill_missing_core_data(data: MarketData, ranges: AnalysisRanges) -> None:
         statement_has_any_row(frame, expected_rows)
         for frame, expected_rows in zip(annual_statements, CORE_STATEMENT_ROWS, strict=True)
     )
-    missing_financials = meaningful_statements < 2
+    # Two usable statements can still leave Value unrated: cash flow supplies
+    # the required FCF yield, and balance-sheet shares supply historical multiples.
+    missing_financials = meaningful_statements < len(annual_statements)
+    share_rows = frozenset({"Ordinary Shares Number", "Share Issued", "Common Stock Shares Outstanding"})
+    missing_shares = not any(
+        statement_has_any_row(frame, share_rows)
+        for frame in (data.annual_balance, data.quarterly_balance)
+    )
     has_price = clean_info_price(data.info) is not None
     missing_profile = not (data.info.get("industry") or data.info.get("industryDisp") or data.info.get("sector"))
     sparse_info = sum(data.info.get(field) is not None for field in CORE_INFO_FIELDS) < 2
-    needs_fallback = missing_prices or not has_price or missing_financials or missing_profile or sparse_info
+    needs_fallback = missing_prices or not has_price or missing_financials or missing_shares or missing_profile or sparse_info
     if not needs_fallback:
         return
 
@@ -185,7 +192,11 @@ def fill_missing_core_data(data: MarketData, ranges: AnalysisRanges) -> None:
 def statement_has_any_row(frame: pd.DataFrame, expected_rows: frozenset[str]) -> bool:
     if frame.empty:
         return False
-    return any(str(row) in expected_rows for row in frame.index)
+    return any(
+        pd.to_numeric(frame.loc[row], errors="coerce").notna().any()
+        for row in frame.index
+        if str(row) in expected_rows
+    )
 
 
 def valuation_price_history(history: pd.DataFrame, currency: Any) -> pd.DataFrame:

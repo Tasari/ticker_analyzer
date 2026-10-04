@@ -15,6 +15,7 @@ from ticker_analyzer.portfolio.returns import (
     ACCOUNT_STATEMENT_TICKER,
     ReturnsTable,
 )
+from ticker_analyzer.ui.analysis_actions import ANALYSIS_RESULT_VERSION
 
 
 class StreamlitAppTest(unittest.TestCase):
@@ -76,7 +77,7 @@ class StreamlitAppTest(unittest.TestCase):
 
         self.assertFalse(app.exception)
         analyze.assert_called_once()
-        self.assertEqual(app.session_state["analysis_result_version"], "markets-v4-valuation-evidence")
+        self.assertEqual(app.session_state["analysis_result_version"], ANALYSIS_RESULT_VERSION)
 
     def test_switches_from_ranking_to_empty_analyzer_without_fetching(self):
         app = AppTest.from_file("app.py", default_timeout=10)
@@ -251,7 +252,7 @@ class StreamlitAppTest(unittest.TestCase):
         app.session_state["_site_access_authenticated"] = True
         app.session_state["selected_tickers"] = ["AAPL"]
         app.session_state["analysis_results"] = {"AAPL": result}
-        app.session_state["analysis_result_version"] = "markets-v4-valuation-evidence"
+        app.session_state["analysis_result_version"] = ANALYSIS_RESULT_VERSION
         app.session_state["analysis_errors"] = {}
         app.session_state["active_ticker"] = "AAPL"
 
@@ -304,6 +305,7 @@ class StreamlitAppTest(unittest.TestCase):
     def test_watchlist_is_a_separate_top_level_page(self):
         app = AppTest.from_file("app.py", default_timeout=10)
         app.session_state["_site_access_authenticated"] = True
+        app.session_state["selected_tickers"] = []
         app.run()
 
         next(widget for widget in app.sidebar.radio if widget.label == "View").set_value("Watchlist").run()
