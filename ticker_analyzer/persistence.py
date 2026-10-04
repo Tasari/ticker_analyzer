@@ -7,6 +7,8 @@ from typing import Any
 
 import streamlit as st
 
+from ticker_analyzer.navigation import PAGE_OPTIONS as PAGE_OPTIONS
+from ticker_analyzer.navigation import VALID_PAGES as VALID_PAGES
 from ticker_analyzer.runtime_settings import setting_enabled
 from ticker_analyzer.ticker_symbols import normalize_ticker
 from ticker_analyzer.watchlist import normalize_alerts, normalize_snapshots, normalize_watchlist
@@ -14,8 +16,6 @@ from ticker_analyzer.watchlist import normalize_alerts, normalize_snapshots, nor
 PERSISTENCE_VERSION = 1
 PERSISTENCE_TTL = timedelta(days=30)
 STORAGE_KEY = "ticker_analyzer.preferences.v1"
-PAGE_OPTIONS = ("Stock Analyzer", "ETF", "Simulation", "Large Cap Ranking", "Account Statement")
-VALID_PAGES = set(PAGE_OPTIONS)
 VALID_RANGES = {"1Y", "2Y", "3Y"}
 RANGE_STATE_KEYS = {
     "Growth": "growth_range",
@@ -156,7 +156,7 @@ def apply_snapshot(state: MutableMapping[str, Any], snapshot: Mapping[str, Any])
         state[f"watchlist_{state_key}"] = normalize_range(watchlist_ranges.get(tab))
     page = snapshot.get("page")
     state["page"] = page if page in VALID_PAGES else "Stock Analyzer"
-    # Results deliberately stay session-only so a returning user gets fresh data.
+    # Results stay session-only; returning users explicitly click Analyze for fresh data.
     state["analysis_results"] = {}
     state["analysis_errors"] = {}
 

@@ -14,7 +14,8 @@ def main() -> None:
     if not render_access_gate():
         return
 
-    from ticker_analyzer.persistence import PAGE_OPTIONS, VALID_PAGES, hydrate_browser_state, persist_browser_state
+    from ticker_analyzer.navigation import PAGE_OPTIONS, VALID_PAGES
+    from ticker_analyzer.persistence import hydrate_browser_state, persist_browser_state
     from ticker_analyzer.ui import views
     from ticker_analyzer.ui.state import initialize_state
 

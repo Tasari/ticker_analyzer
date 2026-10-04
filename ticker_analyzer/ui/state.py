@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from collections.abc import MutableMapping
 from typing import Any
 
@@ -30,9 +29,6 @@ def initialize_state() -> None:
         "fundamentals_range": "2Y",
         "value_range": "2Y",
         "analysis_pending_changes": False,
-        "automatic_analysis_attempted": False,
-        "automatic_analysis_requested": False,
-        "analysis_pending_since": None,
         "watchlist": [],
         "watchlist_snapshots": {},
         "watchlist_alerts": [],
@@ -110,8 +106,6 @@ def add_tickers_to_state(state: MutableMapping[str, Any], values: list[Any]) -> 
     if not added:
         return []
     state["analysis_pending_changes"] = True
-    state["automatic_analysis_requested"] = False
-    state["analysis_pending_since"] = time.time()
     if state.get("active_ticker") not in selected:
         state["active_ticker"] = added[0]
     return added

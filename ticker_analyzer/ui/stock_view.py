@@ -21,29 +21,14 @@ def render_stock_analyzer(browser_state_ready: bool) -> None:
     config = load_config()
     ranges, analyze_clicked = views.render_sidebar(config)
     market_tickers = [ticker for ticker in st.session_state.selected_tickers if ticker != ACCOUNT_STATEMENT_TICKER]
-    restored_setup_analysis = (
-        browser_state_ready
-        and not st.session_state.analysis_results
-        and not st.session_state.analysis_pending_changes
-        and not st.session_state.automatic_analysis_attempted
-    )
-    stale_runtime_results = bool(st.session_state.analysis_results) and (
-        st.session_state.analysis_result_version != ANALYSIS_RESULT_VERSION
-    )
-    automatic_analysis = (
-        st.session_state.automatic_analysis_requested or restored_setup_analysis or stale_runtime_results
-    )
-    if analyze_clicked or automatic_analysis:
-        st.session_state.automatic_analysis_attempted = True
-        st.session_state.automatic_analysis_requested = False
+    if analyze_clicked:
         st.session_state.analysis_pending_changes = False
-        st.session_state.analysis_pending_since = None
         with st.spinner("Fetching market and financial data..."):
             st.session_state.analysis_results, st.session_state.analysis_errors = analyze_selected_tickers(
                 market_tickers,
                 ranges,
                 config,
-                cache_token=time.time_ns() if analyze_clicked else 0,
+                cache_token=time.time_ns(),
             )
             st.session_state.analysis_result_version = ANALYSIS_RESULT_VERSION
             available_tickers = list(st.session_state.analysis_results)
@@ -62,8 +47,10 @@ def render_stock_analyzer(browser_state_ready: bool) -> None:
     if not results and not account_returns_available:
         if not browser_state_ready and st.session_state.selected_tickers:
             st.info("Saved preferences are still loading. You can continue or click Analyze now.")
-        elif st.session_state.selected_tickers:
+        elif st.session_state.analysis_errors:
             st.error("No selected ticker could be analyzed.")
+        elif st.session_state.selected_tickers:
+            st.info("Click Analyze to analyze the selected companies.")
         else:
             st.info("Add a ticker to start the analysis.")
         return

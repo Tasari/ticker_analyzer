@@ -29,6 +29,22 @@ class StreamlitAppTest(unittest.TestCase):
     def tearDown(self):
         self.browser_storage.stop()
 
+    def test_navigation_survives_cached_persistence_from_before_refactor(self):
+        import ticker_analyzer.persistence as persistence
+
+        with patch.object(persistence, "PAGE_OPTIONS"):
+            del persistence.PAGE_OPTIONS
+            app = AppTest.from_file("app.py", default_timeout=10)
+            app.session_state["_site_access_authenticated"] = True
+            app.session_state["selected_tickers"] = []
+            app.run()
+
+        self.assertFalse(app.exception)
+        self.assertEqual(
+            app.sidebar.radio[0].options,
+            ["Stock Analyzer", "ETF", "Simulation", "Large Cap Ranking", "Account Statement"],
+        )
+
     def test_site_is_locked_before_application_state_is_loaded(self):
         app = AppTest.from_file("app.py", default_timeout=10).run()
 
@@ -56,24 +72,27 @@ class StreamlitAppTest(unittest.TestCase):
 
         self.assertFalse(app.exception)
         self.assertTrue(any("Restoring your saved" in element.value for element in app.caption))
-        self.assertTrue(
-            any("solely responsible" in element.value for element in app.sidebar.warning)
-        )
+        self.assertTrue(any("solely responsible" in element.value for element in app.sidebar.warning))
         self.assertTrue(any(button.label == "Analyze" for button in app.sidebar.button))
         self.assertTrue(any("click Analyze now" in element.value for element in app.info))
 
-    def test_stale_in_session_analysis_is_refetched_after_provider_upgrade(self):
-        with patch(
-            "ticker_analyzer.ui.analysis_actions.analyze_selected_tickers",
-            return_value=({}, {}),
-        ) as analyze:
+    def test_stale_in_session_analysis_waits_for_explicit_click_after_provider_upgrade(self):
+        with (
+            patch("ticker_analyzer.ui.analysis_actions.analyze_selected_tickers", return_value=({}, {})) as analyze,
+            patch("ticker_analyzer.ui.views.render_company_analysis") as render,
+        ):
             app = AppTest.from_file("app.py", default_timeout=10)
             app.session_state["_site_access_authenticated"] = True
             app.session_state["selected_tickers"] = ["BGEO.L"]
             app.session_state["analysis_results"] = {"BGEO.L": {"overall_score": None}}
             app.session_state["analysis_result_version"] = "providers-v3"
             app.session_state["automatic_analysis_attempted"] = True
+            app.session_state["automatic_analysis_requested"] = True
             app.run()
+            analyze.assert_not_called()
+            render.assert_called_once_with({"overall_score": None})
+            self.assertEqual(app.session_state["analysis_result_version"], "providers-v3")
+            next(button for button in app.sidebar.button if button.label == "Analyze").click().run()
 
         self.assertFalse(app.exception)
         analyze.assert_called_once()
@@ -96,16 +115,10 @@ class StreamlitAppTest(unittest.TestCase):
 
         self.assertFalse(app.exception)
         self.assertTrue(any(element.value == "Add a ticker to start the analysis." for element in app.info))
-        overwrite = next(
-            button
-            for button in app.sidebar.button
-            if button.label == "Save / overwrite remembered setup"
-        )
+        overwrite = next(button for button in app.sidebar.button if button.label == "Save / overwrite remembered setup")
         overwrite.click().run()
         self.assertFalse(app.exception)
-        self.assertTrue(
-            any("Remembered setup overwritten" in element.value for element in app.sidebar.success)
-        )
+        self.assertTrue(any("Remembered setup overwritten" in element.value for element in app.sidebar.success))
 
     def test_running_ranking_update_asks_before_restarting(self):
         app = AppTest.from_string(
@@ -222,14 +235,19 @@ class StreamlitAppTest(unittest.TestCase):
             add = next(button for button in app.button if button.label == "Add exact ticker")
             add.click().run()
 
-            self.assertEqual(analyze.call_count, 1)
+            self.assertEqual(analyze.call_count, 0)
             app.session_state["analysis_pending_since"] = 0.0
             app.run()
+            self.assertEqual(analyze.call_count, 0)
+            self.assertTrue(app.session_state["analysis_pending_changes"])
+            next(button for button in app.sidebar.button if button.label == "Analyze").click().run()
+            app.run()
+            next(widget for widget in app.selectbox if widget.label == "Value range").set_value("3Y").run()
 
         self.assertFalse(app.exception)
         self.assertEqual(app.session_state["selected_tickers"], ["PKN.WA"])
         self.assertEqual(app.session_state["active_ticker"], "PKN.WA")
-        self.assertEqual(analyze.call_count, 2)
+        self.assertEqual(analyze.call_count, 1)
         self.assertFalse(app.session_state["analysis_pending_changes"])
 
     def test_simulation_is_separate_and_reuses_analysis_without_refetching(self):
@@ -275,11 +293,13 @@ class StreamlitAppTest(unittest.TestCase):
         analyze.assert_not_called()
         self.assertFalse(app.exception)
         self.assertTrue(any(header.value == "Portfolio Simulation" for header in app.subheader))
-        next(widget for widget in app.number_input if widget.label == "Initial capital").set_value(25_000.).run()
+        next(widget for widget in app.number_input if widget.label == "Initial capital").set_value(25_000.0).run()
         app.sidebar.radio[0].set_value("ETF").run()
         app.sidebar.radio[0].set_value("Simulation").run()
-        self.assertEqual(next(widget for widget in app.number_input if widget.label == "Initial capital").value, 25_000.)
-        next(widget for widget in app.number_input if widget.label == "Initial capital").set_value(10_000.).run()
+        self.assertEqual(
+            next(widget for widget in app.number_input if widget.label == "Initial capital").value, 25_000.0
+        )
+        next(widget for widget in app.number_input if widget.label == "Initial capital").set_value(10_000.0).run()
 
         def market_data(_results, start_date, end_date, _currency, **_kwargs):
             prices = pd.Series([100.0, 110.0], index=pd.to_datetime([start_date, end_date]))

@@ -35,6 +35,7 @@ Compatibility facades (`ticker_analyzer.engine`, `ticker_analyzer.providers`, `t
 ## Module boundaries
 
 - `analysis/` orchestrates a single-company analysis and owns profile selection, aggregation, provenance, and quality evaluation.
+- `navigation.py` owns page names independently of browser persistence. `app.py` can load navigation even when a pre-refactor persistence module remains cached during a Streamlit Cloud update. Stock analysis runs only after an explicit Analyze click; restoring preferences and changing selections do not schedule analysis.
 - `metrics/` calculates raw business signals. It does not decide final rating gates.
 - `scoring/` owns metric and tab scoring, data-quality calculations, robustness audits, labels, caps, and rating rules.
 - `portfolio/` owns statement parsing, return-series analysis, performance estimates, and simulations.
