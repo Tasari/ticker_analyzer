@@ -320,6 +320,7 @@ def render_tabs(result: dict) -> None:
     with graphs_tab:
         charts = result.get("charts", {})
         render_financial_trends(charts)
+        render_ps_trends(charts)
         render_line_chart(charts.get("prices"), "Selected Price Range")
         render_line_chart(charts.get("fundamentals"), "Debt and Assets")
         fair_value_chart = st.container()
@@ -419,66 +420,104 @@ def render_line_chart(frame: pd.DataFrame | None, title: str) -> None:
     st.plotly_chart(fig, width="stretch")
 
 
-def financial_trends_figure(charts: dict) -> go.Figure:
-    history = charts["financials"].sort_index().tail(3)
-    future = charts.get("financial_estimates", pd.DataFrame())
-    sources = charts.get("financial_estimate_sources", pd.DataFrame())
+def _overlay_trends_figure(
+    history: pd.DataFrame, forward: pd.DataFrame, sources: pd.DataFrame,
+    *, title: str, yaxis_title: str, actual_source: str,
+) -> go.Figure:
     figure = go.Figure()
-    colors = {"Revenue": "#72b7f2", "Net Income": "#0085ff", "Operating Cash Flow": "#ffa3a3"}
+    colors = {"Revenue": "#72b7f2", "Net Income": "#0085ff", "Operating Cash Flow": "#ffa3a3", "P/S": "#a78bfa"}
     for metric in history.columns:
         color = colors.get(metric)
         figure.add_trace(go.Scatter(
             x=history.index, y=history[metric], name=metric, legendgroup=metric,
             mode="lines+markers", line={"color": color, "dash": "solid"},
-            customdata=["Reported annual financials"] * len(history),
+            customdata=[actual_source] * len(history),
             hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.2f}<br>%{customdata}<extra>%{fullData.name}</extra>",
         ))
-        if metric not in future or future[metric].dropna().empty:
+        if metric not in forward or forward[metric].dropna().empty:
             continue
-        projected = pd.concat([history[metric].tail(1), future[metric]])
-        details = ["Last reported year"] + (
-            sources[metric].tolist() if metric in sources else ["Estimate"] * len(future)
-        )
+        details = [
+            [(date + pd.DateOffset(years=2)).strftime("%Y-%m-%d"),
+             sources.loc[date, metric] if metric in sources and date in sources.index else "Model estimate"]
+            for date in forward.index
+        ]
         figure.add_trace(go.Scatter(
-            x=projected.index, y=projected, name=f"{metric} (estimate)", legendgroup=metric,
-            showlegend=False, mode="lines+markers", line={"color": color, "dash": "dash"},
+            x=forward.index, y=forward[metric], name=f"{metric} (+2Y estimate)", legendgroup=metric,
+            mode="lines+markers", line={"color": color, "dash": "dash"},
             customdata=details,
-            hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.2f}<br>%{customdata}<extra>%{fullData.name}</extra>",
+            hovertemplate="Observation: %{x|%Y-%m-%d}<br>%{y:,.2f}<br>Forecast for: %{customdata[0]}<br>%{customdata[1]}<extra>%{fullData.name}</extra>",
         ))
-    currency = history.attrs.get("financial_currency", "")
     figure.update_layout(
-        title="Financial Trends", xaxis_title="Fiscal year end",
-        yaxis_title=f"Value ({currency})" if currency else "Value (reporting currency)",
-        legend_title_text="Metric", hovermode="x unified",
+        title=title, xaxis_title="Observation quarter", yaxis_title=yaxis_title,
+        legend_title_text="Solid: reported · Dashed: +2Y estimate", hovermode="x unified",
+        legend={"orientation": "h", "y": -0.2},
     )
-    figure.update_xaxes(dtick="M12", tickformat="%Y", tick0=history.index[-1])
-    if not future.empty:
-        boundary = history.index[-1] + (future.index[0] - history.index[-1]) / 2
-        figure.add_vrect(
-            x0=boundary, x1=future.index[-1] + pd.Timedelta(days=60),
-            fillcolor="#72b7f2", opacity=0.06, line_width=0,
-            annotation_text="Estimates", annotation_position="top left",
-        )
+    figure.update_xaxes(tickvals=history.index, ticktext=[f"Q{date.quarter} {date.year}" for date in history.index])
     return figure
+
+
+def financial_trends_figure(charts: dict) -> go.Figure:
+    history = charts["financials"].sort_index()
+    currency = history.attrs.get("financial_currency", "")
+    return _overlay_trends_figure(
+        history, charts.get("financial_estimates", pd.DataFrame()), charts.get("financial_estimate_sources", pd.DataFrame()),
+        title="Financial Trends", yaxis_title=f"Quarterly value ({currency or 'reporting currency'})",
+        actual_source="Reported quarterly financials",
+    )
 
 
 def render_financial_trends(charts: dict) -> None:
     history = charts.get("financials")
+    if history is not None and not history.empty and history.attrs.get("basis") != "Quarterly":
+        st.info("Financial Trends: click Analyze to replace the saved annual chart with quarterly data.")
+        return
     if history is None or history.empty or history.dropna(how="all").empty:
-        st.warning("Financial Trends: not enough annual data to chart.")
+        st.warning("Financial Trends: quarterly statements are unavailable.")
         return
     st.plotly_chart(financial_trends_figure(charts), width="stretch")
     st.caption(
-        "Solid lines: three reported fiscal years. Dashed lines: two forecast fiscal years. "
-        "Revenue uses analyst consensus where available, otherwise historical CAGR. "
-        "Net income and operating cash flow use the median historical margin × forecast revenue. "
-        "Hover over a point to see its source."
+        "Solid: reported quarterly values. Dashed at the same date: model estimate for that quarter +2 years "
+        "(e.g. Q1 2023 → Q1 2025). Revenue uses same-quarter historical growth; net income and cash flow use "
+        "published historical margins. Historical projections use earlier published data, not archived analyst consensus. "
+        "Source statements may have been restated. Hover to see the forecast quarter and source."
     )
-    future = charts.get("financial_estimates")
-    if future is None:
-        st.caption("Click Analyze to load the two forecast years for this saved analysis.")
-    elif future.isna().any().any():
-        st.caption("Some forecast values are unavailable because their source data is missing.")
+    if len(history) < 12:
+        st.caption(f"Available history: {len(history)} quarterly points; the provider does not supply the full three years.")
+    if charts["financial_estimates"].isna().any().any():
+        st.caption("Forecast gaps mean that insufficient earlier data was available to calculate that point.")
+
+
+def ps_trends_figure(charts: dict) -> go.Figure:
+    ratios = charts["ps_ratios"]
+    return _overlay_trends_figure(
+        ratios[["P/S TTM"]].rename(columns={"P/S TTM": "P/S"}),
+        ratios[["P/S +2Y"]].rename(columns={"P/S +2Y": "P/S"}),
+        charts["ps_sources"][["P/S +2Y"]].rename(columns={"P/S +2Y": "P/S"}),
+        title="P/S Ratio — Current and +2Y Estimate", yaxis_title="Price / Sales (×)",
+        actual_source="Market capitalization / published TTM revenue (annual fallback if unavailable)",
+    )
+
+
+def render_ps_trends(charts: dict) -> None:
+    ratios = charts.get("ps_ratios")
+    if ratios is None:
+        st.info("P/S Ratio: click Analyze to load the current and +2Y series.")
+        return
+    if ratios.dropna(how="all").empty:
+        st.warning("P/S Ratio: revenue or compatible capitalization data is unavailable.")
+        return
+    latest = ratios.iloc[-1]
+    columns = st.columns(2)
+    for column, metric in zip(columns, ("P/S TTM", "P/S +2Y"), strict=True):
+        value = latest[metric]
+        column.metric(metric, "Unavailable" if pd.isna(value) else f"{value:.2f}×")
+    st.plotly_chart(ps_trends_figure(charts), width="stretch")
+    st.caption(
+        "Both lines share the observation date and that date's market capitalization. Solid: trailing revenue. "
+        "Dashed: revenue projected +2 years; this assumes unchanged capitalization, not a future share price. "
+        "Historical forecasts are model projections using published annual/TTM growth. Only the current point can "
+        "use today's analyst consensus for a matching two-year target. Missing shares, FX or revenue leave gaps."
+    )
 
 
 def render_metrics_table(metrics: list) -> None:

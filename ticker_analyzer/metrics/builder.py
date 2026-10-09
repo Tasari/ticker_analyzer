@@ -5,7 +5,7 @@ from typing import Any
 import pandas as pd
 
 from ticker_analyzer.analysis.valuation_basis import reporting_market_cap
-from ticker_analyzer.metrics.financial_trends import build_financial_trends
+from ticker_analyzer.metrics.financial_trends import build_financial_trends, build_ps_trends
 from ticker_analyzer.metrics.formulas import (
     build_fundamentals_metrics,
     gross_margin_trend,
@@ -293,9 +293,24 @@ def build_charts_data(
     *,
     revenue_estimate: pd.DataFrame | None = None,
     info: dict[str, Any] | None = None,
+    quarterly_income: pd.DataFrame | None = None,
+    quarterly_cashflow: pd.DataFrame | None = None,
+    quarterly_balance: pd.DataFrame | None = None,
+    valuation_history: pd.DataFrame | None = None,
+    as_of: pd.Timestamp | None = None,
 ) -> dict[str, pd.DataFrame]:
+    quarterly_income = quarterly_income if quarterly_income is not None else pd.DataFrame()
+    quarterly_cashflow = quarterly_cashflow if quarterly_cashflow is not None else pd.DataFrame()
+    quarterly_balance = quarterly_balance if quarterly_balance is not None else pd.DataFrame()
     financials, financial_estimates, financial_estimate_sources = build_financial_trends(
         income, cashflow, revenue_estimate=revenue_estimate, info=info,
+        quarterly_income=quarterly_income, quarterly_cashflow=quarterly_cashflow,
+    )
+    ps_ratios, ps_sources = build_ps_trends(
+        income, cashflow, balance,
+        valuation_history if valuation_history is not None else pd.DataFrame(),
+        quarterly_income=quarterly_income, quarterly_balance=quarterly_balance,
+        quarterly_cashflow=quarterly_cashflow, revenue_estimate=revenue_estimate, info=info or {}, as_of=as_of,
     )
     fundamentals = pd.DataFrame(
         {
@@ -310,6 +325,8 @@ def build_charts_data(
         "financials": financials,
         "financial_estimates": financial_estimates,
         "financial_estimate_sources": financial_estimate_sources,
+        "ps_ratios": ps_ratios,
+        "ps_sources": ps_sources,
         "fundamentals": fundamentals,
         "prices": prices,
     }

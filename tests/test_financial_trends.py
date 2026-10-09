@@ -5,11 +5,12 @@ import unittest
 
 import pandas as pd
 from streamlit.testing.v1 import AppTest
-from ticker_analyzer.metrics.builder import build_charts_data
+from tests.test_analysis_engine import market_data
+from ticker_analyzer.metrics.financial_trends import _annual_financial_trends, build_financial_trends
 from ticker_analyzer.ui.analysis_views import financial_trends_figure
 
 
-class FinancialTrendsTest(unittest.TestCase):
+class AnnualForecastInputsTest(unittest.TestCase):
     def setUp(self):
         dates = pd.to_datetime(["2022-06-30", "2023-06-30", "2024-06-30", "2025-06-30"])
         self.income = pd.DataFrame(
@@ -20,10 +21,11 @@ class FinancialTrendsTest(unittest.TestCase):
         self.info = {"financialCurrency": "USD", "nextFiscalYearEnd": pd.Timestamp("2026-06-30").timestamp()}
 
     def charts(self, estimates=None, info=None):
-        return build_charts_data(
-            self.income, self.cashflow, pd.DataFrame(), pd.DataFrame(),
+        history, future, sources = _annual_financial_trends(
+            self.income, self.cashflow,
             revenue_estimate=estimates, info=self.info if info is None else info,
         )
+        return {"financials": history, "financial_estimates": future, "financial_estimate_sources": sources}
 
     def test_three_reported_years_and_two_consensus_years_with_model_margins(self):
         estimates = pd.DataFrame({"avg": [175, 210], "currency": ["USD", "USD"]}, index=["0y", "+1y"])
@@ -84,21 +86,25 @@ class FinancialTrendsTest(unittest.TestCase):
         self.assertTrue(charts["financials"].empty)
         self.assertTrue(charts["financial_estimates"].empty)
 
-    def test_estimate_lines_bridge_the_last_reported_point_with_matching_colors(self):
-        charts = self.charts()
+    def test_estimate_lines_overlay_quarters_with_matching_colors(self):
+        data = market_data()
+        history, forward, sources = build_financial_trends(
+            data.annual_income, data.annual_cashflow, quarterly_income=data.quarterly_income,
+            quarterly_cashflow=data.quarterly_cashflow, info={"financialCurrency": "USD"},
+        )
+        charts = {"financials": history, "financial_estimates": forward, "financial_estimate_sources": sources}
         figure = financial_trends_figure(charts)
         self.assertEqual(figure.layout.title.text, "Financial Trends")
-        self.assertEqual(figure.layout.yaxis.title.text, "Value (USD)")
+        self.assertEqual(figure.layout.yaxis.title.text, "Quarterly value (USD)")
         self.assertEqual(len(figure.data), 6)
         for actual, estimate in zip(figure.data[::2], figure.data[1::2], strict=True):
             self.assertEqual(actual.line.dash, "solid")
             self.assertEqual(estimate.line.dash, "dash")
             self.assertEqual(actual.line.color, estimate.line.color)
-            self.assertEqual(len(actual.x), 3)
-            self.assertEqual(len(estimate.x), 3)
-            self.assertEqual(actual.x[-1], estimate.x[0])
-            self.assertEqual(actual.y[-1], estimate.y[0])
-            self.assertIn("Model", estimate.customdata[1])
+            self.assertEqual(len(actual.x), 12)
+            self.assertEqual(list(actual.x), list(estimate.x))
+            self.assertEqual(estimate.customdata[0][0], "2025-03-31")
+            self.assertIn("Model", estimate.customdata[-1][1])
 
     def test_all_company_charts_are_in_first_graphs_tab_and_fair_value_stays_editable(self):
         app = AppTest.from_string('''
@@ -111,7 +117,7 @@ render_tabs(result)
 ''').run()
         self.assertFalse(app.exception)
         self.assertEqual([tab.label for tab in app.tabs], ["Graphs", "Growth", "Fundamentals", "Value", "Fair Value"])
-        self.assertEqual(len(app.tabs[0].get("plotly_chart")), 4)
+        self.assertEqual(len(app.tabs[0].get("plotly_chart")), 5)
         for tab in app.tabs[1:]:
             self.assertEqual(len(tab.get("plotly_chart")), 0)
         fair_chart = app.tabs[0].get("plotly_chart")[-1]

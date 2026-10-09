@@ -177,6 +177,9 @@ class StockAnalysisEngine:
             charts=build_charts_data(
                 data.annual_income, data.annual_cashflow, data.annual_balance, data.growth_history,
                 revenue_estimate=data.revenue_estimate, info=data.info,
+                quarterly_income=data.quarterly_income, quarterly_cashflow=data.quarterly_cashflow,
+                quarterly_balance=data.quarterly_balance, valuation_history=valuation_history,
+                as_of=selected_ranges.data_as_of,
             ),
             coverage=coverage,
             # Kept as a compatibility alias for old snapshots/API consumers.
