@@ -443,7 +443,7 @@ def _overlay_trends_figure(
         ]
         figure.add_trace(go.Scatter(
             x=forward.index, y=forward[metric], name=f"{metric} (+2Y estimate)", legendgroup=metric,
-            mode="lines+markers" if quarterly else "lines", line={"color": color, "dash": "dash"},
+            mode="lines", line={"color": color, "dash": "dash"},
             customdata=details,
             hovertemplate="Observation: %{x|%Y-%m-%d}<br>%{y:,.2f}<br>Forecast for: %{customdata[0]}<br>%{customdata[1]}<extra>%{fullData.name}</extra>",
         ))
@@ -480,7 +480,8 @@ def render_financial_trends(charts: dict) -> None:
     st.plotly_chart(financial_trends_figure(charts), width="stretch")
     st.caption(
         "Solid: reported quarterly values. Dashed at the same date: model estimate for that quarter +2 years "
-        "(e.g. Q1 2023 → Q1 2025). Revenue uses same-quarter historical growth; net income and cash flow use "
+        "(e.g. Q1 2023 → Q1 2025). Revenue uses same-quarter historical growth, or published annual revenue growth "
+        "when quarterly history is too short. Net income and cash flow use "
         "published historical margins. Historical projections use earlier published data, not archived analyst consensus. "
         "Source statements may have been restated. Hover to see the forecast quarter and source."
     )

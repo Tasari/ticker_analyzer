@@ -6,7 +6,7 @@ import pandas as pd
 from streamlit.testing.v1 import AppTest
 from tests.test_analysis_engine import market_data, statement
 from ticker_analyzer.metrics.financial_trends import build_financial_trends, build_ps_trends
-from ticker_analyzer.ui.analysis_views import ps_trends_figure
+from ticker_analyzer.ui.analysis_views import financial_trends_figure, ps_trends_figure
 
 
 class QuarterlyFinancialTrendsTest(unittest.TestCase):
@@ -39,6 +39,43 @@ class QuarterlyFinancialTrendsTest(unittest.TestCase):
         self.income.loc[:, self.dates[-4:]] *= 100
         self.cashflow.loc[:, self.dates[-4:]] *= 100
         pd.testing.assert_frame_equal(before, self.charts()[1].iloc[4:8])
+
+    def test_five_quarter_history_produces_estimate_lines_using_published_annual_growth(self):
+        self.income = self.income.iloc[:, -5:]
+        self.cashflow = self.cashflow.iloc[:, -5:]
+        actual, forward, sources = self.charts()
+        self.assertTrue(forward.notna().all().all())
+        annual_factor = (900 / 800) ** (2 / (366 / 365.25))
+        self.assertAlmostEqual(forward.iloc[0]["Revenue"], actual.iloc[0]["Revenue"] * annual_factor)
+        self.assertIn("annual revenue CAGR", sources.iloc[0]["Revenue"])
+        self.assertIn("same-quarter", sources.iloc[-1]["Revenue"])
+        figure = financial_trends_figure({
+            "financials": actual, "financial_estimates": forward, "financial_estimate_sources": sources,
+        })
+        self.assertEqual(len(figure.data), 6)
+        for estimate in figure.data[1::2]:
+            self.assertEqual(estimate.mode, "lines")
+            self.assertEqual(estimate.line.dash, "dash")
+            self.assertEqual(sum(pd.notna(estimate.y)), 5)
+
+    def test_annual_fallback_excludes_reports_not_yet_published(self):
+        self.income = self.income.iloc[:, -5:]
+        self.cashflow = self.cashflow.iloc[:, -5:]
+        before = self.charts()[1].iloc[:4].copy()
+        self.data.annual_income.loc[:, pd.Timestamp("2025-12-31")] *= 100
+        pd.testing.assert_frame_equal(before, self.charts()[1].iloc[:4])
+        self.data.annual_income.attrs["filed_dates"] = {
+            date: pd.Timestamp("2027-01-01") for date in self.data.annual_income.columns
+        }
+        forward = self.charts()[1]
+        self.assertTrue(forward.iloc[:4].isna().all().all())
+        self.assertTrue(forward.iloc[-1].notna().all())
+
+    def test_short_history_without_published_annual_comparison_remains_unavailable(self):
+        self.income = self.income.iloc[:, -4:]
+        self.cashflow = self.cashflow.iloc[:, -4:]
+        self.data.annual_income = self.data.annual_income.iloc[:, -1:]
+        self.assertTrue(self.charts()[1].isna().all().all())
 
     def test_later_filing_is_excluded_from_historical_margins(self):
         self.cashflow.attrs["filed_dates"] = {date: pd.Timestamp("2027-01-01") for date in self.dates}

@@ -155,6 +155,23 @@ def projected_revenue(periods: pd.DataFrame, as_of: pd.Timestamp) -> float | Non
     return clean_number(latest.value * (latest.value / base.value) ** (2 / years))
 
 
+def _annual_revenue_growth_factor(income: pd.DataFrame, as_of: pd.Timestamp) -> float | None:
+    """Use published annual growth when quarterly history is too short for YoY."""
+    annual = row_values(income, FINANCIAL_ROWS["Revenue"]).dropna().sort_index()
+    annual = _known_quarters(income, annual, as_of)
+    if len(annual) < 2 or annual.iloc[-1] <= 0:
+        return None
+    latest = annual.index[-1]
+    earlier = annual.loc[
+        (annual.index <= latest - pd.Timedelta(days=330))
+        & (annual.index >= latest - pd.Timedelta(days=800))
+    ]
+    if earlier.empty or earlier.iloc[0] <= 0:
+        return None
+    years = (latest - earlier.index[0]).days / 365.25
+    return clean_number((annual.iloc[-1] / earlier.iloc[0]) ** (2 / years))
+
+
 def build_financial_trends(
     income: pd.DataFrame,
     cashflow: pd.DataFrame,
@@ -200,6 +217,11 @@ def build_financial_trends(
             years = (period - prior.index[0]).days / 365.25
             forward.loc[period, "Revenue"] = clean_number(revenue.iloc[-1] * (revenue.iloc[-1] / prior.iloc[0]) ** (2 / years))
             sources.loc[period, "Revenue"] = "Model: same-quarter historical revenue growth, using published data"
+        else:
+            factor = _annual_revenue_growth_factor(income, as_of)
+            if factor is not None:
+                forward.loc[period, "Revenue"] = clean_number(revenue.iloc[-1] * factor)
+                sources.loc[period, "Revenue"] = "Model: reported quarter × published annual revenue CAGR projected two years ahead"
         for metric in ("Net Income", "Operating Cash Flow"):
             known = _known_quarters(statements[metric], series[metric], as_of).loc[:period].tail(8)
             margins = (known / revenue.reindex(known.index).where(lambda values: values > 0)).dropna()
