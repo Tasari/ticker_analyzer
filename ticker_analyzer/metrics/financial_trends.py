@@ -230,17 +230,28 @@ def build_ps_trends(
     prices = pd.Series(dtype=float)
     if not valuation_history.empty and "Close" in valuation_history:
         prices = pd.to_numeric(valuation_history["Close"], errors="coerce").dropna()
-        prices.index = pd.DatetimeIndex(pd.to_datetime(prices.index)).tz_localize(None)
+        prices.index = pd.DatetimeIndex(pd.to_datetime(prices.index)).tz_localize(None).normalize()
+        prices = prices[~prices.index.duplicated(keep="last")]
         prices = prices.sort_index().loc[:as_of]
     dates = pd.DatetimeIndex([])
     if not prices.empty:
-        dates = pd.date_range(max(prices.index[0], as_of - pd.DateOffset(years=3)), as_of, freq="QE")
+        dates = prices.loc[as_of - pd.DateOffset(years=3):].index
     dates = dates.union(pd.DatetimeIndex([as_of]))
     ratios = pd.DataFrame(index=dates, columns=["P/S TTM", "P/S +2Y"], dtype=float)
     sources = pd.DataFrame("Unavailable", index=dates, columns=ratios.columns)
     annual_history, annual_future, annual_sources = _annual_financial_trends(
         income, cashflow, revenue_estimate=revenue_estimate, info=info,
     )
+    observations = context.periods["revenue"].observations
+    # Forecast denominators change when a report becomes available, while
+    # capitalization changes every trading day. Calculate each report once.
+    forward_revenue = pd.Series(dtype=float)
+    if not observations.empty:
+        releases = pd.DatetimeIndex(observations["available"].unique()).sort_values()
+        forward_revenue = pd.Series(
+            {release: projected_revenue(observations, release) for release in releases if release <= as_of},
+            dtype=float,
+        )
     for date in dates:
         revenue = value_on_or_before(context.revenue, date)
         cap = None
@@ -256,12 +267,13 @@ def build_ps_trends(
             continue
         ratios.loc[date, "P/S TTM"] = clean_number(cap / revenue)
         sources.loc[date, "P/S TTM"] = "Market capitalization / published TTM revenue (annual fallback where TTM unavailable)"
-        observations = context.periods["revenue"].observations.copy()
+        future_revenue = value_on_or_before(forward_revenue, date)
         if date == as_of and not observations.empty:
             # A returned statement is already known today, even when the
             # conservative historical 90-day default has not elapsed yet.
-            observations["available"] = observations["available"].clip(upper=as_of)
-        future_revenue = projected_revenue(observations, date)
+            current_observations = observations.copy()
+            current_observations["available"] = current_observations["available"].clip(upper=as_of)
+            future_revenue = projected_revenue(current_observations, date)
         source = "Model: published annual/TTM revenue CAGR projected two years ahead"
         # Only today's point can use today's consensus, and only for a matching
         # two-year fiscal target. Never apply it to historical observation dates.

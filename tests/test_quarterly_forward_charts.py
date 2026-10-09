@@ -91,7 +91,7 @@ class PsTrendsTest(unittest.TestCase):
         revenue = [100] * 4 + [110] * 4 + [121] * 4 + [133.1] * 4
         self.data.quarterly_income = statement({"Total Revenue": revenue}, dates)
         self.data.quarterly_balance = statement({"Ordinary Shares Number": [10] * 16}, dates)
-        self.data.value_history = pd.DataFrame({"Close": 100.}, index=pd.date_range("2022-01-01", "2026-03-31", freq="D"))
+        self.data.value_history = pd.DataFrame({"Close": 100.}, index=pd.date_range("2022-01-01", "2026-03-31", freq="B"))
         self.data.info = {"marketCap": 1000, "currency": "USD", "financialCurrency": "USD"}
         self.data.revenue_estimate = pd.DataFrame()
         self.as_of = pd.Timestamp("2026-03-31")
@@ -115,6 +115,18 @@ class PsTrendsTest(unittest.TestCase):
         self.assertEqual(list(figure.data[0].x), list(figure.data[1].x))
         self.assertEqual(figure.data[1].line.dash, "dash")
         self.assertEqual(figure.data[1].customdata[-1][0], "2028-03-31")
+        self.assertEqual(figure.data[0].mode, "lines")
+        self.assertEqual(figure.data[1].mode, "lines")
+        self.assertEqual(figure.layout.xaxis.title.text, "Date")
+
+    def test_daily_prices_drive_both_lines_between_quarterly_reports(self):
+        first, second = pd.Timestamp("2025-05-12"), pd.Timestamp("2025-05-13")
+        self.data.value_history.loc[second, "Close"] = 200
+        ratios = self.charts()["ps_ratios"]
+        self.assertGreater(len(ratios), 700)
+        self.assertAlmostEqual(ratios.loc[second, "P/S TTM"], ratios.loc[first, "P/S TTM"] * 2)
+        self.assertAlmostEqual(ratios.loc[second, "P/S +2Y"], ratios.loc[first, "P/S +2Y"] * 2)
+        self.assertNotIn(pd.Timestamp("2025-05-11"), ratios.index)
 
     def test_today_consensus_does_not_rewrite_historical_ps(self):
         self.as_of = pd.Timestamp("2025-12-31")

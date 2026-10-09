@@ -422,7 +422,7 @@ def render_line_chart(frame: pd.DataFrame | None, title: str) -> None:
 
 def _overlay_trends_figure(
     history: pd.DataFrame, forward: pd.DataFrame, sources: pd.DataFrame,
-    *, title: str, yaxis_title: str, actual_source: str,
+    *, title: str, yaxis_title: str, actual_source: str, quarterly: bool = True,
 ) -> go.Figure:
     figure = go.Figure()
     colors = {"Revenue": "#72b7f2", "Net Income": "#0085ff", "Operating Cash Flow": "#ffa3a3", "P/S": "#a78bfa"}
@@ -430,7 +430,7 @@ def _overlay_trends_figure(
         color = colors.get(metric)
         figure.add_trace(go.Scatter(
             x=history.index, y=history[metric], name=metric, legendgroup=metric,
-            mode="lines+markers", line={"color": color, "dash": "solid"},
+            mode="lines+markers" if quarterly else "lines", line={"color": color, "dash": "solid"},
             customdata=[actual_source] * len(history),
             hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.2f}<br>%{customdata}<extra>%{fullData.name}</extra>",
         ))
@@ -443,16 +443,19 @@ def _overlay_trends_figure(
         ]
         figure.add_trace(go.Scatter(
             x=forward.index, y=forward[metric], name=f"{metric} (+2Y estimate)", legendgroup=metric,
-            mode="lines+markers", line={"color": color, "dash": "dash"},
+            mode="lines+markers" if quarterly else "lines", line={"color": color, "dash": "dash"},
             customdata=details,
             hovertemplate="Observation: %{x|%Y-%m-%d}<br>%{y:,.2f}<br>Forecast for: %{customdata[0]}<br>%{customdata[1]}<extra>%{fullData.name}</extra>",
         ))
     figure.update_layout(
-        title=title, xaxis_title="Observation quarter", yaxis_title=yaxis_title,
+        title=title, xaxis_title="Observation quarter" if quarterly else "Date", yaxis_title=yaxis_title,
         legend_title_text="Solid: reported · Dashed: +2Y estimate", hovermode="x unified",
         legend={"orientation": "h", "y": -0.2},
     )
-    figure.update_xaxes(tickvals=history.index, ticktext=[f"Q{date.quarter} {date.year}" for date in history.index])
+    if quarterly:
+        figure.update_xaxes(tickvals=history.index, ticktext=[f"Q{date.quarter} {date.year}" for date in history.index])
+    else:
+        figure.update_xaxes(type="date", tickformat="%b %Y")
     return figure
 
 
@@ -495,6 +498,7 @@ def ps_trends_figure(charts: dict) -> go.Figure:
         charts["ps_sources"][["P/S +2Y"]].rename(columns={"P/S +2Y": "P/S"}),
         title="P/S Ratio — Current and +2Y Estimate", yaxis_title="Price / Sales (×)",
         actual_source="Market capitalization / published TTM revenue (annual fallback if unavailable)",
+        quarterly=False,
     )
 
 
@@ -513,7 +517,8 @@ def render_ps_trends(charts: dict) -> None:
         column.metric(metric, "Unavailable" if pd.isna(value) else f"{value:.2f}×")
     st.plotly_chart(ps_trends_figure(charts), width="stretch")
     st.caption(
-        "Both lines share the observation date and that date's market capitalization. Solid: trailing revenue. "
+        "Daily trading prices: both lines share the observation date and that date's market capitalization. "
+        "Revenue updates when financial reports become available. Solid: trailing revenue. "
         "Dashed: revenue projected +2 years; this assumes unchanged capitalization, not a future share price. "
         "Historical forecasts are model projections using published annual/TTM growth. Only the current point can "
         "use today's analyst consensus for a matching two-year target. Missing shares, FX or revenue leave gaps."
