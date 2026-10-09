@@ -15,7 +15,7 @@ from ticker_analyzer.numbers import clean_number
 from ticker_analyzer.ui.formatting import percent as _percent
 
 
-def render_fair_value(result: dict) -> None:
+def render_fair_value(result: dict, *, chart_container=None) -> None:
     st.info(
         "Fair Value is independent of the Value score and does not change the stock rating. It is a sensitivity "
         "analysis based on editable assumptions, not a price target or investment recommendation."
@@ -101,7 +101,7 @@ def render_fair_value(result: dict) -> None:
 
     _render_input_quality(valuation.inputs)
     _render_valuation_summary(valuation, inputs.currency)
-    _render_method_results(valuation, inputs.currency)
+    _render_method_results(valuation, inputs.currency, chart_container=chart_container)
 
 
 def _scenario_from_row(row: dict) -> FairValueScenario:
@@ -166,7 +166,7 @@ def _render_valuation_summary(valuation, currency: str) -> None:
     )
 
 
-def _render_method_results(valuation, currency: str) -> None:
+def _render_method_results(valuation, currency: str, *, chart_container=None) -> None:
     rows = [
         {
             "Method": estimate.method,
@@ -213,7 +213,7 @@ def _render_method_results(valuation, currency: str) -> None:
             annotation_text="Current price",
         )
     figure.update_layout(yaxis_title=f"Estimated value ({currency})", xaxis_title=None)
-    st.plotly_chart(figure, width="stretch")
+    (chart_container if chart_container is not None else st).plotly_chart(figure, width="stretch")
 
 
 def _money(value: float | None, currency: str) -> str:

@@ -175,7 +175,8 @@ class StockAnalysisEngine:
             raw=raw_metrics,
             ranges=selected_ranges.as_dict(),
             charts=build_charts_data(
-                data.annual_income, data.annual_cashflow, data.annual_balance, data.growth_history
+                data.annual_income, data.annual_cashflow, data.annual_balance, data.growth_history,
+                revenue_estimate=data.revenue_estimate, info=data.info,
             ),
             coverage=coverage,
             # Kept as a compatibility alias for old snapshots/API consumers.

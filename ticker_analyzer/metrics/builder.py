@@ -5,6 +5,7 @@ from typing import Any
 import pandas as pd
 
 from ticker_analyzer.analysis.valuation_basis import reporting_market_cap
+from ticker_analyzer.metrics.financial_trends import build_financial_trends
 from ticker_analyzer.metrics.formulas import (
     build_fundamentals_metrics,
     gross_margin_trend,
@@ -289,14 +290,13 @@ def build_charts_data(
     cashflow: pd.DataFrame,
     balance: pd.DataFrame,
     history: pd.DataFrame,
+    *,
+    revenue_estimate: pd.DataFrame | None = None,
+    info: dict[str, Any] | None = None,
 ) -> dict[str, pd.DataFrame]:
-    financials = pd.DataFrame(
-        {
-            "Revenue": row_values(income, ["Total Revenue", "Operating Revenue"]),
-            "Net Income": row_values(income, ["Net Income", "Net Income Common Stockholders"]),
-            "Operating Cash Flow": row_values(cashflow, ["Operating Cash Flow", "Total Cash From Operating Activities"]),
-        }
-    ).dropna(how="all")
+    financials, financial_estimates, financial_estimate_sources = build_financial_trends(
+        income, cashflow, revenue_estimate=revenue_estimate, info=info,
+    )
     fundamentals = pd.DataFrame(
         {
             "Total Assets": row_values(balance, ["Total Assets"]),
@@ -308,6 +308,8 @@ def build_charts_data(
         prices = history[["Close"]].dropna()
     return {
         "financials": financials,
+        "financial_estimates": financial_estimates,
+        "financial_estimate_sources": financial_estimate_sources,
         "fundamentals": fundamentals,
         "prices": prices,
     }

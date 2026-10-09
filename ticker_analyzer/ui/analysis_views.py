@@ -4,6 +4,7 @@ import html
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from ticker_analyzer.analysis.explanations import analysis_insights
@@ -313,9 +314,15 @@ def render_score_explanation(result: dict) -> None:
 
 
 def render_tabs(result: dict) -> None:
-    growth_tab, fundamentals_tab, value_tab, fair_value_tab = st.tabs(
-        ["Growth", "Fundamentals", "Value", "Fair Value"]
+    graphs_tab, growth_tab, fundamentals_tab, value_tab, fair_value_tab = st.tabs(
+        ["Graphs", "Growth", "Fundamentals", "Value", "Fair Value"]
     )
+    with graphs_tab:
+        charts = result.get("charts", {})
+        render_financial_trends(charts)
+        render_line_chart(charts.get("prices"), "Selected Price Range")
+        render_line_chart(charts.get("fundamentals"), "Debt and Assets")
+        fair_value_chart = st.container()
     tab_map = {
         "Growth": growth_tab,
         "Fundamentals": fundamentals_tab,
@@ -338,7 +345,7 @@ def render_tabs(result: dict) -> None:
                         for failure in failures:
                             st.text(f"{failure.get('source', 'Provider')}: {failure.get('message', 'Download failed')}")
     with fair_value_tab:
-        render_fair_value(result)
+        render_fair_value(result, chart_container=fair_value_chart)
 
 
 def render_tab(name: str, tab_result: dict, charts: dict) -> None:
@@ -366,12 +373,7 @@ def render_tab(name: str, tab_result: dict, charts: dict) -> None:
     metrics = tab_result.get("metrics", [])
     render_metrics_table(metrics)
 
-    if name == "Growth":
-        render_line_chart(charts.get("financials"), "Annual Financial Trends")
-        render_line_chart(charts.get("prices"), "Selected Price Range")
-    elif name == "Fundamentals":
-        render_line_chart(charts.get("fundamentals"), "Debt and Assets")
-    elif name == "Value":
+    if name == "Value":
         st.info(
             "Value combines absolute multiples and cash yield with comparisons against the company's selected-range "
             "history, forward growth-adjusted valuation, and low-weight analyst context. A historical discount alone "
@@ -415,6 +417,68 @@ def render_line_chart(frame: pd.DataFrame | None, title: str) -> None:
     melted = chart_frame.melt(id_vars="Date", var_name="Metric", value_name="Value")
     fig = px.line(melted, x="Date", y="Value", color="Metric", markers=True, title=title)
     st.plotly_chart(fig, width="stretch")
+
+
+def financial_trends_figure(charts: dict) -> go.Figure:
+    history = charts["financials"].sort_index().tail(3)
+    future = charts.get("financial_estimates", pd.DataFrame())
+    sources = charts.get("financial_estimate_sources", pd.DataFrame())
+    figure = go.Figure()
+    colors = {"Revenue": "#72b7f2", "Net Income": "#0085ff", "Operating Cash Flow": "#ffa3a3"}
+    for metric in history.columns:
+        color = colors.get(metric)
+        figure.add_trace(go.Scatter(
+            x=history.index, y=history[metric], name=metric, legendgroup=metric,
+            mode="lines+markers", line={"color": color, "dash": "solid"},
+            customdata=["Reported annual financials"] * len(history),
+            hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.2f}<br>%{customdata}<extra>%{fullData.name}</extra>",
+        ))
+        if metric not in future or future[metric].dropna().empty:
+            continue
+        projected = pd.concat([history[metric].tail(1), future[metric]])
+        details = ["Last reported year"] + (
+            sources[metric].tolist() if metric in sources else ["Estimate"] * len(future)
+        )
+        figure.add_trace(go.Scatter(
+            x=projected.index, y=projected, name=f"{metric} (estimate)", legendgroup=metric,
+            showlegend=False, mode="lines+markers", line={"color": color, "dash": "dash"},
+            customdata=details,
+            hovertemplate="%{x|%Y-%m-%d}<br>%{y:,.2f}<br>%{customdata}<extra>%{fullData.name}</extra>",
+        ))
+    currency = history.attrs.get("financial_currency", "")
+    figure.update_layout(
+        title="Financial Trends", xaxis_title="Fiscal year end",
+        yaxis_title=f"Value ({currency})" if currency else "Value (reporting currency)",
+        legend_title_text="Metric", hovermode="x unified",
+    )
+    figure.update_xaxes(dtick="M12", tickformat="%Y", tick0=history.index[-1])
+    if not future.empty:
+        boundary = history.index[-1] + (future.index[0] - history.index[-1]) / 2
+        figure.add_vrect(
+            x0=boundary, x1=future.index[-1] + pd.Timedelta(days=60),
+            fillcolor="#72b7f2", opacity=0.06, line_width=0,
+            annotation_text="Estimates", annotation_position="top left",
+        )
+    return figure
+
+
+def render_financial_trends(charts: dict) -> None:
+    history = charts.get("financials")
+    if history is None or history.empty or history.dropna(how="all").empty:
+        st.warning("Financial Trends: not enough annual data to chart.")
+        return
+    st.plotly_chart(financial_trends_figure(charts), width="stretch")
+    st.caption(
+        "Solid lines: three reported fiscal years. Dashed lines: two forecast fiscal years. "
+        "Revenue uses analyst consensus where available, otherwise historical CAGR. "
+        "Net income and operating cash flow use the median historical margin × forecast revenue. "
+        "Hover over a point to see its source."
+    )
+    future = charts.get("financial_estimates")
+    if future is None:
+        st.caption("Click Analyze to load the two forecast years for this saved analysis.")
+    elif future.isna().any().any():
+        st.caption("Some forecast values are unavailable because their source data is missing.")
 
 
 def render_metrics_table(metrics: list) -> None:
